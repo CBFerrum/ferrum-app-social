@@ -37,6 +37,25 @@ connections:
 - **The inbox.** Comments, mentions and direct messages come to the account whose handle they name.
   A message assigned says to whom. A reply goes back through the message's account's connection to
   the network's own message, and the message is answered.
+- **Mastodon, built in.** Social brings a connector for Mastodon, or any server speaking its API
+  (provider `mastodon`): see below.
+
+## Mastodon
+
+A connection with provider `mastodon`, config `{"instance": "https://mastodon.social"}` (the
+account's server) and credentials `{"token": "…"}`: an access token of the account with the `read`
+and `write` scopes, made under its Preferences, Development. Testing it answers with the account's
+`@handle`. Then, with the mapping below:
+- **posts** go out as public statuses, the link after the text. Each is sent with the delivery's
+  key as Mastodon's `Idempotency-Key`, so a send tried again is one status; one already out is not
+  sent again. Reading `posts` brings the account's own statuses, without boosts: favourites, boosts
+  and replies counted as engagements, and the status's address. Mastodon counts no impressions.
+- **messages** are the account's mentions: a comment when it answers one of the account's statuses,
+  a direct message when its visibility is direct, a mention otherwise.
+- **replies** go out as public statuses answering the message's status.
+
+A refused token is the connection's error; Mastodon's rate limit makes the platform wait as long as
+it says (`Retry-After`), or five minutes.
 
 ## A connection's mapping
 
@@ -68,10 +87,20 @@ cd ui && npm run build && npm run check
 - the inbox routed, assigned and answered;
 - who may do what.
 
+`tests/mastodon_it.rs` (`FERRUM_MASTODON_TEST_DATABASE_URL`) runs the Mastodon connector against a
+stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
+- a wrong token refused, the right one answering with the handle;
+- a post sent once though its first answer was lost, with its link;
+- engagements read back, boosts left out, and nothing sent again once out;
+- a comment, a mention and a direct message routed to the account, and a reply answering the comment.
+
 ## Not yet
 
-- A connector for any real network: each takes its API and an approved account (Ferrum's
-  FERRUM-CONNECT-002).
+- Mastodon against a real server: the connector was tested against a stand-in of its API, and a
+  real one needs an account's token.
+- Connectors for X, Bluesky, LinkedIn, Threads, Instagram and YouTube: each takes its API and an
+  approved account (Ferrum's FERRUM-CONNECT-002).
+- Mastodon's media, polls, content warnings and editing a status once out.
 - Images and video, threads, polls, and first comments.
 - Best times to post, and analytics over time rather than the latest numbers.
 
@@ -79,6 +108,7 @@ cd ui && npm run build && npm run check
 
 | Version | Highlights |
 |---|---|
+| **0.2.0** | A connector for Mastodon: posts sent as statuses once each, engagements read back, mentions and direct messages in the inbox, replies answering them. |
 | **0.1.0** | Brands' accounts through the platform's connections, posts reviewed and sent at their time within each network's limits, the inbox answered, and what posts did (FERRUM-ECOSYSTEM-005). |
 
 ## License

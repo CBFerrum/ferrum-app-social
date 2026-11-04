@@ -1,6 +1,6 @@
 [package]
 name = "ferrum-app-social"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Social media management on the platform's connections: brands' accounts, posts approved by someone else and sent at their time within each network's limits, the inbox answered, and what each post did"
@@ -13,6 +13,7 @@ ferrum-meta = { git = "https://github.com/CBFerrum/Ferrum", branch = "main" }
 ferrum-domain = { git = "https://github.com/CBFerrum/Ferrum", branch = "main" }
 sha2 = "0.10"
 hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1.43", features = ["serde-with-str", "maths"] }
@@ -23,7 +24,7 @@ uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
 [dev-dependencies]
 # Its tests check that its interface is a release the platform takes.
 ferrum-apps = { git = "https://github.com/CBFerrum/Ferrum", branch = "main" }
-tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
 
 [lints.clippy]
 # Deliberate patterns shared with the platform: sqlx row tuples.
