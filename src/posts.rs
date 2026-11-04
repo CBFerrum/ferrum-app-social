@@ -13,6 +13,7 @@ use ferrum_domain::util::{elevated, id, rows, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, Filter, HookCtx, Kernel, Result, Tx};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 /// The stream a connection sends posts on, and reads them back from.
 pub(crate) const POSTS: &str = "posts";
@@ -57,9 +58,26 @@ impl DocHook for AccountHook {
         "social.account"
     }
 
-    async fn before_validate(&self, _hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+    async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
         if let Some(handle) = s(doc, "handle").map(|h| h.trim().trim_start_matches('@').to_string()) {
             doc.insert("handle".into(), json!(handle));
+        }
+        // The connection by its name, as Administration, Connections shows it, or by its id. A
+        // disconnected one (its credentials forgotten) is not one of them.
+        if let Some(given) = s(doc, "connection").map(|c| c.trim().to_string()).filter(|c| !c.is_empty() && c.parse::<Uuid>().is_err()) {
+            let named: Vec<Uuid> =
+                sqlx::query_scalar("select id from connection where tenant_id = $1 and lower(name) = lower($2) and sealed is not null limit 2")
+                    .bind(hc.ctx.tenant)
+                    .bind(&given)
+                    .fetch_all(&mut **hc.tx)
+                    .await?;
+            match named.as_slice() {
+                [one] => {
+                    doc.insert("connection".into(), json!(one.to_string()));
+                }
+                [] => return Err(Error::field("connection", format!("no connection is named {given}"))),
+                _ => return Err(Error::field("connection", format!("more than one connection is named {given}: give its id"))),
+            }
         }
         Ok(())
     }

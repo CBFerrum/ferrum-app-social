@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+From a browser walk of Social with a Mastodon account.
+
+- An account names its connection by the name Administration, Connections shows (or its id); a name two live connections share is refused, and a disconnected one does not count.
+- A message is answered from the message itself (Reply), as a reply of the one answering.
+
 ## 0.2.0
 
 A connector for Mastodon, or any server speaking its API (provider `mastodon`).

@@ -7,7 +7,7 @@ use crate::{capabilities, connection, deliver, obj, sent_as};
 use async_trait::async_trait;
 use ferrum_domain::util::{elevated, id, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, Filter, HookCtx, Kernel, Result, Tx};
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// The streams messages are read on, and replies sent on.
@@ -44,6 +44,18 @@ impl DocHook for MessageHook {
             return Err(Error::field("assigned_to", "a message assigned says to whom"));
         }
         Ok(())
+    }
+
+    /// `reply`: answered from the message itself, as a reply of the one answering, which goes out
+    /// as any other does.
+    async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
+        if name != "reply" {
+            return Ok(None);
+        }
+        let text = params.get("text").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
+        let text = text.ok_or_else(|| Error::field("text", "a reply says something"))?;
+        let made = hc.kernel.insert_tx(hc.ctx, hc.tx, "SocialReply", obj(json!({"message": s(doc, "id"), "text": text}))).await?;
+        Ok(Some(json!({"reply": s(&made, "id")})))
     }
 }
 
