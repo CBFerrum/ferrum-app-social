@@ -52,8 +52,9 @@ impl DocHook for MessageHook {
         if name != "reply" {
             return Ok(None);
         }
-        let text = params.get("text").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
-        let text = text.ok_or_else(|| Error::field("text", "a reply says something"))?;
+        // Named apart from the message's own text, which would otherwise fill it in.
+        let text = params.get("reply").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
+        let text = text.ok_or_else(|| Error::field("reply", "a reply says something"))?;
         let made = hc.kernel.insert_tx(hc.ctx, hc.tx, "SocialReply", obj(json!({"message": s(doc, "id"), "text": text}))).await?;
         Ok(Some(json!({"reply": s(&made, "id")})))
     }

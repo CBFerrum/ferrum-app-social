@@ -8,7 +8,8 @@
 //!   impressions.
 //! * `messages`: mentions of the account (`GET /api/v1/notifications?types[]=mention`), each a
 //!   comment when it answers one of its statuses and a direct message when only it can see it.
-//! * `replies`: sent as statuses answering the message's status.
+//! * `replies`: sent as statuses answering the message's status, as open as it (a direct message
+//!   is answered directly) and naming its author.
 
 use async_trait::async_trait;
 use ferrum_kernel::connect::{Connection, Connector, ConnectorInfo, Incoming, Outgoing, Pulled};
@@ -197,7 +198,19 @@ impl Connector for Mastodon {
         let text = change.fields.get("text").and_then(Value::as_str).unwrap_or_default();
         let body = if change.entity == "SocialReply" {
             let to = change.fields.get("in_reply_to").and_then(Value::as_str).ok_or_else(|| Error::invalid("a reply names the status it answers"))?;
-            json!({"status": text, "in_reply_to_id": to, "visibility": "public"})
+            // As open as what it answers, never more (a direct message is answered directly, not in
+            // public), and naming its author, so Mastodon delivers it to them.
+            let parent = Self::call(k, c, reqwest::Method::GET, &format!("/api/v1/statuses/{to}"), None, None).await?;
+            let visibility = match parent["visibility"].as_str() {
+                Some(v @ ("direct" | "private" | "unlisted")) => v,
+                _ => "public",
+            };
+            let author = parent["account"]["acct"].as_str().filter(|a| !a.is_empty());
+            let status = match author {
+                Some(a) if !text.contains(&format!("@{a}")) => format!("@{a} {text}"),
+                _ => text.to_string(),
+            };
+            json!({"status": status, "in_reply_to_id": to, "visibility": visibility})
         } else {
             let link = change.fields.get("link").and_then(Value::as_str).filter(|l| !l.is_empty());
             json!({"status": match link { Some(l) => format!("{text} {l}"), None => text.to_string() }, "visibility": "public"})

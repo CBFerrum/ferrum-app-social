@@ -95,7 +95,7 @@
     - {name: status, type: select, options: [New, Assigned, Answered, Closed], default: New, in_list: true, in_filter: true}
     - {name: assigned_to, type: email, in_list: true, in_filter: true}
   actions:
-    - {name: reply, label: Reply, permission: write, condition: "doc.status != 'Closed'", params: [{name: text, type: text, label: Your Reply, required: true}]}
+    - {name: reply, label: Reply, permission: write, condition: "doc.status != 'Closed'", params: [{name: reply, type: text, label: Your Reply, required: true}]}
   list: {columns: [author, account, kind, status, assigned_to], sort: updated_at desc}
 
 - name: SocialReply
