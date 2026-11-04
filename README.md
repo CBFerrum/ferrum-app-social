@@ -109,6 +109,7 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
 
 | Version | Highlights |
 |---|---|
+| **0.2.3** | Rebuilt with Ferrum-Frontend 80ff179: labels name their fields, and linked titles show their titles. |
 | **0.2.2** | A reply on Mastodon is as open as what it answers (a direct message is answered directly) and names who it answers; Reply's box starts empty. |
 | **0.2.1** | An account names its connection by name, and a message is answered from the message (Reply). |
 | **0.2.0** | A connector for Mastodon: posts sent as statuses once each, engagements read back, mentions and direct messages in the inbox, replies answering them. |
