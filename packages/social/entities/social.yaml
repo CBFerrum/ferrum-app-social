@@ -1,0 +1,112 @@
+- name: SocialBrand
+  label: Brand
+  label_plural: Brands
+  kind: master
+  module: social
+  title_field: brand_name
+  description: A brand the team speaks for, with its accounts on each network.
+  fields:
+    - {name: brand_name, type: data, required: true, unique: true, in_list: true}
+    - {name: description, type: text}
+  list: {columns: [brand_name], sort: brand_name asc}
+
+- name: SocialAccount
+  label: Account
+  label_plural: Accounts
+  kind: master
+  module: social
+  title_field: account_name
+  description: A brand's account on one network, reached through a connection an administrator set up. What it may do is what that connection's provider offers.
+  fields:
+    - {name: account_name, type: data, required: true, unique: true, in_list: true}
+    - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
+    - {name: network, type: select, options: [LinkedIn, X, Mastodon, Bluesky, Threads, Facebook, Instagram, YouTube], required: true, in_list: true, in_filter: true}
+    - {name: handle, type: data, required: true, description: "The account's name on the network, without @"}
+    - {name: connection, type: data, required: true, description: "The id of the connection that reaches it (Administration, Connections)"}
+    - {name: active, type: check, default: 1, in_list: true}
+  list: {columns: [account_name, brand, network, active], sort: account_name asc}
+
+- name: SocialTarget
+  label: Account
+  kind: child
+  fields:
+    - {name: account, type: link, to: SocialAccount, required: true, in_list: true}
+
+- name: SocialPost
+  label: Post
+  label_plural: Posts
+  kind: master
+  module: social
+  title_field: headline
+  description: What a brand says, to one or more of its accounts, at a time. Someone other than its author approves it; it goes out at its time.
+  fields:
+    - {name: headline, type: data, required: true, in_list: true, description: "What the team calls it"}
+    - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
+    - {name: text, type: text, required: true}
+    - {name: link, type: data, description: "A web address the post carries"}
+    - {name: targets, type: table, of: SocialTarget, required: true}
+    - {name: scheduled_at, type: datetime, required: true, in_list: true, label: Goes Out At}
+    - {name: author, type: email, read_only: true, no_copy: true, in_list: true}
+    - {name: status, type: select, options: [Draft, In Review, Approved, Rejected, Sending, Published], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: approved_by, type: email, read_only: true, no_copy: true}
+    - {name: approved_hash, type: data, read_only: true, no_copy: true, hidden: true}
+    - {name: review_note, type: text, read_only: true, no_copy: true}
+    - {name: published_at, type: datetime, read_only: true, no_copy: true}
+  actions:
+    - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
+    - {name: approve, label: Approve It, permission: write, condition: "doc.status == 'In Review'"}
+    - {name: reject, label: Send It Back, permission: write, condition: "doc.status == 'In Review'", params: [{name: note, type: text, label: Why}]}
+  list: {columns: [headline, brand, scheduled_at, status], sort: scheduled_at desc}
+
+- name: SocialPublication
+  label: Publication
+  label_plural: Publications
+  kind: master
+  module: social
+  title_field: post
+  description: A post as it went to one account, sent through that account's connection and known by the network's id once out; or one made on the network itself, read back through a connection. What it did is read back with it.
+  fields:
+    - {name: post, type: link, to: SocialPost, read_only: true, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, read_only: true, in_list: true, in_filter: true}
+    - {name: text, type: text, read_only: true}
+    - {name: link, type: data, read_only: true}
+    - {name: external_id, type: data, read_only: true, no_copy: true, in_list: true, description: "The network's id for it, once out"}
+    - {name: sent_at, type: datetime, read_only: true, no_copy: true, in_list: true}
+    - {name: impressions, type: int, read_only: true, no_copy: true, in_list: true}
+    - {name: engagements, type: int, read_only: true, no_copy: true, in_list: true}
+    - {name: clicks, type: int, read_only: true, no_copy: true}
+    - {name: permalink, type: data, read_only: true, no_copy: true}
+  list: {columns: [post, account, external_id, impressions, engagements], sort: sent_at desc}
+
+- name: SocialMessage
+  label: Message
+  label_plural: Inbox
+  kind: master
+  module: social
+  title_field: author
+  description: A comment, mention or direct message to one of the brand's accounts, read through its connection, and handled by someone.
+  fields:
+    - {name: account_handle, type: data, required: true, description: "The account it came to"}
+    - {name: account, type: link, to: SocialAccount, read_only: true, in_list: true, in_filter: true}
+    - {name: kind, type: select, options: [Comment, Mention, Direct], default: Comment, in_list: true, in_filter: true}
+    - {name: author, type: data, required: true, in_list: true}
+    - {name: text, type: text, required: true}
+    - {name: post_external_id, type: data, description: "The post it answers, when it is a comment"}
+    - {name: status, type: select, options: [New, Assigned, Answered, Closed], default: New, in_list: true, in_filter: true}
+    - {name: assigned_to, type: email, in_list: true, in_filter: true}
+  list: {columns: [author, account, kind, status, assigned_to], sort: updated_at desc}
+
+- name: SocialReply
+  label: Reply
+  label_plural: Replies
+  kind: master
+  module: social
+  title_field: message
+  description: An answer to a message, sent through its account's connection.
+  fields:
+    - {name: message, type: link, to: SocialMessage, required: true, in_list: true}
+    - {name: text, type: text, required: true}
+    - {name: in_reply_to, type: data, read_only: true, description: "The network's id of the message"}
+    - {name: author, type: email, read_only: true, no_copy: true, in_list: true}
+    - {name: external_id, type: data, read_only: true, no_copy: true}
+  list: {columns: [message, author, external_id], sort: created_at desc}

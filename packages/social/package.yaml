@@ -1,0 +1,41 @@
+package: social
+version: 0.1.0
+label: Social
+description: "Brands' social accounts through the platform's connections: posts approved by someone other than their author and sent at their time to each account, within what each network takes; the inbox answered; and what each post did"
+depends: [core]
+
+modules:
+  - name: social
+    label: Social
+    icon: share-2
+    order: 66
+    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPublication, SocialReply]
+
+roles:
+  - name: Social Author
+    description: Writes posts and answers the inbox; someone else approves the posts.
+    permissions:
+      - {entity: SocialBrand, read: true}
+      - {entity: SocialAccount, read: true}
+      - {entity: SocialPost, read: true, write: true, create: true}
+      - {entity: SocialPublication, read: true}
+      - {entity: SocialMessage, read: true, write: true}
+      - {entity: SocialReply, read: true, create: true}
+  - name: Social Approver
+    description: Approves posts or sends them back, and sees what they did.
+    permissions:
+      - {entity: SocialBrand, read: true}
+      - {entity: SocialAccount, read: true}
+      - {entity: SocialPost, read: true, write: true}
+      - {entity: SocialPublication, read: true, export: true}
+      - {entity: SocialMessage, read: true, write: true}
+      - {entity: SocialReply, read: true}
+  - name: Social Manager
+    description: Keeps the brands and their accounts.
+    permissions:
+      - {entity: SocialBrand, read: true, write: true, create: true}
+      - {entity: SocialAccount, read: true, write: true, create: true}
+      - {entity: SocialPost, read: true}
+      - {entity: SocialPublication, read: true, export: true}
+      - {entity: SocialMessage, read: true, write: true}
+      - {entity: SocialReply, read: true}
