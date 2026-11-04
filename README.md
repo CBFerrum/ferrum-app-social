@@ -52,7 +52,8 @@ and `write` scopes, made under its Preferences, Development. Testing it answers 
   and replies counted as engagements, and the status's address. Mastodon counts no impressions.
 - **messages** are the account's mentions: a comment when it answers one of the account's statuses,
   a direct message when its visibility is direct, a mention otherwise.
-- **replies** go out as public statuses answering the message's status.
+- **replies** go out as statuses answering the message's status, as open as it (a direct message is
+  answered directly) and naming its author, so Mastodon delivers them.
 
 A refused token is the connection's error; Mastodon's rate limit makes the platform wait as long as
 it says (`Retry-After`), or five minutes.
@@ -108,6 +109,7 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
 
 | Version | Highlights |
 |---|---|
+| **0.2.2** | A reply on Mastodon is as open as what it answers (a direct message is answered directly) and names who it answers; Reply's box starts empty. |
 | **0.2.1** | An account names its connection by name, and a message is answered from the message (Reply). |
 | **0.2.0** | A connector for Mastodon: posts sent as statuses once each, engagements read back, mentions and direct messages in the inbox, replies answering them. |
 | **0.1.0** | Brands' accounts through the platform's connections, posts reviewed and sent at their time within each network's limits, the inbox answered, and what posts did (FERRUM-ECOSYSTEM-005). |

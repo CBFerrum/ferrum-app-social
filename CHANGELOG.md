@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+
+From the same browser walk, answering a direct message on Mastodon.
+
+- A reply goes out as open as what it answers, never more: a direct message is answered directly, not
+  in public, as 0.2.1 did. It names the one it answers, unless it does already, so Mastodon delivers
+  it to them.
+- Reply's box starts empty: it was filled with the message's own text.
+
 ## 0.2.1
 
 From a browser walk of Social with a Mastodon account.

@@ -60,6 +60,18 @@ fn answer(s: &mut Server, method: &str, path: &str, auth: Option<&str>, key: Opt
             (200, Value::Array(page).to_string())
         }
         ("GET", "/api/v1/notifications") => (200, Value::Array(s.notifications.clone()).to_string()),
+        ("GET", p) if p.starts_with("/api/v1/statuses/") => {
+            let id = &p["/api/v1/statuses/".len()..];
+            let found = s.notifications.iter().find(|n| n["status"]["id"] == id).map(|n| {
+                let mut st = n["status"].clone();
+                st["account"] = n["account"].clone();
+                st
+            });
+            match found.or_else(|| s.statuses.iter().find(|st| st["id"] == id).cloned()) {
+                Some(st) => (200, st.to_string()),
+                None => (404, json!({"error": "Record not found"}).to_string()),
+            }
+        }
         ("POST", "/api/v1/statuses") => {
             if let Some(made) = key.and_then(|k| s.keys.get(k)) {
                 let status = s.statuses.iter().find(|x| x["id"] == made.as_str()).cloned().unwrap();
@@ -68,7 +80,7 @@ fn answer(s: &mut Server, method: &str, path: &str, auth: Option<&str>, key: Opt
             let b: Value = serde_json::from_str(body).unwrap_or_default();
             let id = (100 + s.statuses.len()).to_string();
             let status = json!({"id": id, "content": format!("<p>{}</p>", b["status"].as_str().unwrap_or_default()), "url": format!("https://social.example/@northwind/{id}"),
-                                "in_reply_to_id": b["in_reply_to_id"], "favourites_count": 0, "reblogs_count": 0, "replies_count": 0, "edited_at": null});
+                                "in_reply_to_id": b["in_reply_to_id"], "visibility": b["visibility"], "favourites_count": 0, "reblogs_count": 0, "replies_count": 0, "edited_at": null});
             s.statuses.push(status.clone());
             if let Some(k) = key {
                 s.keys.insert(k.to_string(), id);
@@ -307,15 +319,29 @@ async fn scenario() {
     let comment = t.rows("SocialMessage", json!([["author", "=", "pat@other.example"]])).await.remove(0);
     assert_eq!((uid(&comment["account"]), comment["post_external_id"].as_str()), (account, Some("100")));
     // Answered from the message itself.
-    let empty = k.run_action(&author, "SocialMessage", uid(&comment["id"]), "reply", json!({"text": "  "})).await.unwrap_err();
+    let empty = k.run_action(&author, "SocialMessage", uid(&comment["id"]), "reply", json!({"reply": "  "})).await.unwrap_err();
     assert!(format!("{empty:?}").contains("a reply says something"), "{empty:?}");
-    let made = k.run_action(&author, "SocialMessage", uid(&comment["id"]), "reply", json!({"text": "Yes, in every size."})).await.unwrap();
+    let made = k.run_action(&author, "SocialMessage", uid(&comment["id"]), "reply", json!({"reply": "Yes, in every size."})).await.unwrap();
     let reply = k.get(&author, "SocialReply", uid(&made["reply"]), false).await.unwrap();
     assert_eq!(reply["author"], "author@brand.test", "written as the one who answers");
     assert_eq!(reply["in_reply_to"], "200");
     t.work().await;
     let answered = server.lock().unwrap().statuses.iter().find(|s| s["in_reply_to_id"] == "200").cloned().expect("a status answering the comment");
-    assert_eq!(answered["content"], "<p>Yes, in every size.</p>");
+    assert_eq!(
+        (answered["content"].as_str(), answered["visibility"].as_str()),
+        (Some("<p>@pat@other.example Yes, in every size.</p>"), Some("public")),
+        "naming who it answers, as open as the comment"
+    );
     ferrum_app_social::maintenance_at(&k, Utc::now()).await.unwrap();
     assert_eq!(k.get(&admin, "SocialReply", uid(&reply["id"]), false).await.unwrap()["external_id"], answered["id"]);
+    // A direct message is answered directly, never in public.
+    let direct = t.rows("SocialMessage", json!([["author", "=", "lee@other.example"]])).await.remove(0);
+    k.run_action(&author, "SocialMessage", uid(&direct["id"]), "reply", json!({"reply": "@lee@other.example Of course: write to us here."})).await.unwrap();
+    t.work().await;
+    let answered = server.lock().unwrap().statuses.iter().find(|s| s["in_reply_to_id"] == "202").cloned().expect("a status answering the direct message");
+    assert_eq!(
+        (answered["content"].as_str(), answered["visibility"].as_str()),
+        (Some("<p>@lee@other.example Of course: write to us here.</p>"), Some("direct")),
+        "named once though the reply named them already"
+    );
 }
