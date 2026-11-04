@@ -7,11 +7,13 @@
 //! * `posts`: posts and their review, what each network takes, publications sent through their
 //!   account's own connection, and their insights.
 //! * `inbox`: messages read through connections, routed to their account, and replies sent back.
+//! * `mastodon`: a connector for any Mastodon server, for accounts there.
 //!
 //! This app's own design; no code was copied (docs/PROVENANCE.md). Hooks are registered per entity,
 //! so a workspace without the `social` package never runs them.
 
 mod inbox;
+pub mod mastodon;
 mod posts;
 
 use chrono::{DateTime, Utc};
@@ -32,13 +34,14 @@ pub fn packages() -> std::result::Result<Vec<ferrum_meta::Package>, ferrum_meta:
     ferrum_meta::catalog::load_embedded(EMBEDDED)
 }
 
-/// Registers this app's document hooks.
+/// Registers this app's document hooks, and its connector for Mastodon.
 pub fn register(hooks: &mut HookRegistry) {
     hooks
         .register("SocialAccount", Arc::new(posts::AccountHook))
         .register("SocialPost", Arc::new(posts::PostHook))
         .register("SocialMessage", Arc::new(inbox::MessageHook))
         .register("SocialReply", Arc::new(inbox::ReplyHook));
+    hooks.add_connector(Arc::new(mastodon::Mastodon));
 }
 
 /// This app's reports: none of its own yet.
