@@ -201,10 +201,7 @@ impl Connector for Mastodon {
             // As open as what it answers, never more (a direct message is answered directly, not in
             // public), and naming its author, so Mastodon delivers it to them.
             let parent = Self::call(k, c, reqwest::Method::GET, &format!("/api/v1/statuses/{to}"), None, None).await?;
-            let visibility = match parent["visibility"].as_str() {
-                Some(v @ ("direct" | "private" | "unlisted")) => v,
-                _ => "public",
-            };
+            let visibility = parent["visibility"].as_str().filter(|v| matches!(*v, "direct" | "private" | "unlisted")).unwrap_or("public");
             let author = parent["account"]["acct"].as_str().filter(|a| !a.is_empty());
             let status = match author {
                 Some(a) if !text.contains(&format!("@{a}")) => format!("@{a} {text}"),
