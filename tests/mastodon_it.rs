@@ -210,9 +210,19 @@ async fn scenario() {
 
     // ───────────── a post, sent once though its first answer is lost ─────────────
     let brand = uid(&k.insert(&admin, "SocialBrand", obj(json!({"brand_name": "Northwind"}))).await.unwrap()["id"]);
-    let account =
-        json!({"account_name": "Northwind Mastodon", "brand": brand.to_string(), "network": "Mastodon", "handle": "northwind", "connection": conn.to_string()});
-    let account = uid(&k.insert(&admin, "SocialAccount", obj(account)).await.unwrap()["id"]);
+    // By the connection's name, as the Connections page shows it.
+    let account = |connection: &str| json!({"account_name": "Northwind Mastodon", "brand": brand.to_string(), "network": "Mastodon", "handle": "northwind", "connection": connection});
+    let refused = k.insert(&admin, "SocialAccount", obj(account("Northwind elsewhere"))).await.unwrap_err();
+    assert!(
+        refused.to_string().contains("no connection is named Northwind elsewhere") || format!("{refused:?}").contains("no connection is named"),
+        "{refused:?}"
+    );
+    let both = k.insert(&admin, "SocialAccount", obj(account("northwind on mastodon"))).await.unwrap_err();
+    assert!(format!("{both:?}").contains("more than one connection is named"), "the wrong token's connection has the name too: {both:?}");
+    k.disconnect(&admin, wrong).await.unwrap();
+    let made = k.insert(&admin, "SocialAccount", obj(account("northwind on mastodon"))).await.unwrap();
+    assert_eq!(made["connection"], conn.to_string(), "kept as the connection's id");
+    let account = uid(&made["id"]);
     let author = {
         let id = k.create_user(&admin, "author@brand.test", "Author", Some("Correct-Horse-9"), &["Social Author".to_string()], false).await.unwrap();
         k.load_ctx(tenant, id, None, "it".into()).await.unwrap()
@@ -296,7 +306,12 @@ async fn scenario() {
     assert!(inbox.iter().any(|(_, _, text)| text == "@northwind is sage in stock?"), "statuses read as plain text");
     let comment = t.rows("SocialMessage", json!([["author", "=", "pat@other.example"]])).await.remove(0);
     assert_eq!((uid(&comment["account"]), comment["post_external_id"].as_str()), (account, Some("100")));
-    let reply = k.insert(&author, "SocialReply", obj(json!({"message": comment["id"], "text": "Yes, in every size."}))).await.unwrap();
+    // Answered from the message itself.
+    let empty = k.run_action(&author, "SocialMessage", uid(&comment["id"]), "reply", json!({"text": "  "})).await.unwrap_err();
+    assert!(format!("{empty:?}").contains("a reply says something"), "{empty:?}");
+    let made = k.run_action(&author, "SocialMessage", uid(&comment["id"]), "reply", json!({"text": "Yes, in every size."})).await.unwrap();
+    let reply = k.get(&author, "SocialReply", uid(&made["reply"]), false).await.unwrap();
+    assert_eq!(reply["author"], "author@brand.test", "written as the one who answers");
     assert_eq!(reply["in_reply_to"], "200");
     t.work().await;
     let answered = server.lock().unwrap().statuses.iter().find(|s| s["in_reply_to_id"] == "200").cloned().expect("a status answering the comment");

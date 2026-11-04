@@ -22,7 +22,7 @@
     - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
     - {name: network, type: select, options: [LinkedIn, X, Mastodon, Bluesky, Threads, Facebook, Instagram, YouTube], required: true, in_list: true, in_filter: true}
     - {name: handle, type: data, required: true, description: "The account's name on the network, without @"}
-    - {name: connection, type: data, required: true, description: "The id of the connection that reaches it (Administration, Connections)"}
+    - {name: connection, type: data, required: true, description: "The connection that reaches it: its name, as Administration, Connections shows it, or its id"}
     - {name: active, type: check, default: 1, in_list: true}
   list: {columns: [account_name, brand, network, active], sort: account_name asc}
 
@@ -94,6 +94,8 @@
     - {name: post_external_id, type: data, description: "The post it answers, when it is a comment"}
     - {name: status, type: select, options: [New, Assigned, Answered, Closed], default: New, in_list: true, in_filter: true}
     - {name: assigned_to, type: email, in_list: true, in_filter: true}
+  actions:
+    - {name: reply, label: Reply, permission: write, condition: "doc.status != 'Closed'", params: [{name: text, type: text, label: Your Reply, required: true}]}
   list: {columns: [author, account, kind, status, assigned_to], sort: updated_at desc}
 
 - name: SocialReply
