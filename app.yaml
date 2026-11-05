@@ -1,6 +1,6 @@
 id: social
 name: Social
-version: 0.2.4
+version: 0.2.5
 publisher: cbferrum
 summary: "Brands' social accounts: posts approved by someone else and sent at their time within each network's limits, the inbox answered, and what each post did"
 description: README.md
