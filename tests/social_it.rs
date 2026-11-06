@@ -4,8 +4,9 @@
 //! two connections and a third that can only read; posts refused where a network would not take
 //! them; review by someone other than the author; a changed post approved again; sending at its
 //! time, each publication through its own account's connection; what posts did read back, and a
-//! post made on the network itself; the inbox routed by handle, assigned and answered back
-//! through the right connection; and who may do what.
+//! post made on the network itself; their numbers kept day by day, and what each day added; the
+//! inbox routed by handle, assigned and answered back through the right connection; and who may do
+//! what.
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -196,6 +197,9 @@ async fn scenario() {
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
     ferrum_app_social::register(&mut hooks);
+    for source in ferrum_app_social::reports() {
+        ferrum_domain::reports::add_source(source);
+    }
     let all = ["publish_text", "publish_image", "reply", "read_messages", "read_insights"].map(String::from).to_vec();
     hooks.add_connector(Arc::new(Network { provider: "network", capabilities: all, world: world.clone() }));
     hooks.add_connector(Arc::new(Network { provider: "reader", capabilities: vec!["read_messages".into()], world: reader.clone() }));
@@ -350,6 +354,80 @@ async fn scenario() {
     assert_eq!(uid(&read_back[0]["post"]), id, "the same publication");
     let native = t.rows("SocialPublication", json!([["impressions", "=", 40]])).await;
     assert_eq!((native.len(), native[0]["post"].is_null()), (1, true), "a post made on the network is read back as one of no post of ours");
+
+    // ───────────── what posts did, day by day ─────────────
+    let today = t.admin.today();
+    let x_pub = uid(&read_back[0]["id"]);
+    let daily = |p: Uuid| {
+        let t = &t;
+        async move {
+            let mut out: Vec<(String, i64, i64)> = t
+                .rows("SocialInsight", json!([["publication", "=", p.to_string()]]))
+                .await
+                .iter()
+                .map(|r| (r["day"].as_str().unwrap().to_string(), r["impressions"].as_i64().unwrap(), r["engagements"].as_i64().unwrap()))
+                .collect();
+            out.sort();
+            out
+        }
+    };
+    assert_eq!(daily(x_pub).await, vec![(today.to_string(), 1200, 87)], "the day's numbers kept");
+    let read_again = |impressions: i64, engagements: i64| {
+        let (t, world, on_x_id) = (&t, &world, &on_x_id);
+        async move {
+            world.lock().unwrap().posts[0] = (on_x_id.clone(), "Spring is here: sage, sand and slate!".into(), impressions, engagements);
+            t.k.sync_connection(&t.admin, on_x, false).await.unwrap();
+            t.work().await;
+        }
+    };
+    // Read again unchanged, nothing new; changed the same day, the day's row takes the new numbers.
+    read_again(1200, 87).await;
+    assert_eq!(daily(x_pub).await, vec![(today.to_string(), 1200, 87)]);
+    read_again(1500, 90).await;
+    assert_eq!(daily(x_pub).await, vec![(today.to_string(), 1500, 90)], "one row a day, with its last numbers");
+    // That row left as yesterday's, the next reading is today's.
+    let yesterday = today - Duration::days(1);
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    sqlx::query("update e_social_insight set day = $3 where tenant_id = $1 and publication = $2")
+        .bind(t.tenant)
+        .bind(x_pub)
+        .bind(yesterday)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    read_again(1800, 99).await;
+    assert_eq!(daily(x_pub).await, vec![(yesterday.to_string(), 1500, 90), (today.to_string(), 1800, 99)]);
+    // What each day added: a day's numbers less the day before's, for everything or one account.
+    let report = |who: &Ctx, narrow: Option<(&str, Uuid)>| {
+        let mut p: HashMap<String, String> = HashMap::from([("from_date".into(), yesterday.to_string()), ("to_date".into(), today.to_string())]);
+        if let Some((field, value)) = narrow {
+            p.insert(field.into(), value.to_string());
+        }
+        let (k, who) = (k.clone(), who.clone());
+        async move {
+            let out = ferrum_domain::reports::run(&k, &who, "social_engagement_by_day", &p).await.unwrap_or_else(|e| panic!("the report: {e:?}"));
+            out["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| {
+                    (
+                        r["date"].as_str().unwrap().to_string(),
+                        r["publications"].as_i64().unwrap(),
+                        r["impressions"].as_i64().unwrap(),
+                        r["engagements"].as_i64().unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+    };
+    let (y, d) = (yesterday.to_string(), today.to_string());
+    assert_eq!(report(&approver, None).await, vec![(y.clone(), 1, 1500, 90), (d.clone(), 2, 340, 11)], "300 and 9 more on X, and the network's own post");
+    assert_eq!(report(&manager, Some(("account", nw_x))).await, vec![(y.clone(), 1, 1500, 90), (d.clone(), 1, 300, 9)]);
+    assert_eq!(report(&author, Some(("brand", contoso))).await, vec![(y, 0, 0, 0), (d, 0, 0, 0)], "every day of the span, nothing of Contoso's");
+    let backwards = HashMap::from([("from_date".to_string(), today.to_string()), ("to_date".to_string(), yesterday.to_string())]);
+    refused(ferrum_domain::reports::run(&k, &approver, "social_engagement_by_day", &backwards).await, "invalid", "after the to date");
 
     // ───────────── the inbox ─────────────
     world.lock().unwrap().messages = vec![

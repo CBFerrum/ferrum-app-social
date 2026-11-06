@@ -1,6 +1,6 @@
 // Social's home: what waits for approval, the posts coming by day, the inbox, and what each brand's
-// posts did (impressions and engagements, read back through the connections). Each opens its
-// record.
+// posts did (impressions and engagements, read back through the connections), with the report of
+// what each day added. Each opens its record.
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -108,7 +108,10 @@ export function Home() {
         </ul>
       </section>
       <section className="card card-pad stack" aria-label="What posts did">
-        <h3>What posts did</h3>
+        <header className="row" style={{ justifyContent: "space-between" }}>
+          <h3>What posts did</h3>
+          <Link to="/r/social_engagement_by_day">Day by day</Link>
+        </header>
         <table className="table">
           <thead>
             <tr>
