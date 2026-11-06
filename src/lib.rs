@@ -8,10 +8,12 @@
 //!   account's own connection, and their insights.
 //! * `inbox`: messages read through connections, routed to their account, and replies sent back.
 //! * `mastodon`: a connector for any Mastodon server, for accounts there.
+//! * `bluesky`: a connector for Bluesky (any AT Protocol server), for accounts there.
 //!
 //! This app's own design; no code was copied (docs/PROVENANCE.md). Hooks are registered per entity,
 //! so a workspace without the `social` package never runs them.
 
+pub mod bluesky;
 mod inbox;
 pub mod mastodon;
 mod posts;
@@ -41,7 +43,7 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("SocialPost", Arc::new(posts::PostHook))
         .register("SocialMessage", Arc::new(inbox::MessageHook))
         .register("SocialReply", Arc::new(inbox::ReplyHook));
-    hooks.add_connector(Arc::new(mastodon::Mastodon));
+    hooks.add_connector(Arc::new(mastodon::Mastodon)).add_connector(Arc::new(bluesky::Bluesky));
 }
 
 /// This app's reports: none of its own yet.

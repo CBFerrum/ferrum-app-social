@@ -40,6 +40,24 @@ connections:
 - **Mastodon, built in.** Social brings a connector for Mastodon, or any server speaking its API
   (provider `mastodon`): see below.
 
+## Bluesky
+
+Social also brings a connector for Bluesky, on bsky.social or any server speaking the AT
+Protocol. A connection's config may name the account's server, `{"service": "https://bsky.social"}`
+(the default). Its credentials hold the account's handle and an app password made for it,
+`{"identifier": "brand.bsky.social", "app_password": "…"}`. A session is opened with them and kept
+for an hour, since servers limit how often one is opened; one the server stops taking is opened
+again.
+- Posts go out as Bluesky posts, the link made a link facet so it is a link. Each is under a
+  record key made from the delivery's key, so a send tried again finds the post already there
+  rather than making a second.
+- They are read back from the account's own posts, reposts left out, with likes, reposts, replies
+  and quotes counted as engagements, and the post's bsky.app address. Bluesky counts no
+  impressions.
+- Replies to the account's posts are read as comments, and mentions and quotes as mentions. Likes
+  are not messages. Direct messages are Bluesky's chat, which is not read.
+- A reply goes out in the thread of what it answers.
+
 ## Mastodon
 
 A connection with provider `mastodon`, config `{"instance": "https://mastodon.social"}` (the
@@ -99,8 +117,11 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
 
 - Mastodon against a real server: the connector was tested against a stand-in of its API, and a
   real one needs an account's token.
-- Connectors for X, Bluesky, LinkedIn, Threads, Instagram and YouTube: each takes its API and an
-  approved account (Ferrum's FERRUM-CONNECT-002).
+- Bluesky against a real server: its connector was tested against a stand-in of the parts of the
+  AT Protocol it uses, and a real one needs an account's app password. Bluesky's direct messages
+  (its chat) are not read.
+- Connectors for X, LinkedIn, Threads, Instagram and YouTube: each takes its API and an approved
+  account (Ferrum's FERRUM-CONNECT-002).
 - Mastodon's media, polls, content warnings and editing a status once out.
 - Images and video, threads, polls, and first comments.
 - Best times to post, and analytics over time rather than the latest numbers.
@@ -109,6 +130,7 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
 
 | Version | Highlights |
 |---|---|
+| **0.3.0** | A connector for Bluesky: posts with their links, read back with their engagements, replies, mentions and quotes, and replies in their threads. |
 | **0.2.5** | Rebuilt with Ferrum-Frontend 00dea07: a workflow state's kept fields are read-only, its needed ones required. |
 | **0.2.4** | Rebuilt with Ferrum-Frontend daeadda: actions say what they did. |
 | **0.2.3** | Rebuilt with Ferrum-Frontend 80ff179: labels name their fields, and linked titles show their titles. |
