@@ -244,7 +244,7 @@ async fn scenario() {
     paused["active"] = json!(false);
     let nw_bsky = uid(&t.insert(&manager, "SocialAccount", paused).await["id"]);
     let co_x = uid(&t.insert(&manager, "SocialAccount", account("Contoso X", contoso, "X", "contoso", on_x)).await["id"]);
-    let nw_threads = uid(&t.insert(&manager, "SocialAccount", account("Northwind Threads", northwind, "Threads", "northwind", texting)).await["id"]);
+    let nw_threads = uid(&t.insert(&manager, "SocialAccount", account("Northwind Threads", northwind, "Threads", "northwind.threads", texting)).await["id"]);
     t.insert(&manager, "SocialAccount", account("Contoso Mastodon", contoso, "Mastodon", "contoso", on_masto)).await;
     refused(t.k.insert(&author, "SocialAccount", obj(account("Mine", northwind, "X", "mine", on_x))).await, "forbidden", "");
 
