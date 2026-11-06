@@ -44,6 +44,8 @@
     - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
     - {name: text, type: text, required: true}
     - {name: link, type: data, description: "A web address the post carries"}
+    - {name: image, type: attach, description: "A picture the post carries, to the networks that take one"}
+    - {name: image_alt, type: data, label: Image Description, description: "What the picture shows, for people who cannot see it"}
     - {name: targets, type: table, of: SocialTarget, required: true}
     - {name: scheduled_at, type: datetime, required: true, in_list: true, label: Goes Out At}
     - {name: author, type: email, read_only: true, no_copy: true, in_list: true}
@@ -70,6 +72,8 @@
     - {name: account, type: link, to: SocialAccount, read_only: true, in_list: true, in_filter: true}
     - {name: text, type: text, read_only: true}
     - {name: link, type: data, read_only: true}
+    - {name: image, type: attach, read_only: true}
+    - {name: image_alt, type: data, read_only: true, label: Image Description}
     - {name: external_id, type: data, read_only: true, no_copy: true, in_list: true, description: "The network's id for it, once out"}
     - {name: sent_at, type: datetime, read_only: true, no_copy: true, in_list: true}
     - {name: impressions, type: int, read_only: true, no_copy: true, in_list: true}

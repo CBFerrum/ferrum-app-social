@@ -26,27 +26,31 @@ pub(crate) fn takes(network: &str) -> (usize, bool) {
         "Mastodon" | "Threads" => (500, true),
         "LinkedIn" => (3000, true),
         "Facebook" => (63206, true),
-        // Instagram and YouTube publish media, which posts here do not carry.
+        // Instagram takes a post with its picture; YouTube publishes video.
         _ => (2200, false),
     }
 }
 
-/// Why a post of `text` and `link` does not fit `network`, when it does not.
-pub(crate) fn misfit(network: &str, text: &str, link: Option<&str>) -> Option<String> {
+/// Why a post of `text` and `link`, with a picture or not, does not fit `network`, when it does not.
+pub(crate) fn misfit(network: &str, text: &str, link: Option<&str>, image: bool) -> Option<String> {
     let (max, text_alone) = takes(network);
-    if !text_alone {
-        return Some(format!("{network} takes no post without an image or a video, which posts here do not carry"));
+    if network == "YouTube" {
+        return Some("YouTube takes video, which posts here do not carry".into());
+    }
+    if !text_alone && !image {
+        return Some(format!("{network} takes no post without an image or a video"));
     }
     // X counts a link as 23 characters, whatever its length, after a space.
     let length = text.chars().count() + link.map_or(0, |l| if network == "X" { 24 } else { l.chars().count() + 1 });
     (length > max).then(|| format!("{network} takes {max} characters, and this post is {length}"))
 }
 
-/// What approval fixes: the words, the link, where and when it goes.
+/// What approval fixes: the words, the link, the picture and what it says of it, where and when it
+/// goes.
 fn fingerprint(doc: &Doc) -> String {
     let mut targets: Vec<String> = rows(doc, "targets").iter().filter_map(|t| s(t, "account").map(str::to_string)).collect();
     targets.sort();
-    let what = json!([s(doc, "text"), s(doc, "link"), targets, at(doc, "scheduled_at").map(|t| t.timestamp())]);
+    let what = json!([s(doc, "text"), s(doc, "link"), targets, at(doc, "scheduled_at").map(|t| t.timestamp()), s(doc, "image"), s(doc, "image_alt")]);
     hex::encode(Sha256::digest(what.to_string()))
 }
 
@@ -124,6 +128,13 @@ impl DocHook for PostHook {
         if link.is_some_and(|l| !(l.starts_with("https://") || l.starts_with("http://")) || l.contains(char::is_whitespace)) {
             return Err(Error::field("link", "is a web address"));
         }
+        let image = s(doc, "image").filter(|i| !i.trim().is_empty());
+        if image.is_some_and(|i| !i.starts_with("/files/")) {
+            return Err(Error::field("image", "is a picture stored here"));
+        }
+        if image.is_some() && s(doc, "image_alt").is_none_or(|a| a.trim().is_empty()) {
+            return Err(Error::field("image_alt", "says what the picture shows, for people who cannot see it"));
+        }
         for target in rows(doc, "targets") {
             let Some(account) = id(&target, "account") else { continue };
             let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
@@ -134,13 +145,17 @@ impl DocHook for PostHook {
             if !a.get("active").and_then(Value::as_bool).unwrap_or(true) {
                 return Err(Error::field("targets", format!("{name} is paused")));
             }
-            if let Some(why) = misfit(s(&a, "network").unwrap_or_default(), text, link) {
+            if let Some(why) = misfit(s(&a, "network").unwrap_or_default(), text, link, image.is_some()) {
                 return Err(Error::field("text", format!("for {name}: {why}")));
             }
             let conn = s(&a, "connection").and_then(|c| c.parse().ok()).unwrap_or_default();
             let provider = connection(hc.tx, hc.ctx.tenant, conn).await?.map(|(p, _)| p).unwrap_or_default();
-            if !capabilities(hc.kernel, hc.ctx.tenant, &provider).await?.iter().any(|c| c == "publish_text") {
+            let offers = capabilities(hc.kernel, hc.ctx.tenant, &provider).await?;
+            if !offers.iter().any(|c| c == "publish_text") {
                 return Err(Error::field("targets", format!("{name}'s connection cannot publish posts")));
+            }
+            if image.is_some() && !offers.iter().any(|c| c == "publish_image") {
+                return Err(Error::field("image", format!("{name}'s connection cannot publish pictures")));
             }
         }
         Ok(())
@@ -200,7 +215,8 @@ pub(crate) async fn send_due(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<U
                     ctx,
                     tx,
                     "SocialPublication",
-                    obj(json!({"post": post.to_string(), "account": account.to_string(), "text": s(&doc, "text"), "link": s(&doc, "link")})),
+                    obj(json!({"post": post.to_string(), "account": account.to_string(), "text": s(&doc, "text"), "link": s(&doc, "link"),
+                               "image": s(&doc, "image"), "image_alt": s(&doc, "image_alt")})),
                 )
                 .await?;
             deliver(tx, ctx.tenant, conn, POSTS, id(&made, "id").unwrap_or_default()).await?;
@@ -243,11 +259,13 @@ mod tests {
     #[test]
     fn what_each_network_takes() {
         let long = "a".repeat(281);
-        assert!(misfit("X", &long, None).is_some_and(|w| w.contains("280")));
-        assert!(misfit("X", &"a".repeat(256), Some("https://example.org/a-very-long-path-that-x-shortens")).is_none(), "a link is 23 and a space");
-        assert!(misfit("X", &"a".repeat(257), Some("https://e.org")).is_some());
-        assert!(misfit("LinkedIn", &long, None).is_none());
-        assert!(misfit("Mastodon", &"a".repeat(490), Some("https://example.org/0123456789")).is_some(), "Mastodon counts the link");
-        assert!(misfit("Instagram", "Hello", None).is_some_and(|w| w.contains("image or a video")));
+        assert!(misfit("X", &long, None, false).is_some_and(|w| w.contains("280")));
+        assert!(misfit("X", &"a".repeat(256), Some("https://example.org/a-very-long-path-that-x-shortens"), false).is_none(), "a link is 23 and a space");
+        assert!(misfit("X", &"a".repeat(257), Some("https://e.org"), false).is_some());
+        assert!(misfit("LinkedIn", &long, None, false).is_none());
+        assert!(misfit("Mastodon", &"a".repeat(490), Some("https://example.org/0123456789"), false).is_some(), "Mastodon counts the link");
+        assert!(misfit("Instagram", "Hello", None, false).is_some_and(|w| w.contains("image or a video")));
+        assert_eq!(misfit("Instagram", "Hello", None, true), None, "with its picture");
+        assert!(misfit("YouTube", "Hello", None, true).is_some_and(|w| w.contains("video")), "a picture is not a video");
     }
 }
