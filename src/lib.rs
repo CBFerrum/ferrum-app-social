@@ -6,6 +6,7 @@
 //!
 //! * `posts`: posts and their review, what each network takes, publications sent through their
 //!   account's own connection, and their insights.
+//! * `insights`: each publication's numbers kept day by day, and the report of what each day added.
 //! * `inbox`: messages read through connections, routed to their account, and replies sent back.
 //! * `mastodon`: a connector for any Mastodon server, for accounts there.
 //! * `bluesky`: a connector for Bluesky (any AT Protocol server), for accounts there.
@@ -15,6 +16,7 @@
 
 pub mod bluesky;
 mod inbox;
+mod insights;
 pub mod mastodon;
 mod posts;
 
@@ -36,19 +38,20 @@ pub fn packages() -> std::result::Result<Vec<ferrum_meta::Package>, ferrum_meta:
     ferrum_meta::catalog::load_embedded(EMBEDDED)
 }
 
-/// Registers this app's document hooks, and its connector for Mastodon.
+/// Registers this app's document hooks, and its connectors for Mastodon and Bluesky.
 pub fn register(hooks: &mut HookRegistry) {
     hooks
         .register("SocialAccount", Arc::new(posts::AccountHook))
         .register("SocialPost", Arc::new(posts::PostHook))
+        .register("SocialPublication", Arc::new(insights::PublicationHook))
         .register("SocialMessage", Arc::new(inbox::MessageHook))
         .register("SocialReply", Arc::new(inbox::ReplyHook));
     hooks.add_connector(Arc::new(mastodon::Mastodon)).add_connector(Arc::new(bluesky::Bluesky));
 }
 
-/// This app's reports: none of its own yet.
+/// This app's reports: what each day added to the publications' numbers.
 pub fn reports() -> Vec<Arc<dyn ReportSource>> {
-    vec![]
+    vec![Arc::new(insights::SocialReports)]
 }
 
 /// Upkeep: approved posts sent when their time comes, sent publications marked out with the

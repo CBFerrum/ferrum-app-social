@@ -82,6 +82,24 @@
     - {name: permalink, type: data, read_only: true, no_copy: true}
   list: {columns: [post, account, external_id, impressions, engagements], sort: sent_at desc}
 
+- name: SocialInsight
+  label: Daily Insight
+  label_plural: Daily Insights
+  kind: master
+  module: social
+  title_field: publication
+  description: What a publication had done by a day, as read back through its connection. A row is kept for each day its numbers changed, holding the day's last ones, so its history stays while the network shows only the latest.
+  fields:
+    - {name: publication, type: link, to: SocialPublication, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, read_only: true, in_list: true, in_filter: true}
+    - {name: post, type: link, to: SocialPost, read_only: true, in_filter: true}
+    - {name: day, type: date, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: impressions, type: int, read_only: true, in_list: true}
+    - {name: engagements, type: int, read_only: true, in_list: true}
+    - {name: clicks, type: int, read_only: true}
+  unique: [[publication, day]]
+  list: {columns: [day, publication, account, impressions, engagements], sort: day desc}
+
 - name: SocialMessage
   label: Message
   label_plural: Inbox
