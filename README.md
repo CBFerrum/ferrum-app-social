@@ -39,6 +39,11 @@ connections:
 - **What posts did.** Reading a connection's `posts` brings each post's impressions, engagements and
   link to the publication it is, and posts made on the network itself as publications of no post of
   ours.
+- **Day by day.** Networks show only a post's latest numbers, so each day a publication's numbers
+  change is kept as a Daily Insight, one a day with the day's last numbers (by the workspace's day).
+  The report Social Engagement by Day, linked from the home page, shows what each day added, for
+  everything, a brand or an account: each day's numbers less the publication's day before, with
+  every day of the span listed.
 - **The inbox.** Comments, mentions and direct messages come to the account whose handle they name.
   A message assigned says to whom. A reply goes back through the message's account's connection to
   the network's own message, and the message is answered.
@@ -107,7 +112,8 @@ cd ui && npm run build && npm run check
 - posts refused where a network would not take them;
 - review, a post sent back, and one changed after approval;
 - sending at its time, through each account's own connection;
-- what posts did, read back;
+- what posts did, read back, then kept day by day (one row a day, its last numbers), and what each
+  day added, for everything, an account or a brand;
 - the inbox routed, assigned and answered;
 - who may do what.
 
@@ -129,12 +135,14 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
   account (Ferrum's FERRUM-CONNECT-002).
 - Mastodon's polls, content warnings, and editing a status once out.
 - Video, more than one picture, threads, polls, and first comments.
-- Best times to post, and analytics over time rather than the latest numbers.
+- Best times to post. The history starts when Social first reads a post, and a day's numbers are
+  whatever the last reading that day found, so a day nobody read shows nothing.
 
 ## Changelog
 
 | Version | Highlights |
 |---|---|
+| **0.5.0** | What posts did, day by day: Daily Insights keep each day's numbers, and the report Social Engagement by Day shows what each day added. |
 | **0.4.0** | Pictures on posts, with what they show: Mastodon's media and Bluesky's embedded images; Instagram takes a post with its picture. Rebuilt with Ferrum-Frontend bb60115. |
 | **0.3.0** | A connector for Bluesky: posts with their links, read back with their engagements, replies, mentions and quotes, and replies in their threads. |
 | **0.2.5** | Rebuilt with Ferrum-Frontend 00dea07: a workflow state's kept fields are read-only, its needed ones required. |

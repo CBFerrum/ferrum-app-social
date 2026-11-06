@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+What posts did, day by day (FERRUM-ECOSYSTEM-005).
+
+- **Daily Insights:** whenever reading a publication back changes its impressions, engagements or
+  clicks, the day's row (by the workspace's day) takes the new numbers. That gives one row a day
+  per publication, with its account and post, and a history networks do not keep.
+- **Social Engagement by Day:** a report of what each day added, for everything, one brand or one
+  account. A day's numbers count less the publication's day before, even when that day falls
+  before the span, and every day of the span (30 days by default, a year at most) is listed with
+  the publications read that day. The home page links to it.
+- Authors, approvers and managers read the insights; approvers and managers export them.
+
 ## 0.4.0
 
 Pictures on posts (FERRUM-ECOSYSTEM-005).
