@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2
+
+Rebuilt with Ferrum-Frontend a64416a: a new record's box whose default is 1 shows ticked, as it is saved. An action's dialog says every refusal, the errors on what the action made (another record's rows) among them, and an action with parameters and a confirmation asks once. A new account's Active box is ticked, as it is saved: its default was the number 1, which the form showed unticked.
+
 ## 0.6.1
 
 Rebuilt with Ferrum-Frontend a76295e: its pages show times on a person's own clock when they chose one on their Account page, while today and due dates stay on the workspace's day.

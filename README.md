@@ -147,6 +147,7 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
 
 | Version | Highlights |
 |---|---|
+| **0.6.2** | Rebuilt with Ferrum-Frontend a64416a: a box whose default is 1 shows ticked; action dialogs say every refusal and ask once; a new account shows Active ticked. |
 | **0.6.1** | Rebuilt with Ferrum-Frontend a76295e: times on a person's own clock when they chose one. |
 | **0.6.0** | Best times to post: the weekday and hour posts went out at, ranked by their engagements on average. |
 | **0.5.1** | Rebuilt with Ferrum-Frontend 24c3951: times on the workspace's clock; drafts headed as drafts. |
