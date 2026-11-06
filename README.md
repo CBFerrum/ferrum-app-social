@@ -147,6 +147,7 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
 
 | Version | Highlights |
 |---|---|
+| **0.6.1** | Rebuilt with Ferrum-Frontend a76295e: times on a person's own clock when they chose one. |
 | **0.6.0** | Best times to post: the weekday and hour posts went out at, ranked by their engagements on average. |
 | **0.5.1** | Rebuilt with Ferrum-Frontend 24c3951: times on the workspace's clock; drafts headed as drafts. |
 | **0.5.0** | What posts did, day by day: Daily Insights keep each day's numbers, and the report Social Engagement by Day shows what each day added. |
