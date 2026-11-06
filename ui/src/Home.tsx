@@ -110,7 +110,10 @@ export function Home() {
       <section className="card card-pad stack" aria-label="What posts did">
         <header className="row" style={{ justifyContent: "space-between" }}>
           <h3>What posts did</h3>
-          <Link to="/r/social_engagement_by_day">Day by day</Link>
+          <span className="row" style={{ gap: 12 }}>
+            <Link to="/r/social_engagement_by_day">Day by day</Link>
+            <Link to="/r/social_best_times">Best times to post</Link>
+          </span>
         </header>
         <table className="table">
           <thead>
