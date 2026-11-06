@@ -9,7 +9,7 @@ modules:
     label: Social
     icon: share-2
     order: 66
-    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPublication, SocialReply]
+    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPublication, SocialInsight, SocialReply]
 
 roles:
   - name: Social Author
@@ -19,6 +19,7 @@ roles:
       - {entity: SocialAccount, read: true}
       - {entity: SocialPost, read: true, write: true, create: true}
       - {entity: SocialPublication, read: true}
+      - {entity: SocialInsight, read: true}
       - {entity: SocialMessage, read: true, write: true}
       - {entity: SocialReply, read: true, create: true}
   - name: Social Approver
@@ -28,6 +29,7 @@ roles:
       - {entity: SocialAccount, read: true}
       - {entity: SocialPost, read: true, write: true}
       - {entity: SocialPublication, read: true, export: true}
+      - {entity: SocialInsight, read: true, export: true}
       - {entity: SocialMessage, read: true, write: true}
       - {entity: SocialReply, read: true}
   - name: Social Manager
@@ -37,5 +39,6 @@ roles:
       - {entity: SocialAccount, read: true, write: true, create: true}
       - {entity: SocialPost, read: true}
       - {entity: SocialPublication, read: true, export: true}
+      - {entity: SocialInsight, read: true, export: true}
       - {entity: SocialMessage, read: true, write: true}
       - {entity: SocialReply, read: true}
