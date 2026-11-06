@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+Rebuilt with Ferrum-Frontend 24c3951: its pages show times on the workspace's clock, naming the zone when it is not the browser's, a draft numbered on submit is headed as a draft, and a record of an app that is not installed says so.
+
 ## 0.5.0
 
 What posts did, day by day (FERRUM-ECOSYSTEM-005).
