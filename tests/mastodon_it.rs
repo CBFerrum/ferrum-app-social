@@ -38,6 +38,8 @@ struct Server {
     /// How many times to drop the answer to a new status after making it (a lost reply).
     lose_answers: usize,
     notifications: Vec<Value>,
+    /// Pictures uploaded: (id, description, bytes).
+    media: Vec<(String, String, usize)>,
     /// Every request: method, path, idempotency key.
     seen: Vec<(String, String, Option<String>)>,
 }
@@ -72,6 +74,14 @@ fn answer(s: &mut Server, method: &str, path: &str, auth: Option<&str>, key: Opt
                 None => (404, json!({"error": "Record not found"}).to_string()),
             }
         }
+        ("POST", "/api/v2/media") => {
+            // A form: the file, and its description.
+            let description =
+                body.split("name=\"description\"").nth(1).and_then(|r| r.split("\r\n\r\n").nth(1)).and_then(|r| r.split("\r\n").next()).unwrap_or_default();
+            let id = format!("m{}", s.media.len() + 1);
+            s.media.push((id.clone(), description.to_string(), body.len()));
+            (200, json!({"id": id, "type": "image", "description": description}).to_string())
+        }
         ("POST", "/api/v1/statuses") => {
             if let Some(made) = key.and_then(|k| s.keys.get(k)) {
                 let status = s.statuses.iter().find(|x| x["id"] == made.as_str()).cloned().unwrap();
@@ -80,7 +90,8 @@ fn answer(s: &mut Server, method: &str, path: &str, auth: Option<&str>, key: Opt
             let b: Value = serde_json::from_str(body).unwrap_or_default();
             let id = (100 + s.statuses.len()).to_string();
             let status = json!({"id": id, "content": format!("<p>{}</p>", b["status"].as_str().unwrap_or_default()), "url": format!("https://social.example/@northwind/{id}"),
-                                "in_reply_to_id": b["in_reply_to_id"], "visibility": b["visibility"], "favourites_count": 0, "reblogs_count": 0, "replies_count": 0, "edited_at": null});
+                                "in_reply_to_id": b["in_reply_to_id"], "visibility": b["visibility"], "favourites_count": 0, "reblogs_count": 0, "replies_count": 0, "edited_at": null,
+                                "media_ids": b["media_ids"]});
             s.statuses.push(status.clone());
             if let Some(k) = key {
                 s.keys.insert(k.to_string(), id);
@@ -139,6 +150,25 @@ async fn serve(state: Arc<Mutex<Server>>) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
+/// An in-memory object store standing in for S3.
+#[derive(Default)]
+struct MemFiles(std::sync::Mutex<HashMap<String, Vec<u8>>>);
+
+#[async_trait::async_trait]
+impl ferrum_kernel::files::FileStore for MemFiles {
+    async fn put(&self, key: &str, data: &[u8]) -> ferrum_kernel::Result<()> {
+        self.0.lock().unwrap().insert(key.to_string(), data.to_vec());
+        Ok(())
+    }
+    async fn get(&self, key: &str) -> ferrum_kernel::Result<Vec<u8>> {
+        self.0.lock().unwrap().get(key).cloned().ok_or_else(|| Error::NotFound("object".into()))
+    }
+    async fn delete(&self, key: &str) -> ferrum_kernel::Result<()> {
+        self.0.lock().unwrap().remove(key);
+        Ok(())
+    }
+}
+
 struct T {
     k: Arc<Kernel>,
     admin: Ctx,
@@ -182,6 +212,7 @@ async fn scenario() {
     // The stand-in server is on this machine.
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), webhooks_allow_private: true, ..Default::default() };
     let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
+    k.set_file_store(Arc::new(MemFiles::default()));
     ferrum_domain::maintenance(&k).await.expect("partitions");
     let tenant = k
         .create_tenant(NewTenant {
@@ -204,9 +235,10 @@ async fn scenario() {
     // ───────────── the connection ─────────────
     let listed = k.connectors(&admin).await.unwrap();
     let info = listed.iter().find(|c| c.provider == "mastodon").expect("compiled in with Social");
-    assert_eq!(info.capabilities, ["publish_text", "reply", "read_messages", "read_engagement"]);
+    assert_eq!(info.capabilities, ["publish_text", "publish_image", "reply", "read_messages", "read_engagement"]);
     let mapping = json!({
-        "posts": {"entity": "SocialPublication", "fields": {"text": "text", "link": "link", "impressions": "impressions", "engagements": "engagements", "permalink": "permalink"},
+        "posts": {"entity": "SocialPublication", "fields": {"text": "text", "link": "link", "image": "image", "image_alt": "image_alt", "impressions": "impressions",
+                                                             "engagements": "engagements", "permalink": "permalink"},
                   "conflict": "source"},
         "messages": {"entity": "SocialMessage", "fields": {"account": "account_handle", "kind": "kind", "author": "author", "text": "text", "post": "post_external_id"},
                      "values": {"kind": {"comment": "Comment", "mention": "Mention", "direct": "Direct"}}},
@@ -285,6 +317,23 @@ async fn scenario() {
     tx.commit().await.unwrap();
     t.work().await;
     assert_eq!(server.lock().unwrap().statuses.len(), 1, "what is out stays as it went");
+
+    // ───────────── a picture, uploaded with what it shows ─────────────
+    let png = k.store_file(&author, None, "sage.png", "image/png", b"\x89PNG\r\n\x1a\nsage in bloom").await.unwrap();
+    let at = Utc::now() + Duration::minutes(5);
+    let pictured = json!({"headline": "Sage", "brand": brand.to_string(), "text": "Sage, in bloom.", "image": png["url"], "image_alt": "Sage flowers in a field",
+                          "scheduled_at": at.to_rfc3339(), "targets": [{"account": account.to_string()}]});
+    let pictured = uid(&k.insert(&author, "SocialPost", obj(pictured)).await.unwrap()["id"]);
+    k.run_action(&author, "SocialPost", pictured, "send_for_review", Value::Null).await.unwrap();
+    k.run_action(&admin, "SocialPost", pictured, "approve", Value::Null).await.unwrap();
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(1)).await.unwrap();
+    t.work().await;
+    let (media, status) = {
+        let s = server.lock().unwrap();
+        (s.media.clone(), s.statuses.iter().find(|x| x["content"] == "<p>Sage, in bloom.</p>").cloned().expect("the status"))
+    };
+    assert_eq!((media.len(), media[0].1.as_str()), (1, "Sage flowers in a field"), "uploaded once, saying what it shows");
+    assert_eq!(status["media_ids"], json!([media[0].0]), "the status carries it");
 
     // ───────────── the inbox, and a reply ─────────────
     server.lock().unwrap().notifications = vec![

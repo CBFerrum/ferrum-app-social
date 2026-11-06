@@ -66,10 +66,12 @@ struct Server {
     lose_answers: usize,
     /// Every request: method and route.
     seen: Vec<(String, String)>,
+    /// Blobs uploaded: (content type, bytes).
+    blobs: Vec<(String, usize)>,
 }
 
 /// The parts of the XRPC API the connector uses.
-fn answer(s: &mut Server, method: &str, path: &str, auth: Option<&str>, body: &str) -> (u16, String) {
+fn answer(s: &mut Server, method: &str, path: &str, auth: Option<&str>, ctype: Option<&str>, body: &str) -> (u16, String) {
     let (route, query) = path.split_once('?').unwrap_or((path, ""));
     let q: HashMap<String, String> = query.split('&').filter_map(|p| p.split_once('=')).map(|(k, v)| (decode(k), decode(v))).collect();
     s.seen.push((method.into(), route.into()));
@@ -107,6 +109,11 @@ fn answer(s: &mut Server, method: &str, path: &str, auth: Option<&str>, body: &s
                 return (503, json!({"error": "InternalServerError", "message": "upstream timed out"}).to_string());
             }
             (200, json!({"uri": uri, "cid": cid}).to_string())
+        }
+        ("POST", "/xrpc/com.atproto.repo.uploadBlob") => {
+            let ctype = ctype.unwrap_or_default().to_string();
+            s.blobs.push((ctype.clone(), body.len()));
+            (200, json!({"blob": {"$type": "blob", "ref": {"$link": format!("bafkrei-{}", s.blobs.len())}, "mimeType": ctype, "size": body.len()}}).to_string())
         }
         ("GET", "/xrpc/app.bsky.feed.getAuthorFeed") => {
             let mut feed: Vec<Value> = s.posts.iter().rev().filter(|p| p["record"]["reply"].is_null()).map(|p| json!({"post": p})).collect();
@@ -159,13 +166,33 @@ async fn serve(state: Arc<Mutex<Server>>) -> String {
                 let body = String::from_utf8_lossy(&buf[head_end..n]).to_string();
                 let mut line = head.lines().next().unwrap_or_default().split_whitespace();
                 let (method, path) = (line.next().unwrap_or_default().to_string(), line.next().unwrap_or_default().to_string());
-                let (code, text) = answer(&mut state.lock().unwrap(), &method, &path, header("authorization").as_deref(), &body);
+                let (code, text) =
+                    answer(&mut state.lock().unwrap(), &method, &path, header("authorization").as_deref(), header("content-type").as_deref(), &body);
                 let resp = format!("HTTP/1.1 {code} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}", text.len());
                 let _ = sock.write_all(resp.as_bytes()).await;
             });
         }
     });
     format!("http://127.0.0.1:{port}")
+}
+
+/// An in-memory object store standing in for S3.
+#[derive(Default)]
+struct MemFiles(std::sync::Mutex<HashMap<String, Vec<u8>>>);
+
+#[async_trait::async_trait]
+impl ferrum_kernel::files::FileStore for MemFiles {
+    async fn put(&self, key: &str, data: &[u8]) -> ferrum_kernel::Result<()> {
+        self.0.lock().unwrap().insert(key.to_string(), data.to_vec());
+        Ok(())
+    }
+    async fn get(&self, key: &str) -> ferrum_kernel::Result<Vec<u8>> {
+        self.0.lock().unwrap().get(key).cloned().ok_or_else(|| Error::NotFound("object".into()))
+    }
+    async fn delete(&self, key: &str) -> ferrum_kernel::Result<()> {
+        self.0.lock().unwrap().remove(key);
+        Ok(())
+    }
 }
 
 struct T {
@@ -211,6 +238,7 @@ async fn scenario() {
     // The stand-in server is on this machine.
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), webhooks_allow_private: true, ..Default::default() };
     let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
+    k.set_file_store(Arc::new(MemFiles::default()));
     ferrum_domain::maintenance(&k).await.expect("partitions");
     let tenant = k
         .create_tenant(NewTenant {
@@ -233,9 +261,10 @@ async fn scenario() {
     // ───────────── the connection ─────────────
     let listed = k.connectors(&admin).await.unwrap();
     let info = listed.iter().find(|c| c.provider == "bluesky").expect("compiled in with Social");
-    assert_eq!(info.capabilities, ["publish_text", "reply", "read_messages", "read_engagement"]);
+    assert_eq!(info.capabilities, ["publish_text", "publish_image", "reply", "read_messages", "read_engagement"]);
     let mapping = json!({
-        "posts": {"entity": "SocialPublication", "fields": {"text": "text", "link": "link", "impressions": "impressions", "engagements": "engagements", "permalink": "permalink"},
+        "posts": {"entity": "SocialPublication", "fields": {"text": "text", "link": "link", "image": "image", "image_alt": "image_alt", "impressions": "impressions",
+                                                             "engagements": "engagements", "permalink": "permalink"},
                   "conflict": "source"},
         "messages": {"entity": "SocialMessage", "fields": {"account": "account_handle", "kind": "kind", "author": "author", "text": "text", "post": "post_external_id"},
                      "values": {"kind": {"comment": "Comment", "mention": "Mention", "direct": "Direct"}}},
@@ -315,6 +344,28 @@ async fn scenario() {
     k.sync_connection(&admin, conn, false).await.unwrap();
     t.work().await;
     assert_eq!(server.lock().unwrap().opened, 2);
+
+    // ───────────── a picture, embedded with what it shows ─────────────
+    let png = k.store_file(&author, None, "sage.png", "image/png", b"\x89PNG\r\n\x1a\nsage in bloom").await.unwrap();
+    let at = Utc::now() + Duration::minutes(5);
+    let pictured = json!({"headline": "Sage", "brand": brand.to_string(), "text": "Sage, in bloom.", "image": png["url"], "image_alt": "Sage flowers in a field",
+                          "scheduled_at": at.to_rfc3339(), "targets": [{"account": account.to_string()}]});
+    let pictured = uid(&k.insert(&author, "SocialPost", obj(pictured)).await.unwrap()["id"]);
+    k.run_action(&author, "SocialPost", pictured, "send_for_review", Value::Null).await.unwrap();
+    k.run_action(&admin, "SocialPost", pictured, "approve", Value::Null).await.unwrap();
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(1)).await.unwrap();
+    t.work().await;
+    let (blobs, post) = {
+        let s = server.lock().unwrap();
+        (s.blobs.clone(), s.posts.iter().find(|p| p["record"]["text"] == "Sage, in bloom.").cloned().expect("the post"))
+    };
+    assert_eq!((blobs.len(), blobs[0].0.as_str()), (1, "image/png"), "uploaded once, as what it is");
+    let image = &post["record"]["embed"]["images"][0];
+    assert_eq!(
+        (post["record"]["embed"]["$type"].as_str(), image["alt"].as_str(), image["image"]["ref"]["$link"].as_str()),
+        (Some("app.bsky.embed.images"), Some("Sage flowers in a field"), Some("bafkrei-1")),
+        "embedded, saying what it shows"
+    );
 
     // ───────────── the inbox, and a reply in its thread ─────────────
     let pat_reply = json!({"uri": "at://did:plc:pat/app.bsky.feed.post/r1", "cid": "c-r1", "author": {"did": "did:plc:pat", "handle": "pat.bsky.social"},
