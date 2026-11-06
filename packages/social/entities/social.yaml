@@ -23,7 +23,7 @@
     - {name: network, type: select, options: [LinkedIn, X, Mastodon, Bluesky, Threads, Facebook, Instagram, YouTube], required: true, in_list: true, in_filter: true}
     - {name: handle, type: data, required: true, description: "The account's name on the network, without @"}
     - {name: connection, type: data, required: true, description: "The connection that reaches it: its name, as Administration, Connections shows it, or its id"}
-    - {name: active, type: check, default: 1, in_list: true}
+    - {name: active, type: check, default: true, in_list: true}
   list: {columns: [account_name, brand, network, active], sort: account_name asc}
 
 - name: SocialTarget
