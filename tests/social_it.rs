@@ -15,6 +15,7 @@ use ferrum_kernel::tenant::NewTenant;
 use ferrum_kernel::{Ctx, Db, DbConfig, Doc, Error, HookRegistry, Kernel, KernelSettings, ListQuery, Result};
 use ferrum_meta::Catalog;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -98,6 +99,25 @@ impl Connector for Network {
     }
 }
 
+/// An in-memory object store standing in for S3.
+#[derive(Default)]
+struct MemFiles(std::sync::Mutex<HashMap<String, Vec<u8>>>);
+
+#[async_trait::async_trait]
+impl ferrum_kernel::files::FileStore for MemFiles {
+    async fn put(&self, key: &str, data: &[u8]) -> ferrum_kernel::Result<()> {
+        self.0.lock().unwrap().insert(key.to_string(), data.to_vec());
+        Ok(())
+    }
+    async fn get(&self, key: &str) -> ferrum_kernel::Result<Vec<u8>> {
+        self.0.lock().unwrap().get(key).cloned().ok_or_else(|| Error::NotFound("object".into()))
+    }
+    async fn delete(&self, key: &str) -> ferrum_kernel::Result<()> {
+        self.0.lock().unwrap().remove(key);
+        Ok(())
+    }
+}
+
 struct T {
     k: Arc<Kernel>,
     tenant: Uuid,
@@ -176,11 +196,15 @@ async fn scenario() {
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
     ferrum_app_social::register(&mut hooks);
-    let all = ["publish_text", "reply", "read_messages", "read_insights"].map(String::from).to_vec();
+    let all = ["publish_text", "publish_image", "reply", "read_messages", "read_insights"].map(String::from).to_vec();
     hooks.add_connector(Arc::new(Network { provider: "network", capabilities: all, world: world.clone() }));
     hooks.add_connector(Arc::new(Network { provider: "reader", capabilities: vec!["read_messages".into()], world: reader.clone() }));
+    // One that publishes words alone.
+    let words = vec!["publish_text".to_string(), "reply".to_string()];
+    hooks.add_connector(Arc::new(Network { provider: "texter", capabilities: words, world: Arc::new(Mutex::new(World::default())) }));
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
     let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
+    k.set_file_store(Arc::new(MemFiles::default()));
     ferrum_domain::maintenance(&k).await.expect("partitions");
     let tenant = k
         .create_tenant(NewTenant {
@@ -203,6 +227,7 @@ async fn scenario() {
     let on_x = t.connect("network", "Northwind on X").await;
     let on_masto = t.connect("network", "Northwind on Mastodon").await;
     let reading = t.connect("reader", "Northwind on LinkedIn").await;
+    let texting = t.connect("texter", "Northwind on Threads").await;
 
     // ───────────── brands and their accounts ─────────────
     let northwind = uid(&t.insert(&manager, "SocialBrand", json!({"brand_name": "Northwind"})).await["id"]);
@@ -219,6 +244,7 @@ async fn scenario() {
     paused["active"] = json!(false);
     let nw_bsky = uid(&t.insert(&manager, "SocialAccount", paused).await["id"]);
     let co_x = uid(&t.insert(&manager, "SocialAccount", account("Contoso X", contoso, "X", "contoso", on_x)).await["id"]);
+    let nw_threads = uid(&t.insert(&manager, "SocialAccount", account("Northwind Threads", northwind, "Threads", "northwind", texting)).await["id"]);
     t.insert(&manager, "SocialAccount", account("Contoso Mastodon", contoso, "Mastodon", "contoso", on_masto)).await;
     refused(t.k.insert(&author, "SocialAccount", obj(account("Mine", northwind, "X", "mine", on_x))).await, "forbidden", "");
 
@@ -236,6 +262,26 @@ async fn scenario() {
     let mut bad_link = post("Spring is here", &[nw_x]);
     bad_link["link"] = json!("northwind dot example");
     refused(t.k.insert(&author, "SocialPost", obj(bad_link)).await, "invalid", "is a web address");
+    // A picture: stored here, saying what it shows, to accounts whose connections publish pictures;
+    // with one, Instagram takes the post.
+    let png = t.k.store_file(&author, None, "spring.png", "image/png", b"\x89PNG\r\n\x1a\nspring").await.unwrap();
+    let pictured = |targets: &[Uuid], alt: Option<&str>| {
+        let mut p = post("Spring in bloom", targets);
+        p["image"] = png["url"].clone();
+        p["image_alt"] = json!(alt);
+        p
+    };
+    refused(t.k.insert(&author, "SocialPost", obj(pictured(&[nw_insta], None))).await, "invalid", "says what the picture shows");
+    refused(
+        t.k.insert(&author, "SocialPost", obj(pictured(&[nw_threads], Some("Sage in bloom")))).await,
+        "invalid",
+        "Northwind Threads's connection cannot publish pictures",
+    );
+    let mut elsewhere = pictured(&[nw_insta], Some("Sage in bloom"));
+    elsewhere["image"] = json!("https://elsewhere.example/sage.png");
+    refused(t.k.insert(&author, "SocialPost", obj(elsewhere)).await, "invalid", "is a picture stored here");
+    let insta = t.insert(&author, "SocialPost", pictured(&[nw_insta], Some("Sage in bloom"))).await;
+    t.k.delete(&t.admin, "SocialPost", uid(&insta["id"]), None).await.unwrap();
     let spring = t.insert(&author, "SocialPost", post("Spring is here: new colours, same quality.", &[nw_x, nw_masto])).await;
     let id = uid(&spring["id"]);
     assert_eq!((spring["author"].as_str(), spring["status"].as_str()), (Some("author@brands.test"), Some("Draft")));
