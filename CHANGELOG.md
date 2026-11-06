@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+Best times to post (FERRUM-ECOSYSTEM-005).
+
+- **Social Best Times to Post** (report `social_best_times`) ranks the weekday and hour posts went
+  out at, on the workspace's clock, by their engagements on average. Each slot shows its posts,
+  its engagements and impressions a post, and its engagement rate. It covers the last 90 days
+  unless a span is given, for everything, a brand or an account.
+- The home page links to it beside Day by day.
+
 ## 0.5.1
 
 Rebuilt with Ferrum-Frontend 24c3951: its pages show times on the workspace's clock, naming the zone when it is not the browser's, a draft numbered on submit is headed as a draft, and a record of an app that is not installed says so.
