@@ -29,6 +29,7 @@ jobs:
       CARGO_TERM_COLOR: always
       FERRUM_SOCIAL_TEST_DATABASE_URL: postgres://ferrum:ferrum@localhost:5432/ferrum_social_test
       FERRUM_MASTODON_TEST_DATABASE_URL: postgres://ferrum:ferrum@localhost:5432/ferrum_mastodon_test
+      FERRUM_BLUESKY_TEST_DATABASE_URL: postgres://ferrum:ferrum@localhost:5432/ferrum_bluesky_test
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -42,6 +43,7 @@ jobs:
           create role ferrum login password 'ferrum';
           create database ferrum_social_test owner ferrum;
           create database ferrum_mastodon_test owner ferrum;
+          create database ferrum_bluesky_test owner ferrum;
           SQL
       - run: cargo fmt -- --check
       - run: cargo clippy --all-targets -- -D warnings

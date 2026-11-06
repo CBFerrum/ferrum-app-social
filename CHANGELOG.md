@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+A connector for Bluesky (FERRUM-ECOSYSTEM-005).
+
+- **Connection:** a server (bsky.social by default) and the account's handle and app password. A
+  session is kept for an hour and opened again when the server stops taking it.
+- **Posts:** sent as `app.bsky.feed.post` records, the link made a link facet, under a record key
+  made from the delivery's key. A send tried again finds the post already there instead of making a
+  second.
+- **Reading back:** posts come back from the account's own posts, reposts left out, with likes,
+  reposts, replies and quotes as engagements. Replies are read as comments, and mentions and quotes
+  as mentions; likes are left out.
+- **Replies:** sent in the thread of what they answer.
+- **Refusals:** the server's become the platform's: its rate limit means waiting, an expired session
+  means opening another.
+
 ## 0.2.5
 
 Rebuilt with Ferrum-Frontend 00dea07: in a workflow state that names what may change, the other fields show read-only, and the fields the state needs show required.
