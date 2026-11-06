@@ -44,6 +44,10 @@ connections:
   The report Social Engagement by Day, linked from the home page, shows what each day added, for
   everything, a brand or an account: each day's numbers less the publication's day before, with
   every day of the span listed.
+- **Best times to post.** The report Social Best Times to Post ranks the weekday and hour posts
+  went out at, on the workspace's clock, by their engagements on average. It covers the last 90
+  days unless given a span, for everything, a brand or an account, with each slot's engagement
+  rate.
 - **The inbox.** Comments, mentions and direct messages come to the account whose handle they name.
   A message assigned says to whom. A reply goes back through the message's account's connection to
   the network's own message, and the message is answered.
@@ -135,13 +139,15 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
   account (Ferrum's FERRUM-CONNECT-002).
 - Mastodon's polls, content warnings, and editing a status once out.
 - Video, more than one picture, threads, polls, and first comments.
-- Best times to post. The history starts when Social first reads a post, and a day's numbers are
-  whatever the last reading that day found, so a day nobody read shows nothing.
+- The history starts when Social first reads a post, and a day's numbers are whatever the last
+  reading that day found, so a day nobody read shows nothing. Best times rank what posts did by
+  the hour they went out; they do not account for the audience's own time zones.
 
 ## Changelog
 
 | Version | Highlights |
 |---|---|
+| **0.6.0** | Best times to post: the weekday and hour posts went out at, ranked by their engagements on average. |
 | **0.5.1** | Rebuilt with Ferrum-Frontend 24c3951: times on the workspace's clock; drafts headed as drafts. |
 | **0.5.0** | What posts did, day by day: Daily Insights keep each day's numbers, and the report Social Engagement by Day shows what each day added. |
 | **0.4.0** | Pictures on posts, with what they show: Mastodon's media and Bluesky's embedded images; Instagram takes a post with its picture. Rebuilt with Ferrum-Frontend bb60115. |

@@ -429,6 +429,43 @@ async fn scenario() {
     let backwards = HashMap::from([("from_date".to_string(), today.to_string()), ("to_date".to_string(), yesterday.to_string())]);
     refused(ferrum_domain::reports::run(&k, &approver, "social_engagement_by_day", &backwards).await, "invalid", "after the to date");
 
+    // ───────────── the best times to post ─────────────
+    // The two publications as if sent on a Monday morning and a Tuesday evening (the workspace's
+    // clock is UTC here); only the first was read back with numbers.
+    let masto_pub = uid(&publications.iter().find(|p| uid(&p["account"]) == nw_masto).unwrap()["id"]);
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    for (publication, sent) in [(x_pub, "2026-06-01T09:15:00Z"), (masto_pub, "2026-06-02T18:40:00Z")] {
+        sqlx::query("update e_social_publication set sent_at = $3::timestamptz where tenant_id = $1 and id = $2")
+            .bind(t.tenant)
+            .bind(publication)
+            .bind(sent)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    tx.commit().await.unwrap();
+    let span = HashMap::from([("from_date".to_string(), "2026-05-30".to_string()), ("to_date".to_string(), "2026-06-05".to_string())]);
+    let best = ferrum_domain::reports::run(&k, &author, "social_best_times", &span).await.expect("the best times");
+    let rows: Vec<(String, String, i64, f64, Value)> = best["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["weekday"].as_str().unwrap().into(),
+                r["hour"].as_str().unwrap().into(),
+                r["publications"].as_i64().unwrap(),
+                r["engagements"].as_f64().unwrap(),
+                r["rate"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![("Monday".to_string(), "09:00".to_string(), 1, 99.0, json!(5.5)), ("Tuesday".to_string(), "18:00".to_string(), 1, 0.0, Value::Null)],
+        "best first: 99 engagements of 1800 impressions; a post with no numbers last"
+    );
+
     // ───────────── the inbox ─────────────
     world.lock().unwrap().messages = vec![
         ("m-1".into(), "northwind".into(), "comment".into(), "pat".into(), "Is sage in stock?".into(), Some(on_x_id.clone())),
