@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+Pictures on posts (FERRUM-ECOSYSTEM-005).
+
+- A post may carry a picture stored here, with what it shows (required with a picture, for people
+  who cannot see it). Approval covers both, and publications carry them.
+- Mastodon uploads it as a media attachment (`POST /api/v2/media`) with that description, and the
+  status carries it. Bluesky uploads it as a blob and embeds it as an image with that alt text,
+  within its 1 MB. Both connectors now offer `publish_image`.
+- A post with a picture goes only to accounts whose connection publishes pictures. Instagram takes
+  a post with its picture; YouTube still takes video, which posts do not carry.
+- Rebuilt with Ferrum-Frontend bb60115: empty numbers read as the server does, and settings open as
+  their one record.
+
 ## 0.3.0
 
 A connector for Bluesky (FERRUM-ECOSYSTEM-005).

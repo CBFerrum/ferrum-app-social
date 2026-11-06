@@ -3,7 +3,8 @@
 //! (`{"instance": "https://mastodon.social"}`) and its credentials hold an access token of the
 //! account with the read and write scopes. Through the platform's connections:
 //! * `posts`: sent as new statuses (`POST /api/v1/statuses`, with the delivery's key as Mastodon's
-//!   `Idempotency-Key`, so a retried send is one status), and read back from the account's own
+//!   `Idempotency-Key`, so a retried send is one status), a post's picture uploaded first
+//!   (`POST /api/v2/media`, with what it shows as its description), and read back from the account's own
 //!   statuses with what they did: favourites, boosts and replies as engagements. Mastodon counts no
 //!   impressions.
 //! * `messages`: mentions of the account (`GET /api/v1/notifications?types[]=mention`), each a
@@ -90,6 +91,29 @@ impl Mastodon {
         Err(failure(status, path, reset, &text))
     }
 
+    /// A picture uploaded as a media attachment, with what it shows as its description: its id.
+    async fn upload(k: &Kernel, c: &Connection, (name, ctype, bytes, alt): (String, String, Vec<u8>, String)) -> Result<String> {
+        let url = format!("{}/api/v2/media", Self::base(c)?);
+        let (client, url) = k.vetted_client(&url, k.settings.webhooks_allow_private, Duration::from_secs(60), "Ferrum Social").await?;
+        let file = reqwest::multipart::Part::bytes(bytes).file_name(name).mime_str(&ctype).map_err(|e| Error::invalid(format!("the picture's type: {e}")))?;
+        let form = reqwest::multipart::Form::new().part("file", file).text("description", alt);
+        let answer = client
+            .post(url)
+            .bearer_auth(Self::token(c)?)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| Error::Unavailable(format!("Mastodon cannot be reached: {e}")))?;
+        let status = answer.status().as_u16();
+        let reset = answer.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
+        let text = answer.text().await.unwrap_or_default();
+        if !(200..300).contains(&status) {
+            return Err(failure(status, "/api/v2/media", reset, &text));
+        }
+        let media: Value = serde_json::from_str(&text).map_err(|e| Error::Unavailable(format!("Mastodon answered something else than JSON: {e}")))?;
+        media["id"].as_str().map(str::to_string).ok_or_else(|| Error::Unavailable("Mastodon gave no id for the picture".into()))
+    }
+
     /// The account the token is for.
     async fn me(k: &Kernel, c: &Connection) -> Result<Value> {
         Self::call(k, c, reqwest::Method::GET, "/api/v1/accounts/verify_credentials", None, None).await
@@ -118,7 +142,7 @@ impl Connector for Mastodon {
             writes: vec!["SocialPublication".into(), "SocialReply".into()],
             webhooks: false,
             requirements: "An access token of the account, with the read and write scopes, from its Mastodon server".into(),
-            capabilities: vec!["publish_text".into(), "reply".into(), "read_messages".into(), "read_engagement".into()],
+            capabilities: vec!["publish_text".into(), "publish_image".into(), "reply".into(), "read_messages".into(), "read_engagement".into()],
         }
     }
 
@@ -210,7 +234,11 @@ impl Connector for Mastodon {
             json!({"status": status, "in_reply_to_id": to, "visibility": visibility})
         } else {
             let link = change.fields.get("link").and_then(Value::as_str).filter(|l| !l.is_empty());
-            json!({"status": match link { Some(l) => format!("{text} {l}"), None => text.to_string() }, "visibility": "public"})
+            let mut status = json!({"status": match link { Some(l) => format!("{text} {l}"), None => text.to_string() }, "visibility": "public"});
+            if let Some(picture) = crate::picture(k, c, change).await? {
+                status["media_ids"] = json!([Self::upload(k, c, picture).await?]);
+            }
+            status
         };
         let made = Self::call(k, c, reqwest::Method::POST, "/api/v1/statuses", Some(body), Some(&change.key)).await?;
         made["id"].as_str().map(str::to_string).ok_or_else(|| Error::Unavailable("Mastodon gave no id for the status".into()))

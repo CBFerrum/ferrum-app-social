@@ -100,6 +100,21 @@ pub(crate) async fn connection(tx: &mut Tx, tenant: Uuid, id: Uuid) -> Result<Op
 }
 
 /// What a connection's provider says it can do (`publish_text`, `reply` ...).
+/// The picture a post carries, as a connector sends it: (file name, content type, bytes, what it
+/// shows), read from where it is stored; nothing for a post without one.
+pub(crate) async fn picture(
+    k: &Kernel,
+    c: &ferrum_kernel::connect::Connection,
+    change: &ferrum_kernel::connect::Outgoing,
+) -> Result<Option<(String, String, Vec<u8>, String)>> {
+    let Some(url) = change.fields.get("image").and_then(Value::as_str).filter(|u| !u.is_empty()) else { return Ok(None) };
+    let file: Uuid = url.strip_prefix("/files/").and_then(|f| f.parse().ok()).ok_or_else(|| Error::invalid("a post's picture is a file stored here"))?;
+    let ctx = Ctx::system(c.tenant, k.registry.schema(c.tenant).await?);
+    let (name, ctype, bytes) = k.read_file(&ctx, file).await?;
+    let alt = change.fields.get("image_alt").and_then(Value::as_str).unwrap_or_default().to_string();
+    Ok(Some((name, ctype, bytes, alt)))
+}
+
 pub(crate) async fn capabilities(k: &Kernel, tenant: Uuid, provider: &str) -> Result<Vec<String>> {
     if let Some(c) = k.hooks.connectors().find(|c| c.info().provider == provider) {
         return Ok(c.info().capabilities);

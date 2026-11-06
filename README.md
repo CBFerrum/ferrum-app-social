@@ -23,8 +23,13 @@ connections:
   account's own connection and through no other.
 - **What each network takes.** A post must fit every account it goes to: 280 characters on X (a
   link counting as 23), 300 on Bluesky, 500 on Mastodon and Threads, 3,000 on LinkedIn. Instagram
-  and YouTube take media, which posts here do not carry yet. The account's connection must say it
-  can `publish_text`, and replying needs `reply`.
+  takes a post with its picture; YouTube takes video, which posts here do not carry. The account's
+  connection must say it can `publish_text`, a post with a picture needs `publish_image`, and
+  replying needs `reply`.
+- **Pictures.** A post may carry a picture stored here, with what it shows for people who cannot
+  see it, which every picture needs. Approval covers both. Mastodon gets the picture as a media
+  attachment with that description, and Bluesky as an embedded image with it as alt text, within
+  its 1 MB.
 - **Review.** Someone other than the author approves a post, or sends it back saying why. A post
   changed after its approval needs approving again; its headline is the team's own and changes
   freely. A post that went out stays as it went.
@@ -80,7 +85,7 @@ it says (`Retry-After`), or five minutes.
 
 ```json
 {
-  "posts": {"entity": "SocialPublication", "fields": {"text": "text", "link": "link", "impressions": "impressions",
+  "posts": {"entity": "SocialPublication", "fields": {"text": "text", "link": "link", "image": "image", "image_alt": "image_alt", "impressions": "impressions",
             "engagements": "engagements", "permalink": "permalink"}, "conflict": "source"},
   "messages": {"entity": "SocialMessage", "fields": {"account": "account_handle", "kind": "kind", "author": "author",
                "text": "text", "post": "post_external_id"}, "values": {"kind": {"comment": "Comment", "mention": "Mention", "direct": "Direct"}}},
@@ -122,14 +127,15 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
   (its chat) are not read.
 - Connectors for X, LinkedIn, Threads, Instagram and YouTube: each takes its API and an approved
   account (Ferrum's FERRUM-CONNECT-002).
-- Mastodon's media, polls, content warnings and editing a status once out.
-- Images and video, threads, polls, and first comments.
+- Mastodon's polls, content warnings, and editing a status once out.
+- Video, more than one picture, threads, polls, and first comments.
 - Best times to post, and analytics over time rather than the latest numbers.
 
 ## Changelog
 
 | Version | Highlights |
 |---|---|
+| **0.4.0** | Pictures on posts, with what they show: Mastodon's media and Bluesky's embedded images; Instagram takes a post with its picture. Rebuilt with Ferrum-Frontend bb60115. |
 | **0.3.0** | A connector for Bluesky: posts with their links, read back with their engagements, replies, mentions and quotes, and replies in their threads. |
 | **0.2.5** | Rebuilt with Ferrum-Frontend 00dea07: a workflow state's kept fields are read-only, its needed ones required. |
 | **0.2.4** | Rebuilt with Ferrum-Frontend daeadda: actions say what they did. |

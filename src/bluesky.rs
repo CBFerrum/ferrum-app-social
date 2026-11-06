@@ -5,7 +5,9 @@
 //! A session is opened with them (`com.atproto.server.createSession`) and kept for an hour, since
 //! servers limit how often one is opened; an expired one is opened again. Through the platform's
 //! connections:
-//! * `posts`: sent as `app.bsky.feed.post` records, a link made a link facet, under a record key
+//! * `posts`: sent as `app.bsky.feed.post` records, a link made a link facet, a picture uploaded as a
+//!   blob (`com.atproto.repo.uploadBlob`, within Bluesky's 1 MB) and embedded with what it shows as
+//!   its alt text, under a record key
 //!   made from the delivery's key: a retried send finds the record already there
 //!   (`com.atproto.repo.getRecord`) rather than making a second. Read back from the account's own
 //!   posts without reposts, with likes, reposts, replies and quotes as engagements. Bluesky counts
@@ -28,6 +30,8 @@ use uuid::Uuid;
 
 /// Posts and notifications a page.
 const PAGE: usize = 50;
+/// The largest picture Bluesky takes, in bytes.
+pub(crate) const MAX_PICTURE: usize = 1_000_000;
 /// How long an opened session is used before another is opened.
 const SESSION_FOR: Duration = Duration::from_secs(3600);
 const POST: &str = "app.bsky.feed.post";
@@ -193,6 +197,43 @@ impl Bluesky {
         }
     }
 
+    /// A picture uploaded as a blob in the connection's session (opened again once when the server
+    /// no longer takes it): the blob to embed.
+    async fn blob(k: &Kernel, c: &Connection, ctype: &str, bytes: Vec<u8>) -> Result<Value> {
+        if bytes.len() > MAX_PICTURE {
+            return Err(Error::invalid(format!("Bluesky takes pictures up to 1 MB, and this one is {} KB", bytes.len().div_ceil(1000))));
+        }
+        let url = format!("{}/xrpc/com.atproto.repo.uploadBlob", Self::base(c));
+        let (client, url) = k.vetted_client(&url, k.settings.webhooks_allow_private, Duration::from_secs(60), "Ferrum Social").await?;
+        for attempt in 0..2 {
+            let s = Self::session(k, c).await?;
+            let answer = client
+                .post(url.clone())
+                .bearer_auth(&s.jwt)
+                .header(reqwest::header::CONTENT_TYPE, ctype)
+                .body(bytes.clone())
+                .send()
+                .await
+                .map_err(|e| Error::Unavailable(format!("Bluesky cannot be reached: {e}")))?;
+            let status = answer.status().as_u16();
+            let reset = answer.headers().get("ratelimit-reset").and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
+            let text = answer.text().await.unwrap_or_default();
+            if (200..300).contains(&status) {
+                let made: Value = serde_json::from_str(&text).unwrap_or_default();
+                return made.get("blob").cloned().ok_or_else(|| Error::Unavailable("Bluesky gave no blob for the picture".into()));
+            }
+            match failure(status, "com.atproto.repo.uploadBlob", reset, &text) {
+                Error::Unauthorized(_) if attempt == 0 => {
+                    if let Ok(mut m) = SESSIONS.lock() {
+                        m.remove(&c.id);
+                    }
+                }
+                e => return Err(e),
+            }
+        }
+        Err(Error::Unauthorized("Bluesky refused the session".into()))
+    }
+
     /// What the next page starts after: the server's cursor, when the page was full.
     fn next(items: &[Value], cursor: &Value) -> Option<String> {
         (items.len() >= PAGE).then(|| cursor.as_str().filter(|c| !c.is_empty()).map(str::to_string)).flatten()
@@ -211,7 +252,7 @@ impl Connector for Bluesky {
             writes: vec!["SocialPublication".into(), "SocialReply".into()],
             webhooks: false,
             requirements: "The account's handle and an app password made for it (Bluesky's Settings, Privacy and security, App passwords)".into(),
-            capabilities: vec!["publish_text".into(), "reply".into(), "read_messages".into(), "read_engagement".into()],
+            capabilities: vec!["publish_text".into(), "publish_image".into(), "reply".into(), "read_messages".into(), "read_engagement".into()],
         }
     }
 
@@ -327,6 +368,10 @@ impl Connector for Bluesky {
             record["text"] = json!(full);
             if let Some(f) = facets {
                 record["facets"] = f;
+            }
+            if let Some((_, ctype, bytes, alt)) = crate::picture(k, c, change).await? {
+                let blob = Self::blob(k, c, &ctype, bytes).await?;
+                record["embed"] = json!({"$type": "app.bsky.embed.images", "images": [{"alt": alt, "image": blob}]});
             }
         }
         let body = json!({"repo": s.did, "collection": POST, "rkey": key, "record": record});
