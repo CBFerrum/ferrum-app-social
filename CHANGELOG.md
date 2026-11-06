@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3
+
+Rebuilt with Ferrum-Frontend 63280d3: right to left, its pages mirror as they read (icons that point along the line, margins and alignment by the line's start and end, arrow keys along it), and the records pages' words are in Arabic and Hindi.
+
 ## 0.6.2
 
 Rebuilt with Ferrum-Frontend a64416a: a new record's box whose default is 1 shows ticked, as it is saved. An action's dialog says every refusal, the errors on what the action made (another record's rows) among them, and an action with parameters and a confirmation asks once. A new account's Active box is ticked, as it is saved: its default was the number 1, which the form showed unticked.
