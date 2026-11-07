@@ -4,7 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api, docPath } from "@ferrum/client";
+import { api, docPath, t as tr } from "@ferrum/client";
 import { Badge, ErrorState, PageLoading, useShellTitle } from "@ferrum/kit";
 
 export interface Row {
@@ -62,12 +62,12 @@ export function Home() {
   return (
     <div className="np-page stack">
       <header className="row" style={{ justifyContent: "space-between" }}>
-        <h2>Social</h2>
-        <Link to="/e/SocialPost/new">New post</Link>
+        <h2>{tr("Social")}</h2>
+        <Link to="/e/SocialPost/new">{tr("New post")}</Link>
       </header>
-      <section className="card card-pad stack" aria-label="Waiting for approval">
-        <h3>Waiting for approval</h3>
-        {waiting.data!.length === 0 && <p className="faint">Nothing waits.</p>}
+      <section className="card card-pad stack" aria-label={tr("Waiting for approval")}>
+        <h3>{tr("Waiting for approval")}</h3>
+        {waiting.data!.length === 0 && <p className="faint">{tr("Nothing waits.")}</p>}
         <ul className="stack">
           {waiting.data!.map((p) => (
             <li key={p.id}>
@@ -76,9 +76,9 @@ export function Home() {
           ))}
         </ul>
       </section>
-      <section className="card card-pad stack" aria-label="Coming">
-        <h3>Coming</h3>
-        {coming.data!.length === 0 && <p className="faint">Nothing is scheduled.</p>}
+      <section className="card card-pad stack" aria-label={tr("Coming")}>
+        <h3>{tr("Coming")}</h3>
+        {coming.data!.length === 0 && <p className="faint">{tr("Nothing is scheduled.")}</p>}
         {byDay(coming.data!).map(([day, posts]) => (
           <div key={day} className="stack">
             <strong>{day}</strong>
@@ -93,12 +93,12 @@ export function Home() {
           </div>
         ))}
       </section>
-      <section className="card card-pad stack" aria-label="Inbox">
+      <section className="card card-pad stack" aria-label={tr("Inbox")}>
         <header className="row" style={{ justifyContent: "space-between" }}>
-          <h3>Inbox</h3>
-          <Link to="/e/SocialMessage">All messages</Link>
+          <h3>{tr("Inbox")}</h3>
+          <Link to="/e/SocialMessage">{tr("All messages")}</Link>
         </header>
-        {inbox.data!.length === 0 && <p className="faint">Every message is answered.</p>}
+        {inbox.data!.length === 0 && <p className="faint">{tr("Every message is answered.")}</p>}
         <ul className="stack">
           {inbox.data!.map((m) => (
             <li key={m.id}>
@@ -107,22 +107,22 @@ export function Home() {
           ))}
         </ul>
       </section>
-      <section className="card card-pad stack" aria-label="What posts did">
+      <section className="card card-pad stack" aria-label={tr("What posts did")}>
         <header className="row" style={{ justifyContent: "space-between" }}>
-          <h3>What posts did</h3>
+          <h3>{tr("What posts did")}</h3>
           <span className="row" style={{ gap: 12 }}>
-            <Link to="/r/social_engagement_by_day">Day by day</Link>
-            <Link to="/r/social_best_times">Best times to post</Link>
+            <Link to="/r/social_engagement_by_day">{tr("Day by day")}</Link>
+            <Link to="/r/social_best_times">{tr("Best times to post")}</Link>
           </span>
         </header>
         <table className="table">
           <thead>
             <tr>
-              <th>Brand</th>
-              <th>Posts out</th>
-              <th>Impressions</th>
-              <th>Engagements</th>
-              <th>Rate</th>
+              <th>{tr("Brand")}</th>
+              <th>{tr("Posts out")}</th>
+              <th>{tr("Impressions")}</th>
+              <th>{tr("Engagements")}</th>
+              <th>{tr("Rate")}</th>
             </tr>
           </thead>
           <tbody>
