@@ -1,6 +1,6 @@
 id: social
 name: Social
-version: 0.6.6
+version: 0.6.7
 publisher: cbferrum
 summary: "Brands' social accounts: posts approved by someone else and sent at their time within each network's limits, the inbox answered, and what each post did"
 description: README.md
@@ -29,3 +29,15 @@ contributes:
     - {id: social, package: social, path: "social/e/{entity}/{id}", list: "social/e/{entity}"}
   shell.create:
     - {id: post, label: Social Post, path: social/e/SocialPost/new, entity: SocialPost}
+  # What the assistant should know in Social's pages, and what it suggests asking there.
+  shell.assistant:
+    - id: social
+      title: "Social"
+      instructions: >-
+        A SocialPost (Draft, In Review, Approved, Rejected, Sending, Published) is approved by someone other than its
+        author and sent at its time to the brand's accounts. SocialPublication is each network's copy, and
+        SocialInsight what it did. A SocialMessage (New, Assigned, Answered, Closed) is the inbox.
+      suggestions:
+        - "Which posts wait for approval?"
+        - "How did last week's posts do?"
+        - "Which messages have not been answered?"
