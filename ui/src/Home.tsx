@@ -4,7 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api, docPath, t as tr } from "@ferrum/client";
+import { api, docPath, t as tr, isolate } from "@ferrum/client";
 import { Badge, ErrorState, PageLoading, useShellTitle } from "@ferrum/kit";
 
 export interface Row {
@@ -47,7 +47,7 @@ export function totals(publications: Row[], accounts: Row[]): Map<string, { post
 }
 
 export function Home() {
-  useShellTitle("Social");
+  useShellTitle(tr("Social"));
   const waiting = useQuery({ queryKey: ["social", "waiting"], queryFn: () => list("SocialPost", [["status", "=", "In Review"]], { sort: "scheduled_at asc" }) });
   const coming = useQuery({ queryKey: ["social", "coming"], queryFn: () => list("SocialPost", [["status", "in", ["Approved", "Sending"]]], { sort: "scheduled_at asc" }) });
   const inbox = useQuery({ queryKey: ["social", "inbox"], queryFn: () => list("SocialMessage", [["status", "in", ["New", "Assigned"]]]) });
@@ -71,7 +71,7 @@ export function Home() {
         <ul className="stack">
           {waiting.data!.map((p) => (
             <li key={p.id}>
-              <Link to={`/e/SocialPost/${p.id}`}>{String(p.headline)}</Link> <span className="faint">by {String(p.author ?? "")}</span>
+              <Link to={`/e/SocialPost/${p.id}`}>{isolate(String(p.headline))}</Link> <span className="faint">{tr("by {value}", { value: String(p.author ?? "") })}</span>
             </li>
           ))}
         </ul>
@@ -81,12 +81,12 @@ export function Home() {
         {coming.data!.length === 0 && <p className="faint">{tr("Nothing is scheduled.")}</p>}
         {byDay(coming.data!).map(([day, posts]) => (
           <div key={day} className="stack">
-            <strong>{day}</strong>
+            <strong>{isolate(day)}</strong>
             <ul className="stack">
               {posts.map((p) => (
                 <li key={p.id}>
-                  {String(p.scheduled_at ?? "").slice(11, 16)} <Link to={`/e/SocialPost/${p.id}`}>{String(p.headline)}</Link>{" "}
-                  <Badge tone={p.status === "Sending" ? "amber" : "green"}>{String(p.status)}</Badge>
+                  {isolate(String(p.scheduled_at ?? "").slice(11, 16))} <Link to={`/e/SocialPost/${p.id}`}>{isolate(String(p.headline))}</Link>{isolate(" ")}
+                  <Badge tone={p.status === "Sending" ? "amber" : "green"}>{isolate(String(p.status))}</Badge>
                 </li>
               ))}
             </ul>
@@ -102,7 +102,7 @@ export function Home() {
         <ul className="stack">
           {inbox.data!.map((m) => (
             <li key={m.id}>
-              <Link to={`/e/SocialMessage/${m.id}`}>{String(m.author)}</Link>: {String(m.text ?? "").slice(0, 120)} <Badge tone={m.status === "New" ? "red" : "amber"}>{String(m.status)}</Badge>
+              <Link to={`/e/SocialMessage/${m.id}`}>{isolate(String(m.author))}</Link>: {isolate(String(m.text ?? "").slice(0, 120))} <Badge tone={m.status === "New" ? "red" : "amber"}>{isolate(String(m.status))}</Badge>
             </li>
           ))}
         </ul>
@@ -130,11 +130,11 @@ export function Home() {
               const t = sums.get(b.id) ?? { posts: new Set<string>(), impressions: 0, engagements: 0 };
               return (
                 <tr key={b.id}>
-                  <td>{String(b.brand_name)}</td>
+                  <td>{isolate(String(b.brand_name))}</td>
                   <td>{t.posts.size}</td>
                   <td>{t.impressions}</td>
                   <td>{t.engagements}</td>
-                  <td>{rate(t.impressions, t.engagements)}</td>
+                  <td>{isolate(rate(t.impressions, t.engagements))}</td>
                 </tr>
               );
             })}
