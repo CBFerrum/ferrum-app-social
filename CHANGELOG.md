@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.9
+
+The reports it defines in code (their titles and parameters) have names in Arabic and Hindi too, with its models' and manifest's (106 each in ui/src/locales/names). Translated by the model, to be reviewed by native speakers.
+
 ## 0.6.8
 
 Rebuilt with Ferrum-Frontend c59c9a2: the names of its models, fields and manifest in Arabic and Hindi (102 each in ui/src/locales/names, which the platform serves to every page of the workspace, so a record's labels, the launcher and the bar read in the person's language). Translated by the model, to be reviewed by native speakers.

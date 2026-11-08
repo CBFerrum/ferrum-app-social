@@ -147,6 +147,7 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
 
 | Version | Highlights |
 |---|---|
+| **0.6.9** | Its reports' names in Arabic and Hindi. |
 | **0.6.8** | Its names in Arabic and Hindi. |
 | **0.6.7** | The assistant knows its records. |
 | **0.6.6** | Rebuilt with Ferrum-Frontend 5b22e7b: its own words in Arabic and Hindi. |
