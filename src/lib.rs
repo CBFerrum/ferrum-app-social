@@ -75,7 +75,7 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             let ctx = Ctx::system(tenant, schema);
             let mut tx = k.db.tenant_tx(tenant).await?;
             posts::send_due(k, &ctx, &mut tx, now).await?;
-            posts::mark_sent(k, &ctx, &mut tx).await?;
+            posts::mark_sent(k, &ctx, &mut tx, now).await?;
             inbox::mark_replies(k, &ctx, &mut tx).await?;
             tx.commit().await?;
             Ok::<(), Error>(())
@@ -150,6 +150,18 @@ pub(crate) async fn sent_as(tx: &mut Tx, tenant: Uuid, connection: Uuid, stream:
         .bind(connection)
         .bind(stream)
         .bind(record)
+        .fetch_optional(&mut **tx)
+        .await?)
+}
+
+/// How the latest delivery of `record` stands in the platform's job list: (status, the last error).
+/// The platform retries what is temporary (a timeout, a rate limit, a 5xx) up to the job's attempts
+/// and ends what is permanent (refused content, revoked access) at once, as `failed`.
+pub(crate) async fn delivery(tx: &mut Tx, tenant: Uuid, connection: Uuid, stream: &str, record: Uuid) -> Result<Option<(String, Option<String>)>> {
+    Ok(sqlx::query_as("select status, last_error from job where tenant_id = $1 and kind = $2 and dedupe_key = $3 order by created_at desc limit 1")
+        .bind(tenant)
+        .bind(ferrum_kernel::connect::DELIVER_KIND)
+        .bind(format!("{connection}:{record}:{stream}"))
         .fetch_optional(&mut **tx)
         .await?)
 }
