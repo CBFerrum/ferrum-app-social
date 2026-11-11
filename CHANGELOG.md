@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.11
+
+A post that could not be sent now says so. It has a Failed status, with the network's reason kept on the post (one line per account) and on each publication, so one network can have taken it while another did not. The platform's delivery already retries what is temporary (a timeout, a rate limit, a 5xx: eight tries) and ends what is permanent (refused text, revoked access) at once; the post follows the outcome instead of staying in Sending for ever. A Retry action on a failed post sends it again, only to the accounts it did not reach. A post left in Sending from before, whose delivery has left no trace in the job list for a day, is marked failed too. The interface still shows Failed in the default colour and the home page's coming list leaves a failed post out (ui/src/Home.tsx names statuses): to follow in an interface release.
+
 ## 0.6.10
 
 The interface follows the upgraded design system, rebuilt with Ferrum-Frontend 0a47157. Text uses the kit's type roles (nothing under 12px) and controls its height tokens; loading shows skeletons shaped like what is coming; empty, no matches, denied, offline and failed are told apart; status colours come from stored state ids. The interface check now runs the UI lint against an empty baseline. The home is rebuilt on the kit's work-home pattern: one page title, the main action as a button, queues with their counts, status at its natural width; its other own pages follow the same anatomy.

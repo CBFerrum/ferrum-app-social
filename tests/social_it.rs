@@ -37,6 +37,8 @@ struct World {
     messages: Vec<(String, String, String, String, String, Option<String>)>,
     /// What was sent, through which connection: (connection, stream, fields).
     sent: Vec<(Uuid, String, serde_json::Map<String, Value>)>,
+    /// When set, the network refuses what is sent: "rejected" for good, "down" for a while.
+    fail: Option<&'static str>,
 }
 
 struct Network {
@@ -94,6 +96,11 @@ impl Connector for Network {
 
     async fn push(&self, _k: &Kernel, c: &Connection, change: &Outgoing) -> Result<String> {
         let mut w = self.world.lock().unwrap();
+        match w.fail {
+            Some("rejected") => return Err(Error::invalid("The network refused it: that text is not allowed")),
+            Some(_) => return Err(Error::Unavailable("The network answered 503".into())),
+            None => {}
+        }
         let stream = if change.entity == "SocialReply" { "replies" } else { "posts" };
         w.sent.push((c.id, stream.into(), change.fields.clone()));
         Ok(format!("{stream}-{}", w.sent.len()))
@@ -206,6 +213,8 @@ async fn scenario() {
     // One that publishes words alone.
     let words = vec!["publish_text".to_string(), "reply".to_string()];
     hooks.add_connector(Arc::new(Network { provider: "texter", capabilities: words, world: Arc::new(Mutex::new(World::default())) }));
+    let flaky = Arc::new(Mutex::new(World::default()));
+    hooks.add_connector(Arc::new(Network { provider: "flaky", capabilities: vec!["publish_text".into()], world: flaky.clone() }));
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
     let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
     k.set_file_store(Arc::new(MemFiles::default()));
@@ -232,6 +241,7 @@ async fn scenario() {
     let on_masto = t.connect("network", "Northwind on Mastodon").await;
     let reading = t.connect("reader", "Northwind on LinkedIn").await;
     let texting = t.connect("texter", "Northwind on Threads").await;
+    let on_flaky = t.connect("flaky", "Northwind on Tumblr").await;
 
     // ───────────── brands and their accounts ─────────────
     let northwind = uid(&t.insert(&manager, "SocialBrand", json!({"brand_name": "Northwind"})).await["id"]);
@@ -506,4 +516,89 @@ async fn scenario() {
         "Northwind LinkedIn's connection cannot reply",
     );
     refused(t.k.insert(&manager, "SocialReply", obj(json!({"message": comment_id.to_string(), "text": "Also"}))).await, "forbidden", "");
+
+    // ───────────── a post that fails says so, and can be sent again ─────────────
+    let nw_flaky = uid(&t.insert(&manager, "SocialAccount", account("Northwind Tumblr", northwind, "Mastodon", "flaky@social.example", on_flaky)).await["id"]);
+    let approved = |targets: Vec<Uuid>| {
+        let (t, author, approver, post) = (&t, &author, &approver, &post);
+        async move {
+            let id = uid(&t.insert(author, "SocialPost", post("Will it go?", &targets)).await["id"]);
+            t.act(author, id, "send_for_review", Value::Null).await.unwrap();
+            t.act(approver, id, "approve", Value::Null).await.unwrap();
+            id
+        }
+    };
+    let attempts = |like: &'static str| {
+        let t = &t;
+        async move {
+            let mut tx = t.k.db.system_tx().await.unwrap();
+            sqlx::query_scalar::<_, i32>("select attempts from job where last_error like $1 order by created_at desc limit 1")
+                .bind(like)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap()
+        }
+    };
+    let publications_of = |post: Uuid| t.rows("SocialPublication", json!([["post", "=", post.to_string()]]));
+    // Refused for good by one network while another took it: failed, with the network's words, tried once.
+    flaky.lock().unwrap().fail = Some("rejected");
+    let sent_before = world.lock().unwrap().sent.len();
+    let refused_post = approved(vec![nw_x, nw_flaky]).await;
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(10)).await.unwrap();
+    t.work().await;
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(11)).await.unwrap();
+    let failed = t.get("SocialPost", refused_post).await;
+    assert_eq!(failed["status"], "Failed");
+    assert!(
+        failed["failure"].as_str().is_some_and(|f| f.contains("Northwind Tumblr") && f.contains("that text is not allowed") && !f.contains("Northwind X")),
+        "{failed:?}"
+    );
+    let pubs = publications_of(refused_post).await;
+    let by = |account: Uuid| pubs.iter().find(|p| uid(&p["account"]) == account).unwrap().clone();
+    assert!(by(nw_x)["external_id"].is_string() && by(nw_x)["failed_at"].is_null(), "one network took it");
+    assert!(
+        by(nw_flaky)["external_id"].is_null()
+            && by(nw_flaky)["failed_at"].is_string()
+            && by(nw_flaky)["failure"].as_str().is_some_and(|f| f.contains("not allowed"))
+    );
+    assert_eq!(attempts("%not allowed%").await, 1, "a refusal for good is not tried again");
+    refused(t.k.update(&author, "SocialPost", refused_post, obj(json!({"text": "Edited"})), None).await, "invalid", "stays as it went out");
+    refused(t.act(&author, id, "retry", Value::Null).await, "invalid", "not available");
+    // Sent again by a person: only to the account it did not reach.
+    flaky.lock().unwrap().fail = None;
+    t.act(&author, refused_post, "retry", Value::Null).await.unwrap();
+    assert_eq!(t.get("SocialPost", refused_post).await["status"], "Sending");
+    t.work().await;
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(12)).await.unwrap();
+    assert_eq!(t.get("SocialPost", refused_post).await["status"], "Published");
+    assert_eq!(
+        (world.lock().unwrap().sent.len() - sent_before, flaky.lock().unwrap().sent.len()),
+        (1, 1),
+        "X had it already: sent once there, and once on the other"
+    );
+    // A temporary failure is tried again a bounded number of times, then fails the same way.
+    flaky.lock().unwrap().fail = Some("down");
+    let down = approved(vec![nw_flaky]).await;
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(13)).await.unwrap();
+    t.work().await;
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(14)).await.unwrap();
+    let gave_up = t.get("SocialPost", down).await;
+    assert!(gave_up["status"] == "Failed" && gave_up["failure"].as_str().is_some_and(|f| f.contains("503")), "{gave_up:?}");
+    assert_eq!(attempts("%503%").await, 8, "eight tries, then it says so");
+    // A post stuck in Sending from before, with nothing left to say what happened, is marked once it is old.
+    let stuck = approved(vec![nw_x]).await;
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(15)).await.unwrap();
+    let mut tx = t.k.db.system_tx().await.unwrap();
+    sqlx::query("delete from job where status = 'queued'").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    ferrum_app_social::maintenance_at(&k, at + Duration::minutes(16)).await.unwrap();
+    assert_eq!(t.get("SocialPost", stuck).await["status"], "Sending", "not yet: it may still be on its way");
+    ferrum_app_social::maintenance_at(&k, Utc::now() + Duration::days(2)).await.unwrap();
+    let old = t.get("SocialPost", stuck).await;
+    assert!(old["status"] == "Failed" && old["failure"].as_str().is_some_and(|f| f.contains("no trace")), "{old:?}");
+    flaky.lock().unwrap().fail = None;
+    t.act(&author, stuck, "retry", Value::Null).await.unwrap();
+    t.work().await;
+    ferrum_app_social::maintenance_at(&k, Utc::now() + Duration::days(2)).await.unwrap();
+    assert_eq!(t.get("SocialPost", stuck).await["status"], "Published");
 }

@@ -49,15 +49,17 @@
     - {name: targets, type: table, of: SocialTarget, required: true}
     - {name: scheduled_at, type: datetime, required: true, in_list: true, label: Goes Out At}
     - {name: author, type: email, read_only: true, no_copy: true, in_list: true}
-    - {name: status, type: select, options: [Draft, In Review, Approved, Rejected, Sending, Published], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [Draft, In Review, Approved, Rejected, Sending, Published, Failed], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: approved_by, type: email, read_only: true, no_copy: true}
     - {name: approved_hash, type: data, read_only: true, no_copy: true, hidden: true}
     - {name: review_note, type: text, read_only: true, no_copy: true}
     - {name: published_at, type: datetime, read_only: true, no_copy: true}
+    - {name: failure, type: text, read_only: true, no_copy: true, visible_if: "doc.status == 'Failed'", description: "What each account's network said when it would not take the post"}
   actions:
     - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
     - {name: approve, label: Approve It, permission: write, condition: "doc.status == 'In Review'"}
     - {name: reject, label: Send It Back, permission: write, condition: "doc.status == 'In Review'", params: [{name: note, type: text, label: Why}]}
+    - {name: retry, label: Retry, permission: write, condition: "doc.status == 'Failed'", confirm: "Send it again to the accounts it did not reach?"}
   list: {columns: [headline, brand, scheduled_at, status], sort: scheduled_at desc}
 
 - name: SocialPublication
@@ -76,6 +78,8 @@
     - {name: image_alt, type: data, read_only: true, label: Image Description}
     - {name: external_id, type: data, read_only: true, no_copy: true, in_list: true, description: "The network's id for it, once out"}
     - {name: sent_at, type: datetime, read_only: true, no_copy: true, in_list: true}
+    - {name: failed_at, type: datetime, read_only: true, no_copy: true, description: "When the network last refused it, or sending gave up"}
+    - {name: failure, type: text, read_only: true, no_copy: true, in_list: true, description: "The network's reason, while it is not out"}
     - {name: impressions, type: int, read_only: true, no_copy: true, in_list: true}
     - {name: engagements, type: int, read_only: true, no_copy: true, in_list: true}
     - {name: clicks, type: int, read_only: true, no_copy: true}
