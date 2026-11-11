@@ -148,6 +148,7 @@ stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
 | Version | Highlights |
 |---|---|
 | **0.6.10** | The redesigned interface: the upgraded design system, shaped loading, told-apart states. |
+| **0.6.11** | A post that fails says so: a Failed status with the network's reason per account, and Retry. |
 | **0.6.9** | Its reports' names in Arabic and Hindi. |
 | **0.6.8** | Its names in Arabic and Hindi. |
 | **0.6.7** | The assistant knows its records. |
