@@ -6,14 +6,18 @@
 //! publication is out once the network has given its id, and the post is published when all of
 //! them are. What each did is read back through the connection with the network's posts.
 
-use crate::{at, capabilities, connection, deliver, obj, sent_as};
+use crate::{at, capabilities, connection, deliver, delivery, obj, sent_as};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use ferrum_domain::util::{elevated, id, rows, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, Filter, HookCtx, Kernel, Result, Tx};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+
+/// A publication whose delivery has left no trace in the job list, and that is this old, is given
+/// up on: the list is cleaned after a while, and a send takes far less than this.
+const STALE: Duration = Duration::hours(24);
 
 /// The stream a connection sends posts on, and reads them back from.
 pub(crate) const POSTS: &str = "posts";
@@ -162,7 +166,7 @@ impl DocHook for PostHook {
     }
 
     async fn validate_change(&self, _hc: &mut HookCtx<'_>, old: Option<&Doc>, doc: &Doc) -> Result<()> {
-        if old.is_some_and(|o| matches!(s(o, "status"), Some("Sending" | "Published")) && fingerprint(o) != fingerprint(doc)) {
+        if old.is_some_and(|o| matches!(s(o, "status"), Some("Sending" | "Published" | "Failed")) && fingerprint(o) != fingerprint(doc)) {
             return Err(Error::invalid("a post stays as it went out"));
         }
         Ok(())
@@ -189,6 +193,19 @@ impl DocHook for PostHook {
                 let note = params.get("note").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
                 let note = note.ok_or_else(|| Error::field("note", "sending a post back says why"))?;
                 json!({"status": "Rejected", "review_note": note})
+            }
+            "retry" => {
+                // Only to the accounts it did not reach: the others have it already.
+                let system = elevated(hc.ctx);
+                let own = [Filter::eq("post", post.to_string())];
+                for p in hc.kernel.find_tx(&system, hc.tx, "SocialPublication", &own, None, 100).await? {
+                    let (Some(publication), true) = (id(&p, "id"), s(&p, "external_id").is_none()) else { continue };
+                    let account = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
+                    let Some(conn) = s(&account, "connection").and_then(|c| c.parse().ok()) else { continue };
+                    hc.kernel.set_values_tx(&system, hc.tx, "SocialPublication", publication, obj(json!({"failed_at": null, "failure": null}))).await?;
+                    deliver(hc.tx, hc.ctx.tenant, conn, POSTS, publication).await?;
+                }
+                json!({"status": "Sending", "failure": null})
             }
             _ => return Ok(None),
         };
@@ -226,28 +243,57 @@ pub(crate) async fn send_due(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<U
     Ok(())
 }
 
-/// Publications the network has given its id to, marked out; posts all of whose are, published.
-pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<()> {
+/// Publications the network has given its id to, marked out; one whose delivery ended without,
+/// marked failed with the reason (a send that left no trace for a day is given up on too); and
+/// posts all of whose are settled: published, or failed when any publication is.
+pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<Utc>) -> Result<()> {
     for found in k.find_tx(ctx, tx, "SocialPost", &[Filter::eq("status", "Sending")], None, 500).await? {
         let post = id(&found, "id").unwrap_or_default();
-        let mut all_out = true;
+        let mut pending = false;
+        let mut failures = Vec::new();
         for p in k.find_tx(ctx, tx, "SocialPublication", &[Filter::eq("post", post.to_string())], None, 100).await? {
+            let publication = id(&p, "id").unwrap_or_default();
+            let account = k.get_tx(ctx, tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
+            let name = s(&account, "account_name").unwrap_or("an account");
             if s(&p, "external_id").is_some() {
                 continue;
             }
-            let account = k.get_tx(ctx, tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
+            if at(&p, "failed_at").is_some() {
+                failures.push(format!("{name}: {}", s(&p, "failure").unwrap_or("it did not go out")));
+                continue;
+            }
             let conn = s(&account, "connection").and_then(|c| c.parse().ok()).unwrap_or_default();
-            match sent_as(tx, ctx.tenant, conn, POSTS, id(&p, "id").unwrap_or_default()).await? {
+            let why = match sent_as(tx, ctx.tenant, conn, POSTS, publication).await? {
                 Some(external) => {
                     let values = json!({"external_id": external, "sent_at": Utc::now().to_rfc3339()});
-                    k.set_values_tx(ctx, tx, "SocialPublication", id(&p, "id").unwrap_or_default(), obj(values)).await?;
+                    k.set_values_tx(ctx, tx, "SocialPublication", publication, obj(values)).await?;
+                    continue;
                 }
-                None => all_out = false,
+                None => match delivery(tx, ctx.tenant, conn, POSTS, publication).await? {
+                    Some((status, _)) if status == "queued" || status == "running" => None,
+                    Some((_, error)) => Some(error.unwrap_or_else(|| "the network gave no id for it".into())),
+                    None if at(&p, "created_at").is_some_and(|c| now - c > STALE) => Some("sending it left no trace and it never went out".into()),
+                    None => None,
+                },
+            };
+            match why {
+                None => pending = true,
+                Some(why) => {
+                    let values = json!({"failed_at": Utc::now().to_rfc3339(), "failure": why});
+                    k.set_values_tx(ctx, tx, "SocialPublication", publication, obj(values)).await?;
+                    failures.push(format!("{name}: {why}"));
+                }
             }
         }
-        if all_out {
-            k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"status": "Published", "published_at": Utc::now().to_rfc3339()}))).await?;
+        if pending {
+            continue;
         }
+        let values = if failures.is_empty() {
+            json!({"status": "Published", "published_at": Utc::now().to_rfc3339()})
+        } else {
+            json!({"status": "Failed", "failure": failures.join("\n")})
+        };
+        k.set_values_tx(ctx, tx, "SocialPost", post, obj(values)).await?;
     }
     Ok(())
 }
