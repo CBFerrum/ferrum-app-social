@@ -1,4 +1,6 @@
 {
+  "Add a brand": "ब्रांड जोड़ें",
+  "Add a brand and connect its accounts, then posts, the inbox and what posts did show here.": "ब्रांड जोड़ें और उसके खाते जोड़ें; फिर पोस्ट, इनबॉक्स और पोस्ट का प्रदर्शन यहाँ दिखेंगे।",
   "All messages": "सभी संदेश",
   "Best times to post": "पोस्ट करने के सबसे अच्छे समय",
   "Brand": "ब्रांड",
@@ -10,11 +12,11 @@
   "Impressions": "इंप्रेशन",
   "Inbox": "इनबॉक्स",
   "New post": "नई पोस्ट",
+  "No brands yet": "अभी कोई ब्रांड नहीं",
   "Nothing is scheduled.": "कुछ भी शेड्यूल नहीं है।",
   "Nothing waits.": "कुछ भी प्रतीक्षा में नहीं।",
   "Posts out": "प्रकाशित पोस्ट",
   "Rate": "दर",
-  "Social": "सोशल",
   "Waiting for approval": "अनुमोदन की प्रतीक्षा में",
   "What posts did": "पोस्ट ने क्या किया",
   "by {value}": "{value} द्वारा"

@@ -3,15 +3,3 @@
 @import "../../../ferrum/web/src/index.css";
 @source "../../../ferrum/web/src";
 @source ".";
-
-.np-page {
-  display: grid;
-  gap: 16px;
-  padding: 16px;
-}
-
-.np-columns {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}

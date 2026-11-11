@@ -3,14 +3,17 @@
 // what each day added. Each opens its record.
 
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
-import { api, docPath, t as tr, isolate } from "@ferrum/client";
-import { Badge, ErrorState, PageLoading, useShellTitle } from "@ferrum/kit";
+import { api, docPath, formatDecimal, t as tr, isolate } from "@ferrum/client";
+import { ButtonLink, HomeSection, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, StatePanel, StatusBadge, type Tone } from "@ferrum/kit";
 
 export interface Row {
   id: string;
   [k: string]: unknown;
 }
+
+// SocialPost.status and SocialMessage.status as stored (packages/social/entities); the lists below show only these.
+const POST_TONES: Readonly<Record<string, Tone>> = { Approved: "green", Sending: "amber" };
+const MESSAGE_TONES: Readonly<Record<string, Tone>> = { New: "red", Assigned: "amber" };
 
 const list = (entity: string, filters: unknown[] = [], extra: Record<string, string | number> = {}) =>
   api.get<{ rows: Row[] }>(docPath(entity), { filters: JSON.stringify(filters), limit: 500, ...extra }).then((r) => r.rows);
@@ -46,8 +49,10 @@ export function totals(publications: Row[], accounts: Row[]): Map<string, { post
   return out;
 }
 
+/** The most a queue lists before "and N more" opens the list. */
+const LIMIT = 5;
+
 export function Home() {
-  useShellTitle(tr("Social"));
   const waiting = useQuery({ queryKey: ["social", "waiting"], queryFn: () => list("SocialPost", [["status", "=", "In Review"]], { sort: "scheduled_at asc" }) });
   const coming = useQuery({ queryKey: ["social", "coming"], queryFn: () => list("SocialPost", [["status", "in", ["Approved", "Sending"]]], { sort: "scheduled_at asc" }) });
   const inbox = useQuery({ queryKey: ["social", "inbox"], queryFn: () => list("SocialMessage", [["status", "in", ["New", "Assigned"]]]) });
@@ -56,91 +61,85 @@ export function Home() {
   const publications = useQuery({ queryKey: ["social", "publications"], queryFn: () => list("SocialPublication") });
   const all = [waiting, coming, inbox, brands, accounts, publications];
   const failed = all.find((q) => q.isError);
-  if (failed) return <ErrorState error={failed.error} onRetry={() => void failed.refetch()} />;
-  if (all.some((q) => !q.data)) return <PageLoading />;
+  const head = <PageHead title={tr("Social")} actions={<ButtonLink to="/e/SocialPost/new" variant="primary" icon="plus">{tr("New post")}</ButtonLink>} />;
+  if (failed) return <PageStack>{head}<LoadFailed error={failed.error} onRetry={() => void failed.refetch()} /></PageStack>;
+  if (all.some((q) => !q.data)) return <PageStack>{head}<HomeSkeleton queues={3} /></PageStack>;
+  if (!brands.data!.length && !waiting.data!.length && !coming.data!.length && !inbox.data!.length)
+    return (
+      <PageStack>
+        {head}
+        <StatePanel kind="empty" title={tr("No brands yet")} action={<ButtonLink to="/e/SocialBrand/new" variant="primary" icon="plus">{tr("Add a brand")}</ButtonLink>}>
+          {tr("Add a brand and connect its accounts, then posts, the inbox and what posts did show here.")}
+        </StatePanel>
+      </PageStack>
+    );
   const sums = totals(publications.data!, accounts.data!);
+  const upcoming = byDay(coming.data!).flatMap(([, posts]) => posts);
+  const count = (n: number) => formatDecimal(n, 0);
   return (
-    <div className="np-page stack">
-      <header className="row" style={{ justifyContent: "space-between" }}>
-        <h2>{tr("Social")}</h2>
-        <Link to="/e/SocialPost/new">{tr("New post")}</Link>
-      </header>
-      <section className="card card-pad stack" aria-label={tr("Waiting for approval")}>
-        <h3>{tr("Waiting for approval")}</h3>
-        {waiting.data!.length === 0 && <p className="faint">{tr("Nothing waits.")}</p>}
-        <ul className="stack">
-          {waiting.data!.map((p) => (
-            <li key={p.id}>
-              <Link to={`/e/SocialPost/${p.id}`}>{isolate(String(p.headline))}</Link> <span className="faint">{tr("by {value}", { value: String(p.author ?? "") })}</span>
-            </li>
+    <PageStack gap="lg">
+      {head}
+      <QueueGrid>
+        <Queue title={tr("Waiting for approval")} count={waiting.data!.length} tone={waiting.data!.length ? "attention" : "default"} empty={tr("Nothing waits.")} more={{ to: "/e/SocialPost", count: waiting.data!.length - LIMIT }}>
+          {waiting.data!.slice(0, LIMIT).map((p) => (
+            <QueueItem key={p.id} to={`/e/SocialPost/${p.id}`} title={isolate(String(p.headline))} meta={isolate(tr("by {value}", { value: String(p.author ?? "") }))} />
           ))}
-        </ul>
-      </section>
-      <section className="card card-pad stack" aria-label={tr("Coming")}>
-        <h3>{tr("Coming")}</h3>
-        {coming.data!.length === 0 && <p className="faint">{tr("Nothing is scheduled.")}</p>}
-        {byDay(coming.data!).map(([day, posts]) => (
-          <div key={day} className="stack">
-            <strong>{isolate(day)}</strong>
-            <ul className="stack">
-              {posts.map((p) => (
-                <li key={p.id}>
-                  {isolate(String(p.scheduled_at ?? "").slice(11, 16))} <Link to={`/e/SocialPost/${p.id}`}>{isolate(String(p.headline))}</Link>{isolate(" ")}
-                  <Badge tone={p.status === "Sending" ? "amber" : "green"}>{isolate(String(p.status))}</Badge>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </section>
-      <section className="card card-pad stack" aria-label={tr("Inbox")}>
-        <header className="row" style={{ justifyContent: "space-between" }}>
-          <h3>{tr("Inbox")}</h3>
-          <Link to="/e/SocialMessage">{tr("All messages")}</Link>
-        </header>
-        {inbox.data!.length === 0 && <p className="faint">{tr("Every message is answered.")}</p>}
-        <ul className="stack">
-          {inbox.data!.map((m) => (
-            <li key={m.id}>
-              <Link to={`/e/SocialMessage/${m.id}`}>{isolate(String(m.author))}</Link>: {isolate(String(m.text ?? "").slice(0, 120))} <Badge tone={m.status === "New" ? "red" : "amber"}>{isolate(String(m.status))}</Badge>
-            </li>
+        </Queue>
+        <Queue title={tr("Coming")} count={coming.data!.length} empty={tr("Nothing is scheduled.")} more={{ to: "/e/SocialPost", count: upcoming.length - LIMIT }}>
+          {upcoming.slice(0, LIMIT).map((p) => (
+            <QueueItem
+              key={p.id}
+              to={`/e/SocialPost/${p.id}`}
+              title={isolate(String(p.headline))}
+              lead={isolate(String(p.scheduled_at ?? "").slice(11, 16))}
+              meta={isolate(String(p.scheduled_at ?? "").slice(0, 10))}
+              trailing={<StatusBadge value={p.status} tones={POST_TONES} />}
+            />
           ))}
-        </ul>
-      </section>
-      <section className="card card-pad stack" aria-label={tr("What posts did")}>
-        <header className="row" style={{ justifyContent: "space-between" }}>
-          <h3>{tr("What posts did")}</h3>
-          <span className="row" style={{ gap: 12 }}>
-            <Link to="/r/social_engagement_by_day">{tr("Day by day")}</Link>
-            <Link to="/r/social_best_times">{tr("Best times to post")}</Link>
-          </span>
-        </header>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>{tr("Brand")}</th>
-              <th>{tr("Posts out")}</th>
-              <th>{tr("Impressions")}</th>
-              <th>{tr("Engagements")}</th>
-              <th>{tr("Rate")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {brands.data!.map((b) => {
-              const t = sums.get(b.id) ?? { posts: new Set<string>(), impressions: 0, engagements: 0 };
-              return (
-                <tr key={b.id}>
-                  <td>{isolate(String(b.brand_name))}</td>
-                  <td>{t.posts.size}</td>
-                  <td>{t.impressions}</td>
-                  <td>{t.engagements}</td>
-                  <td>{isolate(rate(t.impressions, t.engagements))}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </section>
-    </div>
+        </Queue>
+        <Queue title={tr("Inbox")} count={inbox.data!.length} link={{ to: "/e/SocialMessage", label: tr("All messages") }} empty={tr("Every message is answered.")} more={{ to: "/e/SocialMessage", count: inbox.data!.length - LIMIT }}>
+          {inbox.data!.slice(0, LIMIT).map((m) => (
+            <QueueItem key={m.id} to={`/e/SocialMessage/${m.id}`} title={isolate(String(m.author))} meta={isolate(String(m.text ?? "").slice(0, 120))} trailing={<StatusBadge value={m.status} tones={MESSAGE_TONES} />} />
+          ))}
+        </Queue>
+      </QueueGrid>
+      <HomeSection
+        title={tr("What posts did")}
+        actions={
+          <>
+            <ButtonLink to="/r/social_engagement_by_day">{tr("Day by day")}</ButtonLink>
+            <ButtonLink to="/r/social_best_times">{tr("Best times to post")}</ButtonLink>
+          </>
+        }
+      >
+        <div className="table-wrap" tabIndex={0} role="region" aria-label={tr("What posts did")}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th scope="col">{tr("Brand")}</th>
+                <th scope="col" className="num">{tr("Posts out")}</th>
+                <th scope="col" className="num">{tr("Impressions")}</th>
+                <th scope="col" className="num">{tr("Engagements")}</th>
+                <th scope="col" className="num">{tr("Rate")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {brands.data!.map((b) => {
+                const t = sums.get(b.id) ?? { posts: new Set<string>(), impressions: 0, engagements: 0 };
+                return (
+                  <tr key={b.id}>
+                    <td>{isolate(String(b.brand_name))}</td>
+                    <td className="num">{count(t.posts.size)}</td>
+                    <td className="num">{count(t.impressions)}</td>
+                    <td className="num">{count(t.engagements)}</td>
+                    <td className="num">{isolate(rate(t.impressions, t.engagements))}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </HomeSection>
+    </PageStack>
   );
 }
