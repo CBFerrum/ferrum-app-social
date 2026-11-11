@@ -4,7 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, docPath, formatDecimal, t as tr, isolate } from "@ferrum/client";
-import { ButtonLink, HomeSkeleton, LoadFailed, PageHead, Queue, QueueGrid, QueueItem, StatePanel, StatusBadge } from "@ferrum/kit";
+import { ButtonLink, HomeSection, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, StatePanel, StatusBadge, type Tone } from "@ferrum/kit";
 
 export interface Row {
   id: string;
@@ -12,8 +12,8 @@ export interface Row {
 }
 
 // SocialPost.status and SocialMessage.status as stored (packages/social/entities); the lists below show only these.
-const POST_TONES = { Approved: "green", Sending: "amber" } as const;
-const MESSAGE_TONES = { New: "red", Assigned: "amber" } as const;
+const POST_TONES: Readonly<Record<string, Tone>> = { Approved: "green", Sending: "amber" };
+const MESSAGE_TONES: Readonly<Record<string, Tone>> = { New: "red", Assigned: "amber" };
 
 const list = (entity: string, filters: unknown[] = [], extra: Record<string, string | number> = {}) =>
   api.get<{ rows: Row[] }>(docPath(entity), { filters: JSON.stringify(filters), limit: 500, ...extra }).then((r) => r.rows);
@@ -62,22 +62,22 @@ export function Home() {
   const all = [waiting, coming, inbox, brands, accounts, publications];
   const failed = all.find((q) => q.isError);
   const head = <PageHead title={tr("Social")} actions={<ButtonLink to="/e/SocialPost/new" variant="primary" icon="plus">{tr("New post")}</ButtonLink>} />;
-  if (failed) return <>{head}<LoadFailed error={failed.error} onRetry={() => void failed.refetch()} /></>;
-  if (all.some((q) => !q.data)) return <>{head}<HomeSkeleton queues={3} /></>;
+  if (failed) return <PageStack>{head}<LoadFailed error={failed.error} onRetry={() => void failed.refetch()} /></PageStack>;
+  if (all.some((q) => !q.data)) return <PageStack>{head}<HomeSkeleton queues={3} /></PageStack>;
   if (!brands.data!.length && !waiting.data!.length && !coming.data!.length && !inbox.data!.length)
     return (
-      <>
+      <PageStack>
         {head}
         <StatePanel kind="empty" title={tr("No brands yet")} action={<ButtonLink to="/e/SocialBrand/new" variant="primary" icon="plus">{tr("Add a brand")}</ButtonLink>}>
           {tr("Add a brand and connect its accounts, then posts, the inbox and what posts did show here.")}
         </StatePanel>
-      </>
+      </PageStack>
     );
   const sums = totals(publications.data!, accounts.data!);
   const upcoming = byDay(coming.data!).flatMap(([, posts]) => posts);
   const count = (n: number) => formatDecimal(n, 0);
   return (
-    <>
+    <PageStack gap="lg">
       {head}
       <QueueGrid>
         <Queue title={tr("Waiting for approval")} count={waiting.data!.length} tone={waiting.data!.length ? "attention" : "default"} empty={tr("Nothing waits.")} more={{ to: "/e/SocialPost", count: waiting.data!.length - LIMIT }}>
@@ -91,7 +91,8 @@ export function Home() {
               key={p.id}
               to={`/e/SocialPost/${p.id}`}
               title={isolate(String(p.headline))}
-              meta={isolate(`${String(p.scheduled_at ?? "").slice(0, 10)} · ${String(p.scheduled_at ?? "").slice(11, 16)}`)}
+              lead={isolate(String(p.scheduled_at ?? "").slice(11, 16))}
+              meta={isolate(String(p.scheduled_at ?? "").slice(0, 10))}
               trailing={<StatusBadge value={p.status} tones={POST_TONES} />}
             />
           ))}
@@ -102,14 +103,15 @@ export function Home() {
           ))}
         </Queue>
       </QueueGrid>
-      <section className="card card-pad stack mt-6 min-w-0" aria-labelledby="social-did">
-        <header className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="social-did" className="text-base font-semibold">{tr("What posts did")}</h2>
-          <div className="flex flex-wrap gap-1">
+      <HomeSection
+        title={tr("What posts did")}
+        actions={
+          <>
             <ButtonLink to="/r/social_engagement_by_day">{tr("Day by day")}</ButtonLink>
             <ButtonLink to="/r/social_best_times">{tr("Best times to post")}</ButtonLink>
-          </div>
-        </header>
+          </>
+        }
+      >
         <div className="table-wrap" tabIndex={0} role="region" aria-label={tr("What posts did")}>
           <table className="table">
             <thead>
@@ -137,7 +139,7 @@ export function Home() {
             </tbody>
           </table>
         </div>
-      </section>
-    </>
+      </HomeSection>
+    </PageStack>
   );
 }
