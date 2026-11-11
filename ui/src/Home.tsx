@@ -5,12 +5,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, docPath, t as tr, isolate } from "@ferrum/client";
-import { Badge, ErrorState, PageLoading, useShellTitle } from "@ferrum/kit";
+import { ErrorState, ListSkeleton, StatusBadge, useShellTitle } from "@ferrum/kit";
 
 export interface Row {
   id: string;
   [k: string]: unknown;
 }
+
+// SocialPost.status and SocialMessage.status as stored (packages/social/entities); the lists below show only these.
+const POST_TONES = { Approved: "green", Sending: "amber" } as const;
+const MESSAGE_TONES = { New: "red", Assigned: "amber" } as const;
 
 const list = (entity: string, filters: unknown[] = [], extra: Record<string, string | number> = {}) =>
   api.get<{ rows: Row[] }>(docPath(entity), { filters: JSON.stringify(filters), limit: 500, ...extra }).then((r) => r.rows);
@@ -57,7 +61,7 @@ export function Home() {
   const all = [waiting, coming, inbox, brands, accounts, publications];
   const failed = all.find((q) => q.isError);
   if (failed) return <ErrorState error={failed.error} onRetry={() => void failed.refetch()} />;
-  if (all.some((q) => !q.data)) return <PageLoading />;
+  if (all.some((q) => !q.data)) return <ListSkeleton className="np-page" />;
   const sums = totals(publications.data!, accounts.data!);
   return (
     <div className="np-page stack">
@@ -86,7 +90,7 @@ export function Home() {
               {posts.map((p) => (
                 <li key={p.id}>
                   {isolate(String(p.scheduled_at ?? "").slice(11, 16))} <Link to={`/e/SocialPost/${p.id}`}>{isolate(String(p.headline))}</Link>{isolate(" ")}
-                  <Badge tone={p.status === "Sending" ? "amber" : "green"}>{isolate(String(p.status))}</Badge>
+                  <StatusBadge value={p.status} tones={POST_TONES} />
                 </li>
               ))}
             </ul>
@@ -102,7 +106,7 @@ export function Home() {
         <ul className="stack">
           {inbox.data!.map((m) => (
             <li key={m.id}>
-              <Link to={`/e/SocialMessage/${m.id}`}>{isolate(String(m.author))}</Link>: {isolate(String(m.text ?? "").slice(0, 120))} <Badge tone={m.status === "New" ? "red" : "amber"}>{isolate(String(m.status))}</Badge>
+              <Link to={`/e/SocialMessage/${m.id}`}>{isolate(String(m.author))}</Link>: {isolate(String(m.text ?? "").slice(0, 120))} <StatusBadge value={m.status} tones={MESSAGE_TONES} />
             </li>
           ))}
         </ul>
