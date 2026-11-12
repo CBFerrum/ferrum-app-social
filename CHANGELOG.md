@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.13
+
+Rebuilt with Ferrum-Frontend 45dad7f, the design system as tuned after the landed build was reviewed. The left menu's icons are chosen so that none repeats on more than three rows and each fits its row; their drawings load beside the first page instead of inside it, so the page starts lighter; a row that scrolls sideways fades at the edge where there is more, in every browser and with reduced motion; a printed record leaves out empty fields and keeps its totals with the table; menus and popovers sit inside the page's landmarks for assistive technology; a selection bar folds what does not fit into More on a narrow screen. Nothing else changes.
+
 ## 0.6.12
 
 The home shows posts that did not go out: a "Did not go out" queue first, in the attention tone, each post with the network's reason (one line per account) and a Retry that sends it again only to the accounts that did not get it. Failed has its red status colour wherever the home lists a post. Its labels, the Retry action and the failure texts have names in Arabic and Hindi. Rebuilt with Ferrum-Frontend 0a47157.
