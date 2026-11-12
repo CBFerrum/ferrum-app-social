@@ -1,52 +1,125 @@
-//! Accounts, posts and publications. A post goes from its brand to one or more of the brand's
-//! active accounts. It must fit every network it goes to, and each account's connection must be
-//! able to publish. Someone other than its author approves it; one sent back says why, and a post
-//! changed after its approval needs approving again. At its time, upkeep makes one publication per
-//! account and sends it through that account's own connection, by the platform's delivery. A
-//! publication is out once the network has given its id, and the post is published when all of
-//! them are. What each did is read back through the connection with the network's posts.
+//! Posts and publications. A post goes from its brand to one or more of the brand's active
+//! accounts. It must fit what each account's network profile says, and each account's connection
+//! must offer what the post needs (`publish`, and `publish_media` for a picture). Someone other than
+//! its author approves it; one sent back says why, and a post changed after its approval needs
+//! approving again.
+//!
+//! At its time, upkeep makes one publication per account and queues one job for each, keyed by the
+//! publication. The job sends the picture first when the connection says how (`publish_media`),
+//! then the post (`publish`), each under a key of its own, and keeps the network's id and address.
+//! What makes that once per account, under retries and two workers:
+//! * the job is deduplicated by the publication while queued or running, and a job is claimed by
+//!   one worker at a time;
+//! * the job holds a lock on the publication's row for the length of its attempt and looks at
+//!   `external_id` after taking it, so a second job for the same publication waits, then finds it out;
+//! * each call carries the key `publish:<publication>` (and `media:<publication>`): the platform
+//!   hands a key that went through its stored answer without calling the network, and gives the
+//!   network the same key on every attempt in the description's idempotency header.
+//!
+//! A refusal ends the attempt at once and the service's own words are shown on the publication;
+//! "later" (a timeout, a limit, a 5xx) is tried again by the job with backoff. The post is
+//! published when every publication is out, failed when any one ended without being.
 
-use crate::{at, capabilities, connection, deliver, delivery, obj, sent_as};
+use crate::accounts::{self, Reach, any_profile, caller, reach};
+use crate::{at, base64, obj};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use ferrum_domain::util::{elevated, id, rows, s};
+use ferrum_kernel::connections::{self, Call};
+use ferrum_kernel::jobs::{Job, JobHandler, NewJob};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, Filter, HookCtx, Kernel, Result, Tx};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::time::Duration as Wait;
 use uuid::Uuid;
 
-/// A publication whose delivery has left no trace in the job list, and that is this old, is given
-/// up on: the list is cleaned after a while, and a send takes far less than this.
+/// A publication whose job has left no trace, and that is this old, is given up on: the list of
+/// jobs is cleaned after a while, and a send takes far less than this.
 const STALE: Duration = Duration::hours(24);
 
-/// The stream a connection sends posts on, and reads them back from.
-pub(crate) const POSTS: &str = "posts";
+/// Attempts at one publication while the network says "later".
+const ATTEMPTS: i32 = 8;
 
-/// What a network takes in one post: its length, and whether it takes text alone.
-pub(crate) fn takes(network: &str) -> (usize, bool) {
-    match network {
-        "X" => (280, true),
-        "Bluesky" => (300, true),
-        "Mastodon" | "Threads" => (500, true),
-        "LinkedIn" => (3000, true),
-        "Facebook" => (63206, true),
-        // Instagram takes a post with its picture; YouTube publishes video.
-        _ => (2200, false),
+pub(crate) const PUBLISH: &str = "social.publish";
+
+/// What a network takes in a post, as its profile says.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Profile {
+    pub name: String,
+    pub max_text: usize,
+    pub link_length: Option<usize>,
+    pub images: bool,
+    pub videos: bool,
+    pub media_required: bool,
+    pub max_media: Option<i64>,
+    pub max_image_bytes: Option<i64>,
+    pub alt_text: bool,
+    pub first_comment: bool,
+}
+
+impl Profile {
+    pub fn of(doc: &Doc) -> Profile {
+        let number = |f: &str| doc.get(f).and_then(Value::as_i64);
+        let flag = |f: &str, default: bool| doc.get(f).and_then(Value::as_bool).unwrap_or(default);
+        Profile {
+            name: s(doc, "profile_name").unwrap_or("This network").to_string(),
+            max_text: number("max_text").and_then(|n| usize::try_from(n).ok()).unwrap_or(usize::MAX),
+            link_length: number("link_length").and_then(|n| usize::try_from(n).ok()),
+            images: flag("images", true),
+            videos: flag("videos", false),
+            media_required: flag("media_required", false),
+            max_media: number("max_media"),
+            max_image_bytes: number("max_image_bytes"),
+            alt_text: flag("alt_text", true),
+            first_comment: flag("first_comment", false),
+        }
     }
 }
 
-/// Why a post of `text` and `link`, with a picture or not, does not fit `network`, when it does not.
-pub(crate) fn misfit(network: &str, text: &str, link: Option<&str>, image: bool) -> Option<String> {
-    let (max, text_alone) = takes(network);
-    if network == "YouTube" {
-        return Some("YouTube takes video, which posts here do not carry".into());
+/// A picture a post carries, as far as a profile cares.
+pub(crate) struct Picture {
+    pub bytes: i64,
+}
+
+fn size(bytes: i64) -> String {
+    if bytes >= 1 << 20 { format!("{:.1} MB", bytes as f64 / f64::from(1 << 20)) } else { format!("{} KB", (bytes + 1023) / 1024) }
+}
+
+/// Why a post of `text` and `link`, with a picture or not, does not fit what `p` says its network takes, in plain
+/// words; `None` when it does.
+pub(crate) fn misfit(p: &Profile, text: &str, link: Option<&str>, first_comment: Option<&str>, picture: Option<&Picture>) -> Option<String> {
+    let name = &p.name;
+    if p.media_required && !p.images {
+        return Some(if p.videos {
+            format!("{name} takes video, which posts here do not carry")
+        } else {
+            format!("{name} takes no post that posts here can send")
+        });
     }
-    if !text_alone && !image {
-        return Some(format!("{network} takes no post without an image or a video"));
+    if p.media_required && picture.is_none() {
+        return Some(format!("{name} takes no post without an image or a video"));
     }
-    // X counts a link as 23 characters, whatever its length, after a space.
-    let length = text.chars().count() + link.map_or(0, |l| if network == "X" { 24 } else { l.chars().count() + 1 });
-    (length > max).then(|| format!("{network} takes {max} characters, and this post is {length}"))
+    if let Some(pic) = picture {
+        if !p.images {
+            return Some(format!("{name} takes no pictures"));
+        }
+        if let Some(most) = p.max_image_bytes.filter(|m| pic.bytes > *m) {
+            return Some(format!("{name} takes pictures of at most {}, and this one is {}", size(most), size(pic.bytes)));
+        }
+        // A post carries one picture; `max_media` is for the posts that will carry several.
+        if p.max_media.is_some_and(|m| m < 1) {
+            return Some(format!("{name} takes no pictures"));
+        }
+    }
+    // A network that shortens links counts each as a fixed length, after a space.
+    let length = text.chars().count() + link.map_or(0, |l| p.link_length.map_or_else(|| l.chars().count() + 1, |n| n + 1));
+    if length > p.max_text {
+        return Some(format!("{name} takes {} characters, and this post is {length}", p.max_text));
+    }
+    if first_comment.is_some_and(|c| !c.trim().is_empty()) && !p.first_comment {
+        return Some(format!("{name} takes no first comment"));
+    }
+    None
 }
 
 /// What approval fixes: the words, the link, the picture and what it says of it, where and when it
@@ -54,49 +127,27 @@ pub(crate) fn misfit(network: &str, text: &str, link: Option<&str>, image: bool)
 fn fingerprint(doc: &Doc) -> String {
     let mut targets: Vec<String> = rows(doc, "targets").iter().filter_map(|t| s(t, "account").map(str::to_string)).collect();
     targets.sort();
-    let what = json!([s(doc, "text"), s(doc, "link"), targets, at(doc, "scheduled_at").map(|t| t.timestamp()), s(doc, "image"), s(doc, "image_alt")]);
+    let what = json!([
+        s(doc, "text"),
+        s(doc, "link"),
+        targets,
+        at(doc, "scheduled_at").map(|t| t.timestamp()),
+        s(doc, "image"),
+        s(doc, "image_alt"),
+        s(doc, "first_comment")
+    ]);
     hex::encode(Sha256::digest(what.to_string()))
 }
 
-pub struct AccountHook;
+/// The profile of an account, and the picture of a post, read for checking.
+async fn profile_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) -> Result<Option<Profile>> {
+    let Some(profile) = id(account, "profile") else { return Ok(None) };
+    Ok(Some(Profile::of(&k.get_tx(&elevated(ctx), tx, "SocialProfile", profile, false).await?)))
+}
 
-#[async_trait]
-impl DocHook for AccountHook {
-    fn name(&self) -> &'static str {
-        "social.account"
-    }
-
-    async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
-        if let Some(handle) = s(doc, "handle").map(|h| h.trim().trim_start_matches('@').to_string()) {
-            doc.insert("handle".into(), json!(handle));
-        }
-        // The connection by its name, as Administration, Connections shows it, or by its id. A
-        // disconnected one (its credentials forgotten) is not one of them.
-        if let Some(given) = s(doc, "connection").map(|c| c.trim().to_string()).filter(|c| !c.is_empty() && c.parse::<Uuid>().is_err()) {
-            let named: Vec<Uuid> =
-                sqlx::query_scalar("select id from connection where tenant_id = $1 and lower(name) = lower($2) and sealed is not null limit 2")
-                    .bind(hc.ctx.tenant)
-                    .bind(&given)
-                    .fetch_all(&mut **hc.tx)
-                    .await?;
-            match named.as_slice() {
-                [one] => {
-                    doc.insert("connection".into(), json!(one.to_string()));
-                }
-                [] => return Err(Error::field("connection", format!("no connection is named {given}"))),
-                _ => return Err(Error::field("connection", format!("more than one connection is named {given}: give its id"))),
-            }
-        }
-        Ok(())
-    }
-
-    async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
-        let conn = s(doc, "connection").and_then(|c| c.trim().parse().ok()).ok_or_else(|| Error::field("connection", "is a connection's id"))?;
-        if connection(hc.tx, hc.ctx.tenant, conn).await?.is_none() {
-            return Err(Error::field("connection", "no connection by that id in this workspace"));
-        }
-        Ok(())
-    }
+async fn picture_of(k: &Kernel, ctx: &Ctx, image: Option<&str>) -> Result<Option<Picture>> {
+    let Some(file) = image.and_then(|i| i.strip_prefix("/files/")).and_then(|f| f.parse::<Uuid>().ok()) else { return Ok(None) };
+    Ok(Some(Picture { bytes: k.file_info(&elevated(ctx), file).await?.size }))
 }
 
 pub struct PostHook;
@@ -139,6 +190,8 @@ impl DocHook for PostHook {
         if image.is_some() && s(doc, "image_alt").is_none_or(|a| a.trim().is_empty()) {
             return Err(Error::field("image_alt", "says what the picture shows, for people who cannot see it"));
         }
+        let picture = picture_of(hc.kernel, hc.ctx, image).await?;
+        let first = s(doc, "first_comment");
         for target in rows(doc, "targets") {
             let Some(account) = id(&target, "account") else { continue };
             let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
@@ -149,16 +202,23 @@ impl DocHook for PostHook {
             if !a.get("active").and_then(Value::as_bool).unwrap_or(true) {
                 return Err(Error::field("targets", format!("{name} is paused")));
             }
-            if let Some(why) = misfit(s(&a, "network").unwrap_or_default(), text, link, image.is_some()) {
-                return Err(Error::field("text", format!("for {name}: {why}")));
+            match profile_of(hc.kernel, hc.ctx, hc.tx, &a).await? {
+                Some(profile) => {
+                    if let Some(why) = misfit(&profile, text, link, first, picture.as_ref()) {
+                        return Err(Error::field("text", format!("for {name}: {why}")));
+                    }
+                }
+                // A workspace not yet updated has no profiles: nothing says what its networks take.
+                None if any_profile(hc).await? => {
+                    return Err(Error::field("targets", format!("{name} has no network profile, so it is not known what its network takes")));
+                }
+                None => {}
             }
-            let conn = s(&a, "connection").and_then(|c| c.parse().ok()).unwrap_or_default();
-            let provider = connection(hc.tx, hc.ctx.tenant, conn).await?.map(|(p, _)| p).unwrap_or_default();
-            let offers = capabilities(hc.kernel, hc.ctx.tenant, &provider).await?;
-            if !offers.iter().any(|c| c == "publish_text") {
+            let conn = reach(hc.tx, hc.ctx.tenant, s(&a, "connection")).await?;
+            if !conn.as_ref().is_some_and(|c| c.has("publish")) {
                 return Err(Error::field("targets", format!("{name}'s connection cannot publish posts")));
             }
-            if image.is_some() && !offers.iter().any(|c| c == "publish_image") {
+            if image.is_some() && !conn.as_ref().is_some_and(|c| c.has("publish_media")) {
                 return Err(Error::field("image", format!("{name}'s connection cannot publish pictures")));
             }
         }
@@ -200,10 +260,8 @@ impl DocHook for PostHook {
                 let own = [Filter::eq("post", post.to_string())];
                 for p in hc.kernel.find_tx(&system, hc.tx, "SocialPublication", &own, None, 100).await? {
                     let (Some(publication), true) = (id(&p, "id"), s(&p, "external_id").is_none()) else { continue };
-                    let account = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
-                    let Some(conn) = s(&account, "connection").and_then(|c| c.parse().ok()) else { continue };
                     hc.kernel.set_values_tx(&system, hc.tx, "SocialPublication", publication, obj(json!({"failed_at": null, "failure": null}))).await?;
-                    deliver(hc.tx, hc.ctx.tenant, conn, POSTS, publication).await?;
+                    queue(hc.tx, hc.ctx.tenant, publication).await?;
                 }
                 json!({"status": "Sending", "failure": null})
             }
@@ -214,8 +272,52 @@ impl DocHook for PostHook {
     }
 }
 
-/// Approved posts whose time has come: one publication per account, each sent through that
-/// account's connection.
+/// One job for a publication: queued once while one is waiting or running.
+pub(crate) async fn queue(tx: &mut Tx, tenant: Uuid, publication: Uuid) -> Result<()> {
+    let mut job = NewJob::new(PUBLISH, json!({"publication": publication}));
+    job.max_attempts = ATTEMPTS;
+    job.dedupe_key = Some(format!("publish:{publication}"));
+    ferrum_kernel::jobs::enqueue(tx, tenant, None, job).await?;
+    Ok(())
+}
+
+pub struct PublicationHook;
+
+#[async_trait]
+impl DocHook for PublicationHook {
+    fn name(&self) -> &'static str {
+        "social.publication.actions"
+    }
+
+    /// `delete_remote`: the post taken down on the network, where the connection offers `delete`.
+    async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
+        if name != "delete_remote" {
+            return Ok(None);
+        }
+        let publication = id(doc, "id").ok_or_else(|| Error::internal("a publication without an id"))?;
+        let external = s(doc, "external_id").ok_or_else(|| Error::invalid("it is not out on the network"))?;
+        let system = elevated(hc.ctx);
+        let account = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", id(doc, "account").unwrap_or_default(), false).await?;
+        let conn = reach(hc.tx, hc.ctx.tenant, s(&account, "connection")).await?.ok_or_else(|| Error::invalid("the account's connection is gone"))?;
+        if !conn.has("delete") {
+            return Err(Error::invalid(format!("{} does not offer to delete a post", conn.name)));
+        }
+        let calling = caller(hc.kernel, hc.tx, hc.ctx.tenant, &account, &conn).await?;
+        let call = Call {
+            connection: conn.id.to_string(),
+            operation: "delete".into(),
+            inputs: conn.fit("delete", json!({"id": external})),
+            key: Some(format!("delete:{publication}")),
+            entity: Some("SocialPublication".into()),
+            record: Some(publication),
+        };
+        connections::call(hc.kernel, &calling, Some(crate::APP), &call).await.map_err(crate::said)?;
+        hc.kernel.set_values_tx(&system, hc.tx, "SocialPublication", publication, obj(json!({"deleted_at": Utc::now().to_rfc3339()}))).await?;
+        Ok(Some(json!({"deleted": true})))
+    }
+}
+
+/// Approved posts whose time has come: one publication per account, and one queued send for each.
 pub(crate) async fn send_due(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<Utc>) -> Result<()> {
     for found in k.find_tx(ctx, tx, "SocialPost", &[Filter::eq("status", "Approved")], Some("scheduled_at asc"), 500).await? {
         if at(&found, "scheduled_at").is_none_or(|t| t > now) {
@@ -225,8 +327,6 @@ pub(crate) async fn send_due(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<U
         let doc = k.get_tx(ctx, tx, "SocialPost", post, false).await?;
         for target in rows(&doc, "targets") {
             let Some(account) = id(&target, "account") else { continue };
-            let a = k.get_tx(ctx, tx, "SocialAccount", account, false).await?;
-            let Some(conn) = s(&a, "connection").and_then(|c| c.parse().ok()) else { continue };
             let made = k
                 .insert_tx(
                     ctx,
@@ -236,16 +336,142 @@ pub(crate) async fn send_due(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<U
                                "image": s(&doc, "image"), "image_alt": s(&doc, "image_alt")})),
                 )
                 .await?;
-            deliver(tx, ctx.tenant, conn, POSTS, id(&made, "id").unwrap_or_default()).await?;
+            queue(tx, ctx.tenant, id(&made, "id").unwrap_or_default()).await?;
         }
         k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"status": "Sending"}))).await?;
     }
     Ok(())
 }
 
-/// Publications the network has given its id to, marked out; one whose delivery ended without,
-/// marked failed with the reason (a send that left no trace for a day is given up on too); and
-/// posts all of whose are settled: published, or failed when any publication is.
+/// The text of a mapped value a network gave as its id: a string or a number.
+pub(crate) fn text_of(v: &Value) -> Option<String> {
+    match v {
+        Value::String(t) if !t.trim().is_empty() => Some(t.trim().to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+pub struct PublishJob;
+
+#[async_trait]
+impl JobHandler for PublishJob {
+    fn kind(&self) -> &'static str {
+        PUBLISH
+    }
+
+    fn title(&self) -> &'static str {
+        "A post sent to an account"
+    }
+
+    async fn run(&self, k: &Kernel, job: &Job) -> Result<Value> {
+        let publication: Uuid = job.payload["publication"].as_str().and_then(|p| p.parse().ok()).ok_or_else(|| Error::invalid("names its publication"))?;
+        match send(k, job.tenant_id, publication).await {
+            Ok(done) => Ok(done),
+            Err(e) => {
+                // Said on the publication as it happens: a refusal ends it, "later" is shown as waiting.
+                let last = !matches!(e, Error::Unavailable(_) | Error::Wait(..)) || job.attempts >= job.max_attempts;
+                let _ = fail(k, job.tenant_id, publication, &e.to_string(), last).await;
+                Err(e)
+            }
+        }
+    }
+
+    fn timeout(&self) -> Wait {
+        Wait::from_secs(180)
+    }
+}
+
+/// What the service said, on the publication.
+async fn fail(k: &Kernel, tenant: Uuid, publication: Uuid, why: &str, last: bool) -> Result<()> {
+    let ctx = Ctx::system(tenant, k.registry.schema(tenant).await?);
+    let mut tx = k.db.tenant_tx(tenant).await?;
+    let p = k.get_tx(&ctx, &mut tx, "SocialPublication", publication, true).await?;
+    if s(&p, "external_id").is_none() {
+        let values =
+            if last { json!({"failed_at": Utc::now().to_rfc3339(), "failure": why}) } else { json!({"failure": format!("Waiting to try again: {why}")}) };
+        k.set_values_tx(&ctx, &mut tx, "SocialPublication", publication, obj(values)).await?;
+        if let Ok(account) = k.get_tx(&ctx, &mut tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await {
+            // A refused sign-in shows on the account at once.
+            let _ = accounts::refresh(k, &ctx, &mut tx, &account).await;
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn send(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Value> {
+    let ctx = Ctx::system(tenant, k.registry.schema(tenant).await?);
+    let mut tx = k.db.tenant_tx(tenant).await?;
+    // The lock that makes a second send of the same publication wait, and then find it out.
+    let p = k.get_tx(&ctx, &mut tx, "SocialPublication", publication, true).await?;
+    if s(&p, "external_id").is_some() {
+        tx.commit().await?;
+        return Ok(json!({"done": "already out"}));
+    }
+    let account = k.get_tx(&ctx, &mut tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
+    let name = s(&account, "account_name").unwrap_or("the account").to_string();
+    let post = k.get_tx(&ctx, &mut tx, "SocialPost", id(&p, "post").unwrap_or_default(), false).await?;
+    let conn: Reach =
+        reach(&mut tx, tenant, s(&account, "connection")).await?.ok_or_else(|| Error::invalid(format!("{name} has no connection here: connect it again")))?;
+    if !conn.enabled {
+        return Err(Error::invalid(format!("the connection {} is turned off", conn.name)));
+    }
+    // What its network takes may have been changed since the post was approved.
+    let profile = profile_of(k, &ctx, &mut tx, &account).await?.ok_or_else(|| Error::invalid(format!("{name} has no network profile")))?;
+    let image = s(&post, "image").filter(|i| !i.is_empty());
+    let picture = picture_of(k, &ctx, image).await?;
+    if let Some(why) =
+        misfit(&profile, s(&post, "text").unwrap_or_default(), s(&post, "link").filter(|l| !l.is_empty()), s(&post, "first_comment"), picture.as_ref())
+    {
+        return Err(Error::invalid(format!("for {name}: {why}")));
+    }
+    let calling = caller(k, &mut tx, tenant, &account, &conn).await?;
+    let call = |operation: &str, inputs: Value, key: String| Call {
+        connection: conn.id.to_string(),
+        operation: operation.into(),
+        inputs: conn.fit(operation, inputs),
+        key: Some(key),
+        entity: Some("SocialPublication".into()),
+        record: Some(publication),
+    };
+    let mut media = s(&p, "media_ref").map(str::to_string);
+    if let (Some(image), None) = (image, &media) {
+        if !conn.has("publish_media") {
+            return Err(Error::invalid(format!("{name}'s connection cannot publish pictures")));
+        }
+        let file: Uuid = image.strip_prefix("/files/").and_then(|f| f.parse().ok()).ok_or_else(|| Error::invalid("a post's picture is a file stored here"))?;
+        let (file_name, content_type, bytes) = k.read_file(&elevated(&ctx), file).await?;
+        let alt = if profile.alt_text { s(&post, "image_alt").unwrap_or_default() } else { "" };
+        let inputs = json!({"name": file_name, "content_type": content_type, "alt": alt, "size": bytes.len(), "data": base64(&bytes)});
+        let up = connections::call(k, &calling, Some(crate::APP), &call("publish_media", inputs, format!("media:{publication}"))).await.map_err(crate::said)?;
+        media = Some(text_of(&up["id"]).ok_or_else(|| Error::invalid("the connection's publish_media gives no id: its description maps one under result"))?);
+    }
+    let text = s(&post, "text").unwrap_or_default();
+    let link = s(&post, "link").filter(|l| !l.is_empty());
+    let inputs = json!({"text": text, "link": link, "text_with_link": link.map_or_else(|| text.to_string(), |l| format!("{text} {l}")),
+                        "media": media.iter().collect::<Vec<_>>(), "media_id": media, "alt": s(&post, "image_alt")});
+    let out = connections::call(k, &calling, Some(crate::APP), &call("publish", inputs, format!("publish:{publication}"))).await.map_err(crate::said)?;
+    let external = text_of(&out["id"]).ok_or_else(|| Error::invalid("the connection's publish gives no id: its description maps one under result"))?;
+    let values = json!({"external_id": external, "sent_at": Utc::now().to_rfc3339(), "permalink": text_of(&out["url"]), "media_ref": media,
+                        "failed_at": null, "failure": null});
+    k.set_values_tx(&ctx, &mut tx, "SocialPublication", publication, obj(values)).await?;
+    // The first comment follows the post, where the network takes one and the connection can reply.
+    let comment = s(&post, "first_comment").filter(|c| !c.trim().is_empty());
+    if let (Some(comment), true, true) = (comment, profile.first_comment, conn.has("reply")) {
+        let inputs = json!({"text": comment, "in_reply_to": external});
+        if let Err(e) = connections::call(k, &calling, Some(crate::APP), &call("reply", inputs, format!("first_comment:{publication}"))).await {
+            let why = format!("It is out, but its first comment was not: {}", crate::said(e));
+            k.set_values_tx(&ctx, &mut tx, "SocialPublication", publication, obj(json!({"failure": why}))).await?;
+        }
+    }
+    tx.commit().await?;
+    Ok(json!({"id": external}))
+}
+
+/// Posts all of whose publications are settled: published, or failed when any publication ended without
+/// going out. A publication whose job ended without saying so, or left no trace for a day, is marked
+/// failed too.
 pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<Utc>) -> Result<()> {
     for found in k.find_tx(ctx, tx, "SocialPost", &[Filter::eq("status", "Sending")], None, 500).await? {
         let post = id(&found, "id").unwrap_or_default();
@@ -253,34 +479,33 @@ pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<
         let mut failures = Vec::new();
         for p in k.find_tx(ctx, tx, "SocialPublication", &[Filter::eq("post", post.to_string())], None, 100).await? {
             let publication = id(&p, "id").unwrap_or_default();
-            let account = k.get_tx(ctx, tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
-            let name = s(&account, "account_name").unwrap_or("an account");
             if s(&p, "external_id").is_some() {
                 continue;
             }
+            let account = k.get_tx(ctx, tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
+            let name = s(&account, "account_name").unwrap_or("an account");
             if at(&p, "failed_at").is_some() {
                 failures.push(format!("{name}: {}", s(&p, "failure").unwrap_or("it did not go out")));
                 continue;
             }
-            let conn = s(&account, "connection").and_then(|c| c.parse().ok()).unwrap_or_default();
-            let why = match sent_as(tx, ctx.tenant, conn, POSTS, publication).await? {
-                Some(external) => {
-                    let values = json!({"external_id": external, "sent_at": Utc::now().to_rfc3339()});
-                    k.set_values_tx(ctx, tx, "SocialPublication", publication, obj(values)).await?;
-                    continue;
-                }
-                None => match delivery(tx, ctx.tenant, conn, POSTS, publication).await? {
-                    Some((status, _)) if status == "queued" || status == "running" => None,
-                    Some((_, error)) => Some(error.unwrap_or_else(|| "the network gave no id for it".into())),
-                    None if at(&p, "created_at").is_some_and(|c| now - c > STALE) => Some("sending it left no trace and it never went out".into()),
-                    None => None,
-                },
+            let job: Option<(String, Option<String>)> = sqlx::query_as(
+                "select status::text, last_error from job where tenant_id = $1 and kind = $2 and dedupe_key = $3 order by created_at desc limit 1",
+            )
+            .bind(ctx.tenant)
+            .bind(PUBLISH)
+            .bind(format!("publish:{publication}"))
+            .fetch_optional(&mut **tx)
+            .await?;
+            let why = match job {
+                Some((status, _)) if status == "queued" || status == "running" => None,
+                Some((_, error)) => Some(error.unwrap_or_else(|| "the network gave no id for it".into())),
+                None if at(&p, "created_at").is_some_and(|c| now - c > STALE) => Some("sending it left no trace and it never went out".into()),
+                None => None,
             };
             match why {
                 None => pending = true,
                 Some(why) => {
-                    let values = json!({"failed_at": Utc::now().to_rfc3339(), "failure": why});
-                    k.set_values_tx(ctx, tx, "SocialPublication", publication, obj(values)).await?;
+                    k.set_values_tx(ctx, tx, "SocialPublication", publication, obj(json!({"failed_at": Utc::now().to_rfc3339(), "failure": why}))).await?;
                     failures.push(format!("{name}: {why}"));
                 }
             }
@@ -302,16 +527,30 @@ pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<
 mod tests {
     use super::*;
 
+    fn profile(name: &str, max: usize, link: Option<usize>) -> Profile {
+        Profile { name: name.into(), max_text: max, link_length: link, images: true, alt_text: true, ..Default::default() }
+    }
+
     #[test]
-    fn what_each_network_takes() {
-        let long = "a".repeat(281);
-        assert!(misfit("X", &long, None, false).is_some_and(|w| w.contains("280")));
-        assert!(misfit("X", &"a".repeat(256), Some("https://example.org/a-very-long-path-that-x-shortens"), false).is_none(), "a link is 23 and a space");
-        assert!(misfit("X", &"a".repeat(257), Some("https://e.org"), false).is_some());
-        assert!(misfit("LinkedIn", &long, None, false).is_none());
-        assert!(misfit("Mastodon", &"a".repeat(490), Some("https://example.org/0123456789"), false).is_some(), "Mastodon counts the link");
-        assert!(misfit("Instagram", "Hello", None, false).is_some_and(|w| w.contains("image or a video")));
-        assert_eq!(misfit("Instagram", "Hello", None, true), None, "with its picture");
-        assert!(misfit("YouTube", "Hello", None, true).is_some_and(|w| w.contains("video")), "a picture is not a video");
+    fn what_a_profile_says_a_network_takes() {
+        let short = profile("Short", 280, Some(23));
+        assert!(misfit(&short, &"a".repeat(281), None, None, None).is_some_and(|w| w.contains("280")));
+        assert!(
+            misfit(&short, &"a".repeat(256), Some("https://example.org/a-very-long-path-that-is-shortened"), None, None).is_none(),
+            "a link is 23 and a space"
+        );
+        assert!(misfit(&short, &"a".repeat(257), Some("https://e.org"), None, None).is_some());
+        let plain = profile("Plain", 500, None);
+        assert!(misfit(&plain, &"a".repeat(490), Some("https://example.org/0123456789"), None, None).is_some(), "a link counts as written");
+        let pictured = Profile { media_required: true, ..profile("Pictures", 2200, None) };
+        assert!(misfit(&pictured, "Hello", None, None, None).is_some_and(|w| w.contains("image or a video")));
+        assert_eq!(misfit(&pictured, "Hello", None, None, Some(&Picture { bytes: 10 })), None, "with its picture");
+        let video = Profile { images: false, videos: true, media_required: true, ..profile("Video", 2200, None) };
+        assert!(misfit(&video, "Hello", None, None, Some(&Picture { bytes: 10 })).is_some_and(|w| w.contains("video")), "a picture is not a video");
+        let small = Profile { max_image_bytes: Some(1_000_000), ..profile("Small", 300, None) };
+        assert!(misfit(&small, "Hi", None, None, Some(&Picture { bytes: 2_000_000 })).is_some_and(|w| w.contains("at most 1.0 MB") || w.contains("KB")));
+        assert!(misfit(&profile("None", 300, None), "Hi", None, Some("first!"), None).is_some_and(|w| w.contains("first comment")));
+        let words = Profile { images: false, ..profile("Words", 300, None) };
+        assert!(misfit(&words, "Hi", None, None, Some(&Picture { bytes: 1 })).is_some_and(|w| w.contains("no pictures")));
     }
 }

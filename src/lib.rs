@@ -1,29 +1,33 @@
-//! Social media management (FERRUM-ECOSYSTEM-005) on the platform's connections
-//! (FERRUM-CONNECT-001): brands and their accounts, each reached through a connection an
-//! administrator set up; posts approved by someone other than their author and sent at their time
-//! to each account, within what its network takes and its provider offers; the inbox read and
-//! answered; and what each post did.
+//! Social media management (FERRUM-ECOSYSTEM-005) on the platform's connections (docs/api.md, "Connections"):
+//! brands and their accounts, each an account on a connection (the workspace's sign-in at a provider, or a person's
+//! own, through the platform's broker); posts approved by someone other than their author and sent at their time
+//! to each account, within what its network profile says it takes; the inbox read and answered; and what each post
+//! and account did.
 //!
-//! * `posts`: posts and their review, what each network takes, publications sent through their
-//!   account's own connection, and their insights.
-//! * `insights`: each publication's numbers kept day by day, and the report of what each day added.
-//! * `inbox`: messages read through connections, routed to their account, and replies sent back.
-//! * `mastodon`: a connector for any Mastodon server, for accounts there.
-//! * `bluesky`: a connector for Bluesky (any AT Protocol server), for accounts there.
+//! No network is named here. A network is a connection's description, whose operations are named by what Social
+//! needs of them (`publish`, `publish_media`, `delete`, `comments`, `reply`, `messages`, `send_message`, `metrics`,
+//! `account`), and a network profile record saying what a post may carry (examples: docs/connectors/).
+//!
+//! * `accounts`: accounts, their state on the connection, and the profile each names.
+//! * `posts`: posts, their review, validation against the profile, and each account's publication, sent by a queued
+//!   job through the connection, once.
+//! * `inbox`: messages arriving through a connection's inbound address or pulls, and replies sent back.
+//! * `metrics`: numbers read for each account and post, by day.
+//! * `insights`: each publication's numbers kept day by day, and the reports of them.
 //!
 //! This app's own design; no code was copied (docs/PROVENANCE.md). Hooks are registered per entity,
 //! so a workspace without the `social` package never runs them.
 
-pub mod bluesky;
+mod accounts;
 mod inbox;
 mod insights;
-pub mod mastodon;
+mod metrics;
 mod posts;
 
 use chrono::{DateTime, Utc};
 use ferrum_domain::reports::ReportSource;
-use ferrum_kernel::{Ctx, Doc, Error, HookRegistry, Kernel, Result, Tx};
-use serde_json::{Value, json};
+use ferrum_kernel::{Ctx, Doc, Error, HookRegistry, Kernel, Result};
+use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -38,24 +42,30 @@ pub fn packages() -> std::result::Result<Vec<ferrum_meta::Package>, ferrum_meta:
     ferrum_meta::catalog::load_embedded(EMBEDDED)
 }
 
-/// Registers this app's document hooks, and its connectors for Mastodon and Bluesky.
+/// The name this app calls connections by: a connection lists it under `apps`.
+pub(crate) const APP: &str = "social";
+
+/// Registers this app's document hooks and the jobs that send posts and replies.
 pub fn register(hooks: &mut HookRegistry) {
     hooks
-        .register("SocialAccount", Arc::new(posts::AccountHook))
+        .register("SocialAccount", Arc::new(accounts::AccountHook))
         .register("SocialPost", Arc::new(posts::PostHook))
-        .register("SocialPublication", Arc::new(insights::PublicationHook))
+        .register("SocialPublication", Arc::new(posts::PublicationHook))
+        .register("SocialPublication", Arc::new(insights::InsightHook))
         .register("SocialMessage", Arc::new(inbox::MessageHook))
         .register("SocialReply", Arc::new(inbox::ReplyHook));
-    hooks.add_connector(Arc::new(mastodon::Mastodon)).add_connector(Arc::new(bluesky::Bluesky));
+    hooks.add_job_handler(Arc::new(posts::PublishJob)).add_job_handler(Arc::new(inbox::ReplyJob));
 }
 
-/// This app's reports: what each day added to the publications' numbers.
+/// This app's reports: what each day added to the publications' numbers, when to post, and the numbers by
+/// account, by post and by tag.
 pub fn reports() -> Vec<Arc<dyn ReportSource>> {
-    vec![Arc::new(insights::SocialReports)]
+    vec![Arc::new(insights::SocialReports), Arc::new(metrics::MetricReports)]
 }
 
-/// Upkeep: approved posts sent when their time comes, sent publications marked out with the
-/// network's id, and insights brought to their publications.
+/// Upkeep: accounts carried over and their states, approved posts queued when their time comes, posts settled, and
+/// the numbers read. It asks for nothing an administrator's update of the app brings (network profiles are seeded
+/// then): a workspace not yet updated keeps working as far as it can, and what cannot be sent says why.
 pub async fn maintenance(k: &Kernel) -> Result<()> {
     maintenance_at(k, Utc::now()).await
 }
@@ -74,10 +84,12 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             }
             let ctx = Ctx::system(tenant, schema);
             let mut tx = k.db.tenant_tx(tenant).await?;
+            accounts::carry_over(k, &ctx, &mut tx).await?;
+            accounts::refresh_all(k, &ctx, &mut tx).await?;
             posts::send_due(k, &ctx, &mut tx, now).await?;
             posts::mark_sent(k, &ctx, &mut tx, now).await?;
-            inbox::mark_replies(k, &ctx, &mut tx).await?;
             tx.commit().await?;
+            metrics::pull(k, tenant, now).await?;
             Ok::<(), Error>(())
         };
         if let Err(e) = run.await {
@@ -97,78 +109,42 @@ pub(crate) fn at(doc: &Doc, k: &str) -> Option<DateTime<Utc>> {
     doc.get(k).and_then(Value::as_str).and_then(|v| DateTime::parse_from_rfc3339(v).ok()).map(|d| d.with_timezone(&Utc))
 }
 
-/// The connection behind an account: its provider and whether it is on.
-pub(crate) async fn connection(tx: &mut Tx, tenant: Uuid, id: Uuid) -> Result<Option<(String, bool)>> {
-    Ok(sqlx::query_as("select provider, enabled from connection where tenant_id = $1 and id = $2").bind(tenant).bind(id).fetch_optional(&mut **tx).await?)
-}
-
-/// What a connection's provider says it can do (`publish_text`, `reply` ...).
-/// The picture a post carries, as a connector sends it: (file name, content type, bytes, what it
-/// shows), read from where it is stored; nothing for a post without one.
-pub(crate) async fn picture(
-    k: &Kernel,
-    c: &ferrum_kernel::connect::Connection,
-    change: &ferrum_kernel::connect::Outgoing,
-) -> Result<Option<(String, String, Vec<u8>, String)>> {
-    let Some(url) = change.fields.get("image").and_then(Value::as_str).filter(|u| !u.is_empty()) else { return Ok(None) };
-    let file: Uuid = url.strip_prefix("/files/").and_then(|f| f.parse().ok()).ok_or_else(|| Error::invalid("a post's picture is a file stored here"))?;
-    let ctx = Ctx::system(c.tenant, k.registry.schema(c.tenant).await?);
-    let (name, ctype, bytes) = k.read_file(&ctx, file).await?;
-    let alt = change.fields.get("image_alt").and_then(Value::as_str).unwrap_or_default().to_string();
-    Ok(Some((name, ctype, bytes, alt)))
-}
-
-pub(crate) async fn capabilities(k: &Kernel, tenant: Uuid, provider: &str) -> Result<Vec<String>> {
-    if let Some(c) = k.hooks.connectors().find(|c| c.info().provider == provider) {
-        return Ok(c.info().capabilities);
-    }
-    match k.hooks.connector_source() {
-        Some(source) => Ok(source.find(k, tenant, provider).await?.map(|c| c.info().capabilities).unwrap_or_default()),
-        None => Ok(vec![]),
+/// A connection's refusal in words that say what to do about the commonest one: a connection answers an app only
+/// when it lists the app.
+pub(crate) fn said(e: Error) -> Error {
+    match e {
+        Error::Forbidden(m) if m.contains("may not use this connection") => {
+            Error::invalid(format!("the connection does not list {APP} under apps, so Social may not use it: an administrator adds it ({m})"))
+        }
+        other => other,
     }
 }
 
-/// Sends `record` of a stream through one connection, by the platform's own delivery: retried,
-/// waited for when the provider says so, a dead letter in the end. The connection maps the stream
-/// without pushing it by itself, so a record goes only through the connection it is for.
-pub(crate) async fn deliver(tx: &mut Tx, tenant: Uuid, connection: Uuid, stream: &str, record: Uuid) -> Result<()> {
-    let key = format!("{connection}:{record}:{stream}");
-    let mut job = ferrum_kernel::jobs::NewJob::new(
-        ferrum_kernel::connect::DELIVER_KIND,
-        json!({"connection": connection, "stream": stream, "record": record, "key": key}),
-    );
-    job.max_attempts = 8;
-    job.dedupe_key = Some(key);
-    ferrum_kernel::jobs::enqueue(tx, tenant, None, job).await?;
-    Ok(())
-}
-
-/// The network's id for `record` once its delivery went through.
-pub(crate) async fn sent_as(tx: &mut Tx, tenant: Uuid, connection: Uuid, stream: &str, record: Uuid) -> Result<Option<String>> {
-    Ok(sqlx::query_scalar("select external_id from connection_link where tenant_id = $1 and connection_id = $2 and stream = $3 and record_id = $4")
-        .bind(tenant)
-        .bind(connection)
-        .bind(stream)
-        .bind(record)
-        .fetch_optional(&mut **tx)
-        .await?)
-}
-
-/// How the latest delivery of `record` stands in the platform's job list: (status, the last error).
-/// The platform retries what is temporary (a timeout, a rate limit, a 5xx) up to the job's attempts
-/// and ends what is permanent (refused content, revoked access) at once, as `failed`.
-pub(crate) async fn delivery(tx: &mut Tx, tenant: Uuid, connection: Uuid, stream: &str, record: Uuid) -> Result<Option<(String, Option<String>)>> {
-    Ok(sqlx::query_as("select status, last_error from job where tenant_id = $1 and kind = $2 and dedupe_key = $3 order by created_at desc limit 1")
-        .bind(tenant)
-        .bind(ferrum_kernel::connect::DELIVER_KIND)
-        .bind(format!("{connection}:{record}:{stream}"))
-        .fetch_optional(&mut **tx)
-        .await?)
+/// Bytes as base64 (standard alphabet, padded), for a network that takes a picture inside JSON.
+pub(crate) fn base64(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        for i in 0..4 {
+            out.push(if i <= c.len() { A[((n >> (18 - 6 * i)) & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bytes_as_base64() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
 
     #[test]
     fn the_interface_is_a_release_the_platform_takes() {

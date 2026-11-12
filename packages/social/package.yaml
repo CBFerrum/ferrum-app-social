@@ -9,7 +9,7 @@ modules:
     label: Social
     icon: share-2
     order: 66
-    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPublication, SocialInsight, SocialReply]
+    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
 
 roles:
   - name: Social Author
@@ -17,9 +17,12 @@ roles:
     permissions:
       - {entity: SocialBrand, read: true}
       - {entity: SocialAccount, read: true}
+      - {entity: SocialProfile, read: true}
+      - {entity: SocialSavedReply, read: true}
       - {entity: SocialPost, read: true, write: true, create: true}
       - {entity: SocialPublication, read: true}
       - {entity: SocialInsight, read: true}
+      - {entity: SocialMetric, read: true}
       - {entity: SocialMessage, read: true, write: true}
       - {entity: SocialReply, read: true, create: true}
   - name: Social Approver
@@ -27,9 +30,12 @@ roles:
     permissions:
       - {entity: SocialBrand, read: true}
       - {entity: SocialAccount, read: true}
+      - {entity: SocialProfile, read: true}
+      - {entity: SocialSavedReply, read: true}
       - {entity: SocialPost, read: true, write: true}
-      - {entity: SocialPublication, read: true, export: true}
+      - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}
+      - {entity: SocialMetric, read: true, export: true}
       - {entity: SocialMessage, read: true, write: true}
       - {entity: SocialReply, read: true}
   - name: Social Manager
@@ -37,8 +43,34 @@ roles:
     permissions:
       - {entity: SocialBrand, read: true, write: true, create: true}
       - {entity: SocialAccount, read: true, write: true, create: true}
+      - {entity: SocialProfile, read: true, write: true, create: true}
+      - {entity: SocialSavedReply, read: true, write: true, create: true, delete: true}
+      - {entity: SocialSettings, read: true, write: true, create: true}
       - {entity: SocialPost, read: true}
-      - {entity: SocialPublication, read: true, export: true}
+      - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}
+      - {entity: SocialMetric, read: true, export: true}
       - {entity: SocialMessage, read: true, write: true}
       - {entity: SocialReply, read: true}
+
+# What the inbox holds of the people who write to a brand: the handle, what they said and what was
+# answered. A handle that is an address (name@host) is found by it; one that is not is listed under
+# the name for a person to judge.
+personal_data:
+  - {entity: SocialMessage, match: author, name: author, erase: [author, author_id, account_handle, text, contact_id, contact_entity]}
+  - {entity: SocialReply, match: message, erase: [text, in_reply_to]}
+
+# What the networks took in a post before network profiles were records: the same numbers, now
+# editable. An account whose network is named like one of them is linked to it by the upkeep.
+seed:
+  - entity: SocialProfile
+    key: [profile_name]
+    records:
+      - {profile_name: X, max_text: 280, link_length: 23, images: true, max_media: 4}
+      - {profile_name: Bluesky, max_text: 300, images: true, max_image_bytes: 1000000}
+      - {profile_name: Mastodon, max_text: 500, images: true}
+      - {profile_name: Threads, max_text: 500, images: true}
+      - {profile_name: LinkedIn, max_text: 3000, images: true}
+      - {profile_name: Facebook, max_text: 63206, images: true}
+      - {profile_name: Instagram, max_text: 2200, images: true, media_required: true}
+      - {profile_name: YouTube, max_text: 2200, images: false, videos: true, media_required: true}
