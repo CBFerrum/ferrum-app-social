@@ -1,0 +1,27 @@
+{
+  "base": "https://mastodon.example",
+  "auth": {"type": "oauth", "owner": "workspace",
+           "provider": {"authorize_url": "https://mastodon.example/oauth/authorize", "token_url": "https://mastodon.example/oauth/token",
+                        "revoke_url": "https://mastodon.example/oauth/revoke", "scopes": ["read", "write"],
+                        "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID", "client_secret": "client_secret", "client_auth": "body"}},
+  "apps": ["social"],
+  "operations": {
+    "publish": {"method": "POST", "path": "/api/v1/statuses", "form": {"status": "{{ inputs.text_with_link }}"},
+                "result": {"id": "/id"}, "error_at": "/error", "idempotency_header": "Idempotency-Key", "inputs": ["text_with_link"]},
+    "delete": {"method": "DELETE", "path": "/api/v1/statuses/{{ inputs.id }}", "error_at": "/error", "inputs": ["id"]},
+    "reply": {"method": "POST", "path": "/api/v1/statuses", "form": {"status": "{{ inputs.text }}", "in_reply_to_id": "{{ inputs.in_reply_to }}"},
+              "result": {"id": "/id"}, "error_at": "/error", "idempotency_header": "Idempotency-Key", "inputs": ["text", "in_reply_to"]},
+    "send_message": {"method": "POST", "path": "/api/v1/statuses", "form": {"status": "@{{ inputs.to }} {{ inputs.text }}", "visibility": "direct"},
+                     "result": {"id": "/id"}, "error_at": "/error", "idempotency_header": "Idempotency-Key", "inputs": ["to", "text"]},
+    "metrics": {"path": "/api/v1/statuses/{{ inputs.id }}", "result": {"likes": "/favourites_count", "reposts": "/reblogs_count", "replies": "/replies_count"},
+                "error_at": "/error", "inputs": ["id"]},
+    "account": {"path": "/api/v1/accounts/verify_credentials", "result": {"followers": "/followers_count"}, "error_at": "/error"},
+    "messages": {"path": "/api/v1/notifications", "query": {"types[]": "mention", "since_id": "{{ cursor or '' }}"}, "error_at": "/error"}
+  },
+  "pulls": [
+    {"name": "mentions", "operation": "messages", "every_minutes": 15, "items_at": "", "cursor": "token", "next_at": "/0/id", "max_pages": 3,
+     "map": {"entity": "SocialMessage", "by": {"external_id": "item.status.id"},
+             "set": {"kind": "'Mention'", "author": "item.account.acct", "author_id": "item.account.id", "text": "item.status.content",
+                     "thread": "item.status.id", "post_external_id": "has(item.status.in_reply_to_id) ? item.status.in_reply_to_id : null"}}}
+  ]
+}

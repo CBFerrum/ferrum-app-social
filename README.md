@@ -17,136 +17,69 @@ connections:
 
 ## Highlights
 
-- **Through the platform's connections.** Each account names the connection that reaches it
-  (Administration, Connections). Credentials, retries, waiting when a network says to, dead letters
-  and reading back are the platform's (Ferrum docs/connectors.md). A post goes out through its
-  account's own connection and through no other.
-- **What each network takes.** A post must fit every account it goes to: 280 characters on X (a
-  link counting as 23), 300 on Bluesky, 500 on Mastodon and Threads, 3,000 on LinkedIn. Instagram
-  takes a post with its picture; YouTube takes video, which posts here do not carry. The account's
-  connection must say it can `publish_text`, a post with a picture needs `publish_image`, and
-  replying needs `reply`.
-- **Pictures.** A post may carry a picture stored here, with what it shows for people who cannot
-  see it, which every picture needs. Approval covers both. Mastodon gets the picture as a media
-  attachment with that description, and Bluesky as an embedded image with it as alt text, within
-  its 1 MB.
-- **Review.** Someone other than the author approves a post, or sends it back saying why. A post
-  changed after its approval needs approving again; its headline is the team's own and changes
-  freely. A post that went out stays as it went.
-- **Sent at its time.** When an approved post's time comes, it becomes one publication per account,
-  each sent through that account's connection. A publication is out once the network has given its
-  id; the post is published when all of them are.
-- **What posts did.** Reading a connection's `posts` brings each post's impressions, engagements and
-  link to the publication it is, and posts made on the network itself as publications of no post of
-  ours.
-- **Day by day.** Networks show only a post's latest numbers, so each day a publication's numbers
-  change is kept as a Daily Insight, one a day with the day's last numbers (by the workspace's day).
-  The report Social Engagement by Day, linked from the home page, shows what each day added, for
-  everything, a brand or an account: each day's numbers less the publication's day before, with
-  every day of the span listed.
-- **Best times to post.** The report Social Best Times to Post ranks the weekday and hour posts
-  went out at, on the workspace's clock, by their engagements on average. It covers the last 90
-  days unless given a span, for everything, a brand or an account, with each slot's engagement
-  rate.
-- **The inbox.** Comments, mentions and direct messages come to the account whose handle they name.
-  A message assigned says to whom. A reply goes back through the message's account's connection to
-  the network's own message, and the message is answered.
-- **Mastodon, built in.** Social brings a connector for Mastodon, or any server speaking its API
-  (provider `mastodon`): see below.
-
-## Bluesky
-
-Social also brings a connector for Bluesky, on bsky.social or any server speaking the AT
-Protocol. A connection's config may name the account's server, `{"service": "https://bsky.social"}`
-(the default). Its credentials hold the account's handle and an app password made for it,
-`{"identifier": "brand.bsky.social", "app_password": "…"}`. A session is opened with them and kept
-for an hour, since servers limit how often one is opened; one the server stops taking is opened
-again.
-- Posts go out as Bluesky posts, the link made a link facet so it is a link. Each is under a
-  record key made from the delivery's key, so a send tried again finds the post already there
-  rather than making a second.
-- They are read back from the account's own posts, reposts left out, with likes, reposts, replies
-  and quotes counted as engagements, and the post's bsky.app address. Bluesky counts no
-  impressions.
-- Replies to the account's posts are read as comments, and mentions and quotes as mentions. Likes
-  are not messages. Direct messages are Bluesky's chat, which is not read.
-- A reply goes out in the thread of what it answers.
-
-## Mastodon
-
-A connection with provider `mastodon`, config `{"instance": "https://mastodon.social"}` (the
-account's server) and credentials `{"token": "…"}`: an access token of the account with the `read`
-and `write` scopes, made under its Preferences, Development. Testing it answers with the account's
-`@handle`. Then, with the mapping below:
-- **posts** go out as public statuses, the link after the text. Each is sent with the delivery's
-  key as Mastodon's `Idempotency-Key`, so a send tried again is one status; one already out is not
-  sent again. Reading `posts` brings the account's own statuses, without boosts: favourites, boosts
-  and replies counted as engagements, and the status's address. Mastodon counts no impressions.
-- **messages** are the account's mentions: a comment when it answers one of the account's statuses,
-  a direct message when its visibility is direct, a mention otherwise.
-- **replies** go out as statuses answering the message's status, as open as it (a direct message is
-  answered directly) and naming its author, so Mastodon delivers them.
-
-A refused token is the connection's error; Mastodon's rate limit makes the platform wait as long as
-it says (`Retry-After`), or five minutes.
-
-## A connection's mapping
-
-```json
-{
-  "posts": {"entity": "SocialPublication", "fields": {"text": "text", "link": "link", "image": "image", "image_alt": "image_alt", "impressions": "impressions",
-            "engagements": "engagements", "permalink": "permalink"}, "conflict": "source"},
-  "messages": {"entity": "SocialMessage", "fields": {"account": "account_handle", "kind": "kind", "author": "author",
-               "text": "text", "post": "post_external_id"}, "values": {"kind": {"comment": "Comment", "mention": "Mention", "direct": "Direct"}}},
-  "replies": {"entity": "SocialReply", "fields": {"text": "text", "in_reply_to": "in_reply_to"}}
-}
-```
-
-None of these streams pushes by itself: Social sends each publication and reply through the one
-connection it is for.
+- **A network is a description, not code.** Social names no network. Each account is a connection
+  (Administration, Connections): the workspace's sign-in at a provider, a person's own, or a key an
+  administrator holds. Its description names operations by what Social needs: `publish`,
+  `publish_media`, `delete`, `comments`, `reply`, `messages`, `send_message`, `metrics`, `account`.
+  Examples for Mastodon and X are in `docs/connectors/`, with what each cannot express.
+- **Accounts show their state**: connected, needs reconnecting (the provider refused the sign-in:
+  the platform tells the owner and the account shows it), not connected, or the connection off.
+  Connect, Check and Disconnect (which revokes at the provider) are actions of the account.
+- **What each network takes is a record** (Network Profiles): characters, how a link counts,
+  pictures and their size, video, whether media is required, first comment, threads, link preview.
+  A post is checked per account, in plain words, before it is scheduled and again when it is sent.
+  The profiles the app used to hold in code are seeded as records (X, Bluesky, Mastodon, Threads,
+  LinkedIn, Facebook, Instagram, YouTube) and an account is linked to the one named like its network.
+- **Publishing.** At its time, a post becomes one publication and one queued job per account. The job
+  uploads the picture first when the connection offers `publish_media`, then `publish`, each under the
+  key `publish:<publication>`; it keeps the network's id and address. Once per account under retries
+  and two workers: the job is deduplicated by publication, holds a lock on the publication's row and
+  looks at it after taking it, and the platform hands a key that went through its stored answer without
+  calling the network (and gives the network the key in the description's idempotency header).
+  A refusal shows in the service's own words per account; "later" is retried with backoff (eight
+  tries); Retry sends again to the accounts not reached. A first comment follows where the profile
+  takes one; Delete on the network where the connection offers `delete`.
+- **Review.** Someone other than the author approves; a changed post needs approving again.
+- **The inbox.** Comments, mentions and direct messages arrive on the connection's inbound address or
+  by a pull with a cursor, mapped by the description onto Messages found by the network's id, so each
+  arrives once. They are routed to the account by the handle the item names, else by the post they
+  answer. Replies go out through `reply` or, for a direct message, `send_message`, once each. Saved
+  replies, tags (the platform's), assignment and status. Social Settings can match the sender to a
+  record of an entity the workspace names (installed, with a field holding handles). Erasure reaches
+  handles written as addresses, message text and the replies written to them.
+- **Numbers.** Once the hours in Social Settings have passed, each account's `account` and each recent
+  post's `metrics` are read into one Metric row a day: impressions, reach, engagements, clicks,
+  followers, whatever the network calls them. Reports: by account, by post, by tag, best times and
+  what each day added.
 
 ## Develop
 
 ```bash
-cargo test                       # needs FERRUM_SOCIAL_TEST_DATABASE_URL's database
+cargo test                       # needs the databases named in .github/workflows/ci.yml
 cd ui && npm run build && npm run check
 ```
 
-`tests/social_it.rs` runs a brand on a stand-in network through the platform's connections:
-- posts refused where a network would not take them;
-- review, a post sent back, and one changed after approval;
-- sending at its time, through each account's own connection;
-- what posts did, read back, then kept day by day (one row a day, its last numbers), and what each
-  day added, for everything, an account or a brand;
-- the inbox routed, assigned and answered;
-- who may do what.
-
-`tests/mastodon_it.rs` (`FERRUM_MASTODON_TEST_DATABASE_URL`) runs the Mastodon connector against a
-stand-in server speaking the parts of Mastodon's API it uses, over HTTP:
-- a wrong token refused, the right one answering with the handle;
-- a post sent once though its first answer was lost, with its link;
-- engagements read back, boosts left out, and nothing sent again once out;
-- a comment, a mention and a direct message routed to the account, and a reply answering the comment.
+`tests/social_it.rs` runs a fake network on 127.0.0.1 through real connections: sign-in, reconnecting
+and revoking; posts refused in plain words; one queued call per account, picture first, once under a
+lost answer, "later" and two workers; refusals shown and retried; the inbox by inbound address and by
+pull; replies; matching and erasure; numbers by day and the reports. `tests/upgrade_it.rs` serves a
+workspace still on 0.6.13 with this release. `tests/connectors_it.rs` loads the examples.
 
 ## Not yet
 
-- Mastodon against a real server: the connector was tested against a stand-in of its API, and a
-  real one needs an account's token.
-- Bluesky against a real server: its connector was tested against a stand-in of the parts of the
-  AT Protocol it uses, and a real one needs an account's app password. Bluesky's direct messages
-  (its chat) are not read.
-- Connectors for X, LinkedIn, Threads, Instagram and YouTube: each takes its API and an approved
-  account (Ferrum's FERRUM-CONNECT-002).
-- Mastodon's polls, content warnings, and editing a status once out.
-- Video, more than one picture, threads, polls, and first comments.
-- The history starts when Social first reads a post, and a day's numbers are whatever the last
-  reading that day found, so a day nobody read shows nothing. Best times rank what posts did by
-  the hour they went out; they do not account for the audience's own time zones.
+- Media that a network takes only as multipart or a binary upload, and networks whose sign-in or
+  session a description cannot express (see docs/connectors/README.md).
+- Video, several pictures, threads, polls. Link preview and native scheduling are recorded in a
+  profile but Social always sends at its time itself.
+- A mapping cannot name the connection a message came through, so an item must name its account by
+  handle or by the post it answers.
+- Handles that are not addresses are found by name for a person to judge, never erased by request.
 
 ## Changelog
 
 | Version | Highlights |
 |---|---|
+| **0.7.0** | Accounts on connections, with their state; network profiles as records; one queued call per account, once; the inbox through inbound addresses and pulls; numbers by day and reports by account, post and tag. The built-in Mastodon and Bluesky connectors are gone: examples are descriptions. |
 | **0.6.10** | The redesigned interface: the upgraded design system, shaped loading, told-apart states. |
 | **0.6.12** | The home lists posts that did not go out, with the reason and Retry. |
 | **0.6.13** | Rebuilt on the tuned design system: better menu icons, a lighter first page, a visible scroll cue, cleaner print. |
