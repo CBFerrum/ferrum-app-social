@@ -249,7 +249,7 @@ fn description(base: &str, auth: Value, ops: &[&str], inbound: bool) -> Value {
                   "result": {"id": "/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["text", "in_reply_to"]},
         "send_message": {"method": "POST", "path": "/dm", "body": "{\"to\": {{ inputs.to | json }}, \"text\": {{ inputs.text | json }}}",
                          "result": {"id": "/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["to", "text"]},
-        "metrics": {"path": "/posts/{{ inputs.id }}/stats", "result": {"impressions": "/views", "reach": "/unique", "likes": "/likes", "reposts": "/shares", "replies": "/replies", "clicks": "/taps"},
+        "metrics": {"path": "/posts/{{ inputs.id }}/stats", "result": {"impressions": "/views", "reach": "/unique", "engagements": {"expr": "answer.likes + answer.shares + answer.replies"}, "clicks": "/taps"},
                     "error_at": err, "inputs": ["id"]},
         "account": {"path": "/me", "result": {"followers": "/followers", "impressions": "/day/views", "reach": "/day/unique", "engagements": "/day/actions", "clicks": "/day/taps"}, "error_at": err},
         "messages": {"path": "/inbox", "query": {"since": "{{ cursor or '' }}"}, "error_at": err},
@@ -259,8 +259,8 @@ fn description(base: &str, auth: Value, ops: &[&str], inbound: bool) -> Value {
     if inbound {
         let map = json!({"entity": "SocialMessage", "items_at": "/items", "by": {"external_id": "item.id"},
             "set": {"kind": "item.kind == 'dm' ? 'Direct' : (item.kind == 'mention' ? 'Mention' : 'Comment')", "author": "item.from", "author_id": "item.from_id",
-                    "text": "item.text", "account_handle": "has(item.to) ? item.to : null", "post_external_id": "has(item.on_post) ? item.on_post : null",
-                    "thread": "item.thread"}});
+                    "text": "item.text", "account_handle": "/to", "post_external_id": "/on_post", "thread": "item.thread", "via_connection": "connection.id"},
+            "outside": true});
         d["inbound"] = json!({"verify": {"type": "token", "header": "x-token", "secret": "hook"}, "delivery_at": "/id", "map": map.clone()});
         d["pulls"] = json!([{"name": "inbox", "operation": "messages", "every_minutes": 5, "items_at": "/items", "cursor": "token", "next_at": "/next", "max_pages": 3, "map": map}]);
     }

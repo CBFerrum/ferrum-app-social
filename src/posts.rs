@@ -23,7 +23,7 @@
 use crate::accounts::{self, Reach, any_profile, caller, reach};
 use crate::{at, base64, obj};
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use ferrum_domain::util::{elevated, id, rows, s};
 use ferrum_kernel::connections::{self, Call};
 use ferrum_kernel::jobs::{Job, JobHandler, NewJob};
@@ -79,6 +79,7 @@ impl Profile {
 /// A picture a post carries, as far as a profile cares.
 pub(crate) struct Picture {
     pub bytes: i64,
+    pub content_type: Option<String>,
 }
 
 fn size(bytes: i64) -> String {
@@ -139,15 +140,20 @@ fn fingerprint(doc: &Doc) -> String {
     hex::encode(Sha256::digest(what.to_string()))
 }
 
-/// The profile of an account, and the picture of a post, read for checking.
+/// What an account's network takes: what its connection's description says (`meta.capabilities`, which is where a
+/// server's own limit lives), else the network profile the account names (the seeded ones are the defaults).
 async fn profile_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) -> Result<Option<Profile>> {
+    if let Some(found) = reach(tx, ctx.tenant, s(account, "connection")).await?.and_then(|c| c.capabilities(s(account, "network"))) {
+        return Ok(Some(found));
+    }
     let Some(profile) = id(account, "profile") else { return Ok(None) };
     Ok(Some(Profile::of(&k.get_tx(&elevated(ctx), tx, "SocialProfile", profile, false).await?)))
 }
 
 async fn picture_of(k: &Kernel, ctx: &Ctx, image: Option<&str>) -> Result<Option<Picture>> {
     let Some(file) = image.and_then(|i| i.strip_prefix("/files/")).and_then(|f| f.parse::<Uuid>().ok()) else { return Ok(None) };
-    Ok(Some(Picture { bytes: k.file_info(&elevated(ctx), file).await?.size }))
+    let info = k.file_info(&elevated(ctx), file).await?;
+    Ok(Some(Picture { bytes: info.size, content_type: Some(info.content_type) }))
 }
 
 pub struct PostHook;
@@ -325,6 +331,24 @@ pub(crate) async fn send_due(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<U
         }
         let post = id(&found, "id").unwrap_or_default();
         let doc = k.get_tx(ctx, tx, "SocialPost", post, false).await?;
+        // An account the connection cannot reach yet (not connected, its sign-in refused, or switched off) is waited for,
+        // saying which and why, instead of sending the post to fail: it goes when every account it names can be reached.
+        let mut waiting = Vec::new();
+        for target in rows(&doc, "targets") {
+            let Some(account) = id(&target, "account") else { continue };
+            let a = k.get_tx(ctx, tx, "SocialAccount", account, false).await?;
+            let (state, note, _) = accounts::state_of(tx, ctx.tenant, &a).await?;
+            if state != "Connected" {
+                waiting.push(format!("{}: {state}{}", s(&a, "account_name").unwrap_or("an account"), note.map(|n| format!(": {n}")).unwrap_or_default()));
+            }
+        }
+        if !waiting.is_empty() {
+            let why = waiting.join("\n");
+            if s(&doc, "waiting_for") != Some(why.as_str()) {
+                k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"waiting_for": why}))).await?;
+            }
+            continue;
+        }
         for target in rows(&doc, "targets") {
             let Some(account) = id(&target, "account") else { continue };
             let made = k
@@ -338,7 +362,7 @@ pub(crate) async fn send_due(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<U
                 .await?;
             queue(tx, ctx.tenant, id(&made, "id").unwrap_or_default()).await?;
         }
-        k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"status": "Sending"}))).await?;
+        k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"status": "Sending", "waiting_for": null}))).await?;
     }
     Ok(())
 }
@@ -441,16 +465,26 @@ async fn send(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Value> {
             return Err(Error::invalid(format!("{name}'s connection cannot publish pictures")));
         }
         let file: Uuid = image.strip_prefix("/files/").and_then(|f| f.parse().ok()).ok_or_else(|| Error::invalid("a post's picture is a file stored here"))?;
-        let (file_name, content_type, bytes) = k.read_file(&elevated(&ctx), file).await?;
+        let info = k.file_info(&elevated(&ctx), file).await?;
         let alt = if profile.alt_text { s(&post, "image_alt").unwrap_or_default() } else { "" };
-        let inputs = json!({"name": file_name, "content_type": content_type, "alt": alt, "size": bytes.len(), "data": base64(&bytes)});
+        // `file` is the stored file's id, for a description that sends it as a part or as the body; the picture's bytes
+        // as base64 only for one that says it takes `data` (a network that wants it inside JSON).
+        let mut inputs = json!({"file": file, "name": info.name, "content_type": info.content_type, "alt": alt, "size": info.size});
+        let declared = conn.inputs("publish_media");
+        if declared.is_empty() || declared.iter().any(|d| d == "data") {
+            let (_, _, bytes) = k.read_file(&elevated(&ctx), file).await?;
+            inputs["data"] = json!(base64(&bytes));
+        }
         let up = connections::call(k, &calling, Some(crate::APP), &call("publish_media", inputs, format!("media:{publication}"))).await.map_err(crate::said)?;
         media = Some(text_of(&up["id"]).ok_or_else(|| Error::invalid("the connection's publish_media gives no id: its description maps one under result"))?);
     }
     let text = s(&post, "text").unwrap_or_default();
     let link = s(&post, "link").filter(|l| !l.is_empty());
+    // Stable across attempts: a call's inputs under one key must be the same each time.
+    let created = at(&p, "created_at").unwrap_or_else(Utc::now).to_rfc3339_opts(SecondsFormat::Millis, true);
     let inputs = json!({"text": text, "link": link, "text_with_link": link.map_or_else(|| text.to_string(), |l| format!("{text} {l}")),
-                        "media": media.iter().collect::<Vec<_>>(), "media_id": media, "alt": s(&post, "image_alt")});
+                        "media": media.iter().collect::<Vec<_>>(), "media_id": media, "alt": s(&post, "image_alt"), "created_at": created,
+                        "picture_type": picture.as_ref().and_then(|p| p.content_type.clone()), "picture_size": picture.as_ref().map(|p| p.bytes)});
     let out = connections::call(k, &calling, Some(crate::APP), &call("publish", inputs, format!("publish:{publication}"))).await.map_err(crate::said)?;
     let external = text_of(&out["id"]).ok_or_else(|| Error::invalid("the connection's publish gives no id: its description maps one under result"))?;
     let values = json!({"external_id": external, "sent_at": Utc::now().to_rfc3339(), "permalink": text_of(&out["url"]), "media_ref": media,
@@ -544,13 +578,19 @@ mod tests {
         assert!(misfit(&plain, &"a".repeat(490), Some("https://example.org/0123456789"), None, None).is_some(), "a link counts as written");
         let pictured = Profile { media_required: true, ..profile("Pictures", 2200, None) };
         assert!(misfit(&pictured, "Hello", None, None, None).is_some_and(|w| w.contains("image or a video")));
-        assert_eq!(misfit(&pictured, "Hello", None, None, Some(&Picture { bytes: 10 })), None, "with its picture");
+        assert_eq!(misfit(&pictured, "Hello", None, None, Some(&Picture { bytes: 10, content_type: None })), None, "with its picture");
         let video = Profile { images: false, videos: true, media_required: true, ..profile("Video", 2200, None) };
-        assert!(misfit(&video, "Hello", None, None, Some(&Picture { bytes: 10 })).is_some_and(|w| w.contains("video")), "a picture is not a video");
+        assert!(
+            misfit(&video, "Hello", None, None, Some(&Picture { bytes: 10, content_type: None })).is_some_and(|w| w.contains("video")),
+            "a picture is not a video"
+        );
         let small = Profile { max_image_bytes: Some(1_000_000), ..profile("Small", 300, None) };
-        assert!(misfit(&small, "Hi", None, None, Some(&Picture { bytes: 2_000_000 })).is_some_and(|w| w.contains("at most 1.0 MB") || w.contains("KB")));
+        assert!(
+            misfit(&small, "Hi", None, None, Some(&Picture { bytes: 2_000_000, content_type: None }))
+                .is_some_and(|w| w.contains("at most 1.0 MB") || w.contains("KB"))
+        );
         assert!(misfit(&profile("None", 300, None), "Hi", None, Some("first!"), None).is_some_and(|w| w.contains("first comment")));
         let words = Profile { images: false, ..profile("Words", 300, None) };
-        assert!(misfit(&words, "Hi", None, None, Some(&Picture { bytes: 1 })).is_some_and(|w| w.contains("no pictures")));
+        assert!(misfit(&words, "Hi", None, None, Some(&Picture { bytes: 1, content_type: None })).is_some_and(|w| w.contains("no pictures")));
     }
 }

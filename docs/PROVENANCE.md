@@ -8,4 +8,4 @@ This app's design and code are its own. No code was copied from another project.
 - The networks' limits are their published ones. Everything that reaches a network goes through
   Ferrum's connections (docs/connectors.md).
 - No network is named in code. Examples under docs/connectors/ are written from the networks' public API
-  documentation (pages listed there); the code is this app's own.
+  documentation (pages listed there; the package ships two of them as data); the code is this app's own.

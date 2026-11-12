@@ -1,8 +1,8 @@
 //! Metrics. Once a day or so, for each account whose connection says how (`account` for the account's own
 //! numbers, `metrics` for a post's), Social reads them and keeps one row a day in SocialMetric, named by what
 //! they are: impressions, reach, engagements, clicks and followers. Which of a network's names is which is the
-//! description's `result`; a network that counts likes, reposts and replies apart may name them `likes`,
-//! `reposts`, `replies`, `quotes` and `saves` and they add up to the engagements it has no single number for.
+//! description's `result`; a network that counts likes, reposts and replies apart adds them up in an expression
+//! (`{"expr": "answer.likes + answer.shares"}` under `engagements`).
 //!
 //! A post's numbers also go onto its publication, which the existing insights and best-times report read.
 //! The reports here read the metric rows: by account, by post, and by the tags people put on posts.
@@ -20,8 +20,6 @@ use uuid::Uuid;
 
 /// The numbers, by what they are.
 const NAMES: [&str; 5] = ["impressions", "reach", "engagements", "clicks", "followers"];
-/// What adds up to engagements when a network gives no single number for them.
-const PARTS: [&str; 5] = ["likes", "reposts", "replies", "quotes", "saves"];
 const MOST_DAYS: i64 = 366;
 
 /// A number a network gave, however it wrote it.
@@ -33,16 +31,10 @@ fn count(v: &Value) -> Option<i64> {
     }
 }
 
-/// The five numbers out of a mapped result: those it names, engagements from its parts when it names none.
+/// The five numbers out of a mapped result, those it names: what a network counts apart (likes, reposts, replies)
+/// the description adds up itself, in an expression under `engagements`.
 pub(crate) fn read(result: &Value) -> Doc {
-    let mut out: Doc = NAMES.iter().filter_map(|n| count(&result[*n]).map(|c| (n.to_string(), json!(c)))).collect();
-    if !out.contains_key("engagements") {
-        let parts: Vec<i64> = PARTS.iter().filter_map(|p| count(&result[*p])).collect();
-        if !parts.is_empty() {
-            out.insert("engagements".into(), json!(parts.iter().sum::<i64>()));
-        }
-    }
-    out
+    NAMES.iter().filter_map(|n| count(&result[*n]).map(|c| (n.to_string(), json!(c)))).collect()
 }
 
 /// What a read is about.
@@ -290,9 +282,7 @@ mod tests {
     #[test]
     fn a_networks_names_become_the_five_numbers() {
         assert_eq!(read(&json!({"impressions": "1,204", "reach": 800.0, "followers": 31})), obj(json!({"impressions": 1204, "reach": 800, "followers": 31})));
-        let parts = read(&json!({"likes": 3, "reposts": "2", "replies": 1, "views": 9}));
-        assert_eq!(parts.get("engagements"), Some(&json!(6)), "a network that counts apart: the parts add up");
-        assert_eq!(read(&json!({"engagements": 10, "likes": 3})).get("engagements"), Some(&json!(10)), "its own total wins");
+        assert!(read(&json!({"likes": 3, "reposts": "2"})).is_empty(), "adding up is the description's");
         assert!(read(&json!({"clicks": null, "x": 1})).is_empty());
     }
 }
