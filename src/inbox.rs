@@ -33,6 +33,23 @@ fn bare(handle: &str) -> &str {
     handle.trim().trim_start_matches('@')
 }
 
+/// A network's HTML as plain text: paragraphs and line breaks kept, tags dropped, entities read. For a network whose
+/// description says it sends words as HTML (`meta.capabilities.html_text`).
+pub(crate) fn plain(html: &str) -> String {
+    let spaced = html.replace("</p><p>", "\n\n").replace("<br />", "\n").replace("<br/>", "\n").replace("<br>", "\n");
+    let mut out = String::with_capacity(spaced.len());
+    let mut in_tag = false;
+    for c in spaced.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'").replace("&amp;", "&").trim().to_string()
+}
+
 pub struct MessageHook;
 
 #[async_trait]
@@ -46,6 +63,13 @@ impl DocHook for MessageHook {
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        // Words a network sends as HTML are kept as the words they hold.
+        if let Some(conn) = reach(hc.tx, hc.ctx.tenant, s(doc, "via_connection")).await?
+            && conn.meta()["capabilities"]["html_text"] == true
+            && let Some(text) = s(doc, "text")
+        {
+            doc.insert("text".into(), json!(plain(text)));
+        }
         if id(doc, "account").is_some() {
             return Ok(());
         }
@@ -63,6 +87,18 @@ impl DocHook for MessageHook {
             let found = hc.kernel.find_tx(&system, hc.tx, "SocialPublication", &[Filter::eq("external_id", post)], None, 2).await?;
             if let [one] = found.as_slice() {
                 doc.insert("account".into(), json!(s(one, "account")));
+                return Ok(());
+            }
+        }
+        // Read through a connection that reaches one account: that one. A person's own connection is read as her, so
+        // the account she connected.
+        if let Some(conn) = s(doc, "via_connection").filter(|c| !c.is_empty()) {
+            let mut accounts = hc.kernel.find_tx(&system, hc.tx, "SocialAccount", &[Filter::eq("connection", conn)], None, 50).await?;
+            if !hc.ctx.is_system && !hc.ctx.email.is_empty() {
+                accounts.retain(|a| s(a, "connected_by").is_none_or(|by| by.eq_ignore_ascii_case(&hc.ctx.email)));
+            }
+            if let [one] = accounts.as_slice() {
+                doc.insert("account".into(), json!(s(one, "id")));
             }
         }
         Ok(())
@@ -171,7 +207,9 @@ impl DocHook for ReplyHook {
     }
 
     async fn after_save(&self, hc: &mut HookCtx<'_>, doc: &Doc, old: Option<&Doc>) -> Result<()> {
-        if old.is_some() {
+        // A reply is written by a person here; one fetched from outside is what the network already has, and sending
+        // it back out would say it twice.
+        if old.is_some() || hc.ctx.origin.as_deref() == Some("outside") {
             return Ok(());
         }
         let reply = id(doc, "id").unwrap_or_default();
@@ -242,8 +280,9 @@ async fn send(k: &Kernel, tenant: Uuid, reply: Uuid) -> Result<Value> {
     let calling = caller(k, &mut tx, tenant, &account, &conn).await?;
     let direct = s(&m, "kind") == Some("Direct");
     let operation = if direct { "send_message" } else { "reply" };
+    let created = crate::at(&r, "created_at").unwrap_or_else(Utc::now).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let inputs = json!({"text": s(&r, "text"), "in_reply_to": s(&m, "external_id"), "author": s(&m, "author").map(bare), "to": s(&m, "author_id").or(s(&m, "author").map(bare)),
-                        "thread": s(&m, "thread")});
+                        "thread": s(&m, "thread"), "created_at": created});
     let call = Call {
         connection: conn.id.to_string(),
         operation: operation.into(),
@@ -260,4 +299,15 @@ async fn send(k: &Kernel, tenant: Uuid, reply: Uuid) -> Result<Value> {
     }
     tx.commit().await?;
     Ok(json!({"id": external}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn html_as_the_words_it_holds() {
+        assert_eq!(plain("<p>Spring is here &amp; <a href=\"x\">#sage</a></p><p>Second</p>"), "Spring is here & #sage\n\nSecond");
+        assert_eq!(plain("one<br />two &lt;3"), "one\ntwo <3");
+    }
 }

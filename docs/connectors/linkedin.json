@@ -1,0 +1,58 @@
+{
+  "base": "https://api.linkedin.com",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://www.linkedin.com/oauth/v2/authorization",
+      "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+      "scopes": [
+        "w_organization_social",
+        "r_organization_social"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body"
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+  },
+  "meta": {
+    "capabilities": {
+      "name": "LinkedIn",
+      "max_text": 3000,
+      "images": false,
+      "first_comment": false
+    }
+  },
+  "operations": {
+    "publish": {
+      "method": "POST",
+      "path": "/rest/posts",
+      "body": "{\"author\": \"urn:li:organization:REPLACE-WITH-THE-PAGE-ID\", \"commentary\": {{ inputs.text_with_link | json }}, \"visibility\": \"PUBLIC\", \"distribution\": {\"feedDistribution\": \"MAIN_FEED\", \"targetEntities\": [], \"thirdPartyDistributionChannels\": []}, \"lifecycleState\": \"PUBLISHED\", \"isReshareDisabledByAuthor\": false}",
+      "result": {
+        "id": {
+          "header": "x-restli-id",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "inputs": [
+        "text_with_link"
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/rest/posts/{{ inputs.id }}",
+      "error_at": "/message",
+      "inputs": [
+        "id"
+      ]
+    }
+  }
+}

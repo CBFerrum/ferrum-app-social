@@ -12,6 +12,8 @@
 //! * `posts`: posts, their review, validation against the profile, and each account's publication, sent by a queued
 //!   job through the connection, once.
 //! * `inbox`: messages arriving through a connection's inbound address or pulls, and replies sent back.
+//! * `upgrade`: accounts of the networks the earlier releases had connectors for, given a connection from the shipped
+//!   description (turned off), and the administrators told.
 //! * `metrics`: numbers read for each account and post, by day.
 //! * `insights`: each publication's numbers kept day by day, and the reports of them.
 //!
@@ -23,6 +25,7 @@ mod inbox;
 mod insights;
 mod metrics;
 mod posts;
+mod upgrade;
 
 use chrono::{DateTime, Utc};
 use ferrum_domain::reports::ReportSource;
@@ -84,6 +87,7 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             }
             let ctx = Ctx::system(tenant, schema);
             let mut tx = k.db.tenant_tx(tenant).await?;
+            upgrade::carry_connections(k, &ctx, &mut tx).await?;
             accounts::carry_over(k, &ctx, &mut tx).await?;
             accounts::refresh_all(k, &ctx, &mut tx).await?;
             posts::send_due(k, &ctx, &mut tx, now).await?;

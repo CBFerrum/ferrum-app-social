@@ -113,6 +113,7 @@
     - {name: approved_hash, type: data, read_only: true, no_copy: true, hidden: true}
     - {name: review_note, type: text, read_only: true, no_copy: true}
     - {name: published_at, type: datetime, read_only: true, no_copy: true}
+    - {name: waiting_for, type: text, read_only: true, no_copy: true, label: Waiting For, visible_if: "!isEmpty(doc.waiting_for)", description: "Approved and due, but not sent: an account it goes to cannot be reached yet (not connected, its sign-in refused, or its connection off). It goes when every account can be."}
     - {name: failure, type: text, read_only: true, no_copy: true, visible_if: "doc.status == 'Failed'", description: "What each account's network said when it would not take the post"}
   actions:
     - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
@@ -195,7 +196,7 @@
   title_field: author
   description: A comment, mention or direct message to one of the brand's accounts, read through its connection, and handled by someone.
   fields:
-    - {name: external_id, type: data, read_only: true, no_copy: true, description: "The network's id for it: what keeps one message from arriving twice"}
+    - {name: external_id, type: data, no_copy: true, description: "The network's id for it: what keeps one message from arriving twice. Not read-only: a pull on a person's own connection is written as that person, and read-only fields would be dropped"}
     - {name: account_handle, type: data, description: "The account it came to, when the network says"}
     - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true, description: "Found by the handle, or by the post it answers; set it by hand when neither says"}
     - {name: thread, type: data, description: "The network's conversation it belongs to"}
@@ -206,6 +207,7 @@
     - {name: contact_entity, type: data, read_only: true, no_copy: true}
     - {name: contact_id, type: data, read_only: true, no_copy: true, description: "The record of the person who wrote, when Social Settings match senders to one"}
     - {name: post_external_id, type: data, description: "The post it answers, when it is a comment"}
+    - {name: via_connection, type: data, no_copy: true, hidden: true, description: "The connection it was read through: where neither the handle nor the post names an account, the one account that connection reaches (for a person's own, the one she connected)"}
     - {name: status, type: select, options: [New, Assigned, Answered, Closed], default: New, in_list: true, in_filter: true}
     - {name: assigned_to, type: email, in_list: true, in_filter: true}
   actions:

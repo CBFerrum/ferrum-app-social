@@ -48,8 +48,29 @@ impl Reach {
         }
     }
 
+    /// What the description's author keeps with it: its `meta`, never read by the platform.
+    pub fn meta(&self) -> &Value {
+        &self.desc["meta"]
+    }
+
+    /// What this network takes in a post, when the description says (`meta.capabilities`, named as a network profile's
+    /// fields are): the connection is where a network's facts are kept, a server's own limit among them.
+    pub fn capabilities(&self, network: Option<&str>) -> Option<crate::posts::Profile> {
+        let caps = self.meta()["capabilities"].as_object()?;
+        let mut doc = caps.clone();
+        let name = caps.get("name").and_then(Value::as_str).or(network).unwrap_or(&self.name).to_string();
+        doc.insert("profile_name".into(), json!(name));
+        Some(crate::posts::Profile::of(&doc))
+    }
+
+    /// Whether it proves who calls by a sign-in (the authorisation-code flow, or a session) rather than a key.
     fn signs_in(&self) -> bool {
-        self.desc["auth"]["type"] == "oauth"
+        matches!(self.desc["auth"]["type"].as_str(), Some("oauth" | "session"))
+    }
+
+    /// A login the platform makes itself from the connection's secrets (an app password), once and again as it expires.
+    fn session(&self) -> bool {
+        self.desc["auth"]["type"] == "session"
     }
 
     /// Each person's own account, rather than the workspace's.
@@ -111,6 +132,7 @@ pub(crate) async fn state_of(tx: &mut Tx, tenant: Uuid, account: &Doc) -> Result
     let Some(owner) = owner else {
         return Ok(("Not Connected", Some(format!("{} is each person's own sign-in: say whose in Connected By", reach.name)), None));
     };
+    // A session signs itself in on first use: until it has, there is nothing to say it is not.
     let held: Option<(String, Option<String>)> =
         sqlx::query_as("select status, account from conn_token where tenant_id = $1 and conn_id = $2 and user_id = $3")
             .bind(tenant)
@@ -119,6 +141,7 @@ pub(crate) async fn state_of(tx: &mut Tx, tenant: Uuid, account: &Doc) -> Result
             .fetch_optional(&mut **tx)
             .await?;
     Ok(match held {
+        None if reach.session() => ("Connected", None, None),
         None => ("Not Connected", Some("nobody has signed in to it yet".into()), None),
         Some((status, account)) if status == "connected" => ("Connected", None, account),
         Some(_) => ("Needs Reconnecting", Some("the provider no longer accepts the sign-in: connect the account again".into()), None),
@@ -227,10 +250,11 @@ impl DocHook for AccountHook {
 
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
         let conn = s(doc, "connection").and_then(|c| c.trim().parse::<Uuid>().ok()).ok_or_else(|| Error::field("connection", "is a connection's id"))?;
-        if reach(hc.tx, hc.ctx.tenant, Some(&conn.to_string())).await?.is_none() {
+        let Some(found) = reach(hc.tx, hc.ctx.tenant, Some(&conn.to_string())).await? else {
             return Err(Error::field("connection", "no connection by that id in this workspace"));
-        }
-        if id(doc, "profile").is_none() && any_profile(hc).await? {
+        };
+        // A description that says what its network takes needs no profile; the profile is the default for one that does not.
+        if id(doc, "profile").is_none() && found.capabilities(None).is_none() && any_profile(hc).await? {
             return Err(Error::field("profile", "says what the network takes in a post: pick one of the network profiles"));
         }
         Ok(())
@@ -250,6 +274,13 @@ impl DocHook for AccountHook {
                 if !conn.signs_in() {
                     return Err(Error::invalid(format!("{} proves who calls with a key an administrator holds: there is nothing to sign in to", conn.name)));
                 }
+                if conn.session() {
+                    // Signed in now, from its secrets: a wrong password shows here, not on the first post.
+                    let signed = hc.kernel.connect_session(&elevated(hc.ctx), conn.id).await?;
+                    let after = hc.kernel.get_tx(&elevated(hc.ctx), hc.tx, "SocialAccount", id(doc, "id").unwrap_or_default(), false).await?;
+                    let (state, note) = refresh(hc.kernel, hc.ctx, hc.tx, &after).await?;
+                    return Ok(Some(json!({"signed_in": signed, "state": state, "note": note})));
+                }
                 // The sign-in starts from the browser, signed in (the broker binds it to the session).
                 Ok(Some(json!({"connect": {"method": "POST", "path": format!("/api/connections/{}/connect", conn.id)}})))
             }
@@ -258,7 +289,8 @@ impl DocHook for AccountHook {
                     return Err(Error::invalid(format!("{} proves who calls with a key an administrator holds: there is nothing to sign out of", conn.name)));
                 }
                 // Tokens are deleted here and revoked at the provider where it gives a revoke address.
-                let revoked = hc.kernel.connect_remove(hc.ctx, conn.id).await?;
+                let who = if conn.session() { elevated(hc.ctx) } else { hc.ctx.clone() };
+                let revoked = hc.kernel.connect_remove(&who, conn.id).await?;
                 let after = hc.kernel.get_tx(&elevated(hc.ctx), hc.tx, "SocialAccount", id(doc, "id").unwrap_or_default(), false).await?;
                 let (state, note) = refresh(hc.kernel, hc.ctx, hc.tx, &after).await?;
                 Ok(Some(json!({"revoked": revoked, "state": state, "note": note})))

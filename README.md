@@ -21,7 +21,10 @@ connections:
   (Administration, Connections): the workspace's sign-in at a provider, a person's own, or a key an
   administrator holds. Its description names operations by what Social needs: `publish`,
   `publish_media`, `delete`, `comments`, `reply`, `messages`, `send_message`, `metrics`, `account`.
-  Examples for Mastodon and X are in `docs/connectors/`, with what each cannot express.
+  Working descriptions for Mastodon, Bluesky, LinkedIn and X are in `docs/connectors/`, with the network pages
+  they were written from and what each still cannot express; Mastodon's and Bluesky's are also shipped in the
+  package, so a workspace sees them offered and an account carried over from 0.6.x is given its connection (turned
+  off) from them. What a network takes in a post is the description's `meta.capabilities`, else the account's profile.
 - **Accounts show their state**: connected, needs reconnecting (the provider refused the sign-in:
   the platform tells the owner and the account shows it), not connected, or the connection off.
   Connect, Check and Disconnect (which revokes at the provider) are actions of the account.
@@ -29,7 +32,8 @@ connections:
   pictures and their size, video, whether media is required, first comment, threads, link preview.
   A post is checked per account, in plain words, before it is scheduled and again when it is sent.
   The profiles the app used to hold in code are seeded as records (X, Bluesky, Mastodon, Threads,
-  LinkedIn, Facebook, Instagram, YouTube) and an account is linked to the one named like its network.
+  LinkedIn, Facebook, Instagram, YouTube) and an account is linked to the one named like its network; they are
+  the defaults for an account whose connection's description does not say what its network takes.
 - **Publishing.** At its time, a post becomes one publication and one queued job per account. The job
   uploads the picture first when the connection offers `publish_media`, then `publish`, each under the
   key `publish:<publication>`; it keeps the network's id and address. Once per account under retries
@@ -37,13 +41,15 @@ connections:
   looks at it after taking it, and the platform hands a key that went through its stored answer without
   calling the network (and gives the network the key in the description's idempotency header).
   A refusal shows in the service's own words per account; "later" is retried with backoff (eight
-  tries); Retry sends again to the accounts not reached. A first comment follows where the profile
+  tries); a post whose account cannot be reached (not connected, sign-in refused, connection off) waits,
+  saying which and why; Retry sends again to the accounts not reached. A first comment follows where the profile
   takes one; Delete on the network where the connection offers `delete`.
 - **Review.** Someone other than the author approves; a changed post needs approving again.
 - **The inbox.** Comments, mentions and direct messages arrive on the connection's inbound address or
   by a pull with a cursor, mapped by the description onto Messages found by the network's id, so each
   arrives once. They are routed to the account by the handle the item names, else by the post they
-  answer. Replies go out through `reply` or, for a direct message, `send_message`, once each. Saved
+  answer, else by the one account the connection reaches (for a person's own connection, whose pull runs as
+  that person, the account she connected). Replies go out through `reply` or, for a direct message, `send_message`, once each. Saved
   replies, tags (the platform's), assignment and status. Social Settings can match the sender to a
   record of an entity the workspace names (installed, with a field holding handles). Erasure reaches
   handles written as addresses, message text and the replies written to them.
@@ -62,24 +68,28 @@ cd ui && npm run build && npm run check
 `tests/social_it.rs` runs a fake network on 127.0.0.1 through real connections: sign-in, reconnecting
 and revoking; posts refused in plain words; one queued call per account, picture first, once under a
 lost answer, "later" and two workers; refusals shown and retried; the inbox by inbound address and by
-pull; replies; matching and erasure; numbers by day and the reports. `tests/upgrade_it.rs` serves a
-workspace still on 0.6.13 with this release. `tests/connectors_it.rs` loads the examples.
+pull; replies; matching and erasure; numbers by day and the reports. `tests/connectors_it.rs` loads the
+examples and runs them against a fake of Mastodon's, Bluesky's and LinkedIn's documented shapes: a multipart
+upload, a raw-body upload, an id in a header, a pull paged by the `Link` header, a `Retry-After`, a session
+login and its refresh, a person's own pull. `tests/upgrade_it.rs` serves a workspace still on 0.6.13 with
+this release: connections made from the shipped descriptions, administrators told once, a post waiting.
 
 ## Not yet
 
-- Media that a network takes only as multipart or a binary upload, and networks whose sign-in or
-  session a description cannot express (see docs/connectors/README.md).
+- What the platform's connections cannot say yet, and so the examples cannot: an upload that needs an
+  address from an earlier call's answer (LinkedIn's pictures), a link as clickable text with offsets
+  (Bluesky), a record key made from the delivery's key, the clock in a mapping (numbers a day are Social's),
+  and an app's own call reading `Retry-After` (see docs/connectors/README.md).
 - Video, several pictures, threads, polls. Link preview and native scheduling are recorded in a
   profile but Social always sends at its time itself.
-- A mapping cannot name the connection a message came through, so an item must name its account by
-  handle or by the post it answers.
+- The first pull of Mastodon's mentions reads the newest page, not the history.
 - Handles that are not addresses are found by name for a person to judge, never erased by request.
 
 ## Changelog
 
 | Version | Highlights |
 |---|---|
-| **0.7.0** | Accounts on connections, with their state; network profiles as records; one queued call per account, once; the inbox through inbound addresses and pulls; numbers by day and reports by account, post and tag. The built-in Mastodon and Bluesky connectors are gone: examples are descriptions. |
+| **0.7.0** | Accounts on connections, with their state; network profiles as records and a description's own `meta`; one queued call per account, once; the inbox through inbound addresses and pulls, as the person on a person's own connection; numbers by day and reports by account, post and tag. The built-in Mastodon and Bluesky connectors are gone: their descriptions ship as data, accounts are carried over (connection off, administrators told once) and posts wait for an account that cannot be reached. |
 | **0.6.10** | The redesigned interface: the upgraded design system, shaped loading, told-apart states. |
 | **0.6.12** | The home lists posts that did not go out, with the reason and Retry. |
 | **0.6.13** | Rebuilt on the tuned design system: better menu icons, a lighter first page, a visible scroll cue, cleaner print. |
