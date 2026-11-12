@@ -1,0 +1,37 @@
+{
+  "base": "https://api.x.com",
+  "auth": {"type": "oauth", "owner": "workspace",
+           "provider": {"authorize_url": "https://x.com/i/oauth2/authorize", "token_url": "https://api.x.com/2/oauth2/token",
+                        "revoke_url": "https://api.x.com/2/oauth2/revoke",
+                        "scopes": ["tweet.read", "tweet.write", "users.read", "media.write", "dm.read", "dm.write", "offline.access"],
+                        "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID", "client_secret": "client_secret", "client_auth": "basic"}},
+  "apps": ["social"],
+  "operations": {
+    "publish": {"method": "POST", "path": "/2/tweets",
+                "body": "{\"text\": {{ inputs.text_with_link | json }}{% if inputs.media %}, \"media\": {\"media_ids\": {{ inputs.media | json }}}{% endif %}}",
+                "result": {"id": "/data/id"}, "error_at": "/detail", "inputs": ["text_with_link", "media"]},
+    "publish_media": {"method": "POST", "path": "/2/media/upload",
+                      "body": "{\"media\": {{ inputs.data | json }}, \"media_category\": \"tweet_image\"}",
+                      "result": {"id": "/data/id"}, "error_at": "/detail", "inputs": ["data"]},
+    "delete": {"method": "DELETE", "path": "/2/tweets/{{ inputs.id }}", "error_at": "/detail", "inputs": ["id"]},
+    "reply": {"method": "POST", "path": "/2/tweets",
+              "body": "{\"text\": {{ inputs.text | json }}, \"reply\": {\"in_reply_to_tweet_id\": {{ inputs.in_reply_to | json }}}}",
+              "result": {"id": "/data/id"}, "error_at": "/detail", "inputs": ["text", "in_reply_to"]},
+    "send_message": {"method": "POST", "path": "/2/dm_conversations/with/{{ inputs.to }}/messages", "body": "{\"text\": {{ inputs.text | json }}}",
+                     "result": {"id": "/data/dm_event_id"}, "error_at": "/detail", "inputs": ["to", "text"]},
+    "metrics": {"path": "/2/tweets/{{ inputs.id }}", "query": {"post.fields": "public_metrics"},
+                "result": {"impressions": "/data/public_metrics/impression_count", "likes": "/data/public_metrics/like_count",
+                           "reposts": "/data/public_metrics/repost_count", "replies": "/data/public_metrics/reply_count",
+                           "quotes": "/data/public_metrics/quote_count"},
+                "error_at": "/detail", "inputs": ["id"]},
+    "account": {"path": "/2/users/by/username/REPLACE-WITH-THE-HANDLE", "query": {"user.fields": "public_metrics"},
+                "result": {"followers": "/data/public_metrics/followers_count"}, "error_at": "/detail"},
+    "messages": {"path": "/2/users/REPLACE-WITH-THE-USER-ID/mentions", "query": {"pagination_token": "{{ cursor or '' }}", "max_results": "50"},
+                 "error_at": "/detail"}
+  },
+  "pulls": [
+    {"name": "mentions", "operation": "messages", "every_minutes": 15, "items_at": "/data", "cursor": "token", "next_at": "/meta/next_token", "max_pages": 3,
+     "map": {"entity": "SocialMessage", "by": {"external_id": "item.id"},
+             "set": {"kind": "'Mention'", "author": "item.author_id", "author_id": "item.author_id", "text": "item.text", "thread": "item.id"}}}
+  ]
+}

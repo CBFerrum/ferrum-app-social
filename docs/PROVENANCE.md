@@ -7,8 +7,5 @@ This app's design and code are its own. No code was copied from another project.
   analytics.
 - The networks' limits are their published ones. Everything that reaches a network goes through
   Ferrum's connections (docs/connectors.md).
-- The Bluesky connector speaks the AT Protocol's published XRPC methods (docs.bsky.app):
-  `com.atproto.server.createSession`, `com.atproto.repo.getRecord` and `createRecord`,
-  `app.bsky.feed.getAuthorFeed` and `getPosts`, and `app.bsky.notification.listNotifications`, with
-  record keys in the protocol's TID form and links as its rich-text facets. The code is this app's
-  own.
+- No network is named in code. Examples under docs/connectors/ are written from the networks' public API
+  documentation (pages listed there); the code is this app's own.
