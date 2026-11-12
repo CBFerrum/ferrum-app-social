@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byDay, rate, totals } from "./Home";
+import { byDay, rate, reasons, totals } from "./Home";
 
 describe("social's home", () => {
   it("posts by day", () => {
@@ -30,5 +30,10 @@ describe("social's home", () => {
     );
     expect([sums.get("nw")?.posts.size, sums.get("nw")?.impressions, sums.get("co")?.posts.size]).toEqual([1, 150, 0]);
     expect([rate(150, 6), rate(0, 0)]).toEqual(["4.0%", "–"]);
+  });
+
+  it("a failed post's reasons, one per account, on one line", () => {
+    expect(reasons("Mastodon: 422 text too long\n\n Bluesky: token revoked ")).toBe("Mastodon: 422 text too long; Bluesky: token revoked");
+    expect(reasons(null)).toBe("");
   });
 });
