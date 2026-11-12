@@ -2,9 +2,10 @@
 // posts did (impressions and engagements, read back through the connections), with the report of
 // what each day added. Each opens its record.
 
-import { useQuery } from "@tanstack/react-query";
-import { api, docPath, formatDecimal, t as tr, isolate } from "@ferrum/client";
-import { ButtonLink, HomeSection, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, StatePanel, StatusBadge, type Tone } from "@ferrum/kit";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { api, docPath, errorMessage, formatDecimal, t as tr, isolate } from "@ferrum/client";
+import { Button, ButtonLink, toast, HomeSection, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, StatePanel, StatusBadge, type Tone } from "@ferrum/kit";
 
 export interface Row {
   id: string;
@@ -12,11 +13,42 @@ export interface Row {
 }
 
 // SocialPost.status and SocialMessage.status as stored (packages/social/entities); the lists below show only these.
-const POST_TONES: Readonly<Record<string, Tone>> = { Approved: "green", Sending: "amber" };
+const POST_TONES: Readonly<Record<string, Tone>> = { Approved: "green", Sending: "amber", Failed: "red" };
 const MESSAGE_TONES: Readonly<Record<string, Tone>> = { New: "red", Assigned: "amber" };
 
 const list = (entity: string, filters: unknown[] = [], extra: Record<string, string | number> = {}) =>
   api.get<{ rows: Row[] }>(docPath(entity), { filters: JSON.stringify(filters), limit: 500, ...extra }).then((r) => r.rows);
+
+/** A failed post's reason, one line per account as the server keeps it, as a single line. */
+export function reasons(failure: unknown): string {
+  return String(failure ?? "").split("\n").map((l) => l.trim()).filter(Boolean).join("; ");
+}
+
+/** A failed post with its reason and Retry (the server sends it again only to the accounts that did not get it). */
+function FailedPost({ post }: { post: Row }) {
+  const client = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try {
+      await api.post(docPath("SocialPost", post.id, "actions", "retry"), {});
+      toast(tr("Sending again"));
+      await client.invalidateQueries({ queryKey: ["social"] });
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <QueueItem
+      to={`/e/SocialPost/${post.id}`}
+      title={isolate(String(post.headline))}
+      meta={isolate(reasons(post.failure) || tr("No reason given"))}
+      action={<Button size="sm" loading={busy} onClick={() => void retry()}>{tr("Retry")}</Button>}
+    />
+  );
+}
 
 /** Posts by the day they go out (UTC), days in order. */
 export function byDay(posts: Row[]): [string, Row[]][] {
@@ -54,17 +86,18 @@ const LIMIT = 5;
 
 export function Home() {
   const waiting = useQuery({ queryKey: ["social", "waiting"], queryFn: () => list("SocialPost", [["status", "=", "In Review"]], { sort: "scheduled_at asc" }) });
+  const failedPosts = useQuery({ queryKey: ["social", "failed"], queryFn: () => list("SocialPost", [["status", "=", "Failed"]], { sort: "scheduled_at asc" }) });
   const coming = useQuery({ queryKey: ["social", "coming"], queryFn: () => list("SocialPost", [["status", "in", ["Approved", "Sending"]]], { sort: "scheduled_at asc" }) });
   const inbox = useQuery({ queryKey: ["social", "inbox"], queryFn: () => list("SocialMessage", [["status", "in", ["New", "Assigned"]]]) });
   const brands = useQuery({ queryKey: ["social", "brands"], queryFn: () => list("SocialBrand", [], { sort: "brand_name asc" }) });
   const accounts = useQuery({ queryKey: ["social", "accounts"], queryFn: () => list("SocialAccount") });
   const publications = useQuery({ queryKey: ["social", "publications"], queryFn: () => list("SocialPublication") });
-  const all = [waiting, coming, inbox, brands, accounts, publications];
+  const all = [waiting, failedPosts, coming, inbox, brands, accounts, publications];
   const failed = all.find((q) => q.isError);
   const head = <PageHead title={tr("Social")} actions={<ButtonLink to="/e/SocialPost/new" variant="primary" icon="plus">{tr("New post")}</ButtonLink>} />;
   if (failed) return <PageStack>{head}<LoadFailed error={failed.error} onRetry={() => void failed.refetch()} /></PageStack>;
   if (all.some((q) => !q.data)) return <PageStack>{head}<HomeSkeleton queues={3} /></PageStack>;
-  if (!brands.data!.length && !waiting.data!.length && !coming.data!.length && !inbox.data!.length)
+  if (!brands.data!.length && !waiting.data!.length && !failedPosts.data!.length && !coming.data!.length && !inbox.data!.length)
     return (
       <PageStack>
         {head}
@@ -80,6 +113,13 @@ export function Home() {
     <PageStack gap="lg">
       {head}
       <QueueGrid>
+        {failedPosts.data!.length > 0 && (
+          <Queue title={tr("Did not go out")} count={failedPosts.data!.length} tone="attention" more={{ to: "/e/SocialPost", count: failedPosts.data!.length - LIMIT }}>
+            {failedPosts.data!.slice(0, LIMIT).map((p) => (
+              <FailedPost key={p.id} post={p} />
+            ))}
+          </Queue>
+        )}
         <Queue title={tr("Waiting for approval")} count={waiting.data!.length} tone={waiting.data!.length ? "attention" : "default"} empty={tr("Nothing waits.")} more={{ to: "/e/SocialPost", count: waiting.data!.length - LIMIT }}>
           {waiting.data!.slice(0, LIMIT).map((p) => (
             <QueueItem key={p.id} to={`/e/SocialPost/${p.id}`} title={isolate(String(p.headline))} meta={isolate(tr("by {value}", { value: String(p.author ?? "") }))} />
