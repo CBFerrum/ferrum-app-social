@@ -20,12 +20,12 @@ const NUMBERS: [&str; 3] = ["impressions", "engagements", "clicks"];
 /// The days a report spans at most.
 const MOST_DAYS: i64 = 366;
 
-pub struct PublicationHook;
+pub struct InsightHook;
 
 #[async_trait]
-impl DocHook for PublicationHook {
+impl DocHook for InsightHook {
     fn name(&self) -> &'static str {
-        "social.publication"
+        "social.insight"
     }
 
     async fn after_save(&self, hc: &mut HookCtx<'_>, doc: &Doc, old: Option<&Doc>) -> Result<()> {

@@ -10,21 +10,79 @@
     - {name: description, type: text}
   list: {columns: [brand_name], sort: brand_name asc}
 
+- name: SocialProfile
+  label: Network Profile
+  label_plural: Network Profiles
+  kind: master
+  module: social
+  title_field: profile_name
+  description: "What one network takes in a post: its length and how it counts a link, the pictures and video it takes, and what else it offers. An account names one; a post is checked against it before it is scheduled."
+  fields:
+    - {name: profile_name, type: data, required: true, unique: true, in_list: true, description: "What people call the network"}
+    - {name: max_text, type: int, required: true, min: 1, in_list: true, label: Characters in a Post}
+    - {name: link_length, type: int, min: 1, label: A Link Counts As, description: "Characters a link counts as whatever its length, for a network that shortens them; empty: as written"}
+    - {name: images, type: check, default: true, in_list: true, label: Takes Pictures}
+    - {name: videos, type: check, default: false, label: Takes Video, description: "Posts here do not carry video yet, so a network that takes nothing else is refused, saying so"}
+    - {name: media_required, type: check, default: false, label: Takes No Post Without Media}
+    - {name: max_media, type: int, min: 1, label: Most Pictures in a Post, description: "Empty: not limited here"}
+    - {name: max_image_bytes, type: int, min: 1, label: Largest Picture (Bytes), description: "Empty: not limited here"}
+    - {name: max_video_bytes, type: int, min: 1, label: Largest Video (Bytes)}
+    - {name: alt_text, type: check, default: true, label: Takes a Description of Each Picture}
+    - {name: first_comment, type: check, default: false, label: Takes a First Comment}
+    - {name: threads, type: check, default: false, label: Takes Threads}
+    - {name: link_preview, type: check, default: false, label: Shows a Preview of a Link}
+    - {name: scheduling, type: check, default: false, label: Schedules Posts Itself, description: "Recorded only: Social always sends a post at its time itself"}
+  list: {columns: [profile_name, max_text, images, videos], sort: profile_name asc}
+
+- name: SocialSettings
+  label: Social Settings
+  kind: settings
+  module: social
+  description: "How the inbox finds the person who wrote."
+  fields:
+    - {name: match_crm, type: check, default: false, label: Match a Sender to a CRM Record, description: "A message whose sender's handle is held by a record of the entity below is linked to it; needs that entity installed"}
+    - {name: crm_entity, type: data, default: Lead, label: Entity That Holds People}
+    - {name: crm_field, type: data, label: Field That Holds a Handle, description: "The field of that entity holding a person's handle on the network, as the message gives it; empty switches matching off"}
+    - {name: metrics_days, type: int, default: 30, min: 1, max: 366, label: Read a Post's Numbers For (Days), description: "How long after it went out each post's numbers are read"}
+    - {name: metrics_hours, type: int, default: 6, min: 1, max: 168, label: Read Again After (Hours), description: "The soonest an account's or a post's numbers are read again"}
+
+- name: SocialSavedReply
+  label: Saved Reply
+  label_plural: Saved Replies
+  kind: master
+  module: social
+  title_field: title
+  description: A reply written once, to be sent to a message with one click.
+  fields:
+    - {name: title, type: data, required: true, unique: true, in_list: true}
+    - {name: text, type: text, required: true}
+  list: {columns: [title], sort: title asc}
+
 - name: SocialAccount
   label: Account
   label_plural: Accounts
   kind: master
   module: social
   title_field: account_name
-  description: A brand's account on one network, reached through a connection an administrator set up. What it may do is what that connection's provider offers.
+  description: A brand's account on one network, reached through a connection (the workspace's sign-in, or a person's, through the broker). What a post may carry is what its network profile says; what it may do is what the connection's operations offer.
   fields:
     - {name: account_name, type: data, required: true, unique: true, in_list: true}
     - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
-    - {name: network, type: select, options: [LinkedIn, X, Mastodon, Bluesky, Threads, Facebook, Instagram, YouTube], required: true, in_list: true, in_filter: true}
+    - {name: network, type: data, in_list: true, in_filter: true, description: "What people call the network; the profile's name when left empty"}
+    - {name: profile, type: link, to: SocialProfile, in_list: true, description: "What the network takes in a post"}
     - {name: handle, type: data, required: true, description: "The account's name on the network, without @"}
     - {name: connection, type: data, required: true, description: "The connection that reaches it: its name, as Administration, Connections shows it, or its id"}
+    - {name: connected_by, type: email, description: "Whose own sign-in the connection uses, when it is each person's own; posts then go out as them"}
+    - {name: state, type: select, options: [Connected, Needs Reconnecting, Not Connected, Connection Off], read_only: true, no_copy: true, in_list: true, in_filter: true, description: "Whether the connection can reach the account now; the provider refusing a sign-in shows here"}
+    - {name: state_note, type: text, read_only: true, no_copy: true}
+    - {name: provider_account, type: data, read_only: true, no_copy: true, description: "The account the provider says is signed in"}
+    - {name: metrics_error, type: text, read_only: true, no_copy: true, description: "Why its numbers could not be read the last time, if they could not"}
     - {name: active, type: check, default: true, in_list: true}
-  list: {columns: [account_name, brand, network, active], sort: account_name asc}
+  actions:
+    - {name: check, label: Check the Connection, permission: write}
+    - {name: connect, label: Connect or Reconnect, permission: write, read_only: true}
+    - {name: disconnect, label: Disconnect, permission: write, confirm: "Sign this account out? The provider is told to revoke its access."}
+  list: {columns: [account_name, brand, network, state, active], sort: account_name asc}
 
 - name: SocialTarget
   label: Account
@@ -46,6 +104,7 @@
     - {name: link, type: data, description: "A web address the post carries"}
     - {name: image, type: attach, description: "A picture the post carries, to the networks that take one"}
     - {name: image_alt, type: data, label: Image Description, description: "What the picture shows, for people who cannot see it"}
+    - {name: first_comment, type: text, description: "Added under the post right after it goes out, to the networks that take one"}
     - {name: targets, type: table, of: SocialTarget, required: true}
     - {name: scheduled_at, type: datetime, required: true, in_list: true, label: Goes Out At}
     - {name: author, type: email, read_only: true, no_copy: true, in_list: true}
@@ -84,6 +143,10 @@
     - {name: engagements, type: int, read_only: true, no_copy: true, in_list: true}
     - {name: clicks, type: int, read_only: true, no_copy: true}
     - {name: permalink, type: data, read_only: true, no_copy: true}
+    - {name: media_ref, type: data, read_only: true, no_copy: true, hidden: true, description: "The network's id of the picture once uploaded"}
+    - {name: deleted_at, type: datetime, read_only: true, no_copy: true, description: "When it was deleted on the network"}
+  actions:
+    - {name: delete_remote, label: Delete on the Network, permission: write, condition: "!isEmpty(doc.external_id) && isEmpty(doc.deleted_at)", confirm: "Delete this post from the network? It cannot be put back from here."}
   list: {columns: [post, account, external_id, impressions, engagements], sort: sent_at desc}
 
 - name: SocialInsight
@@ -104,6 +167,26 @@
   unique: [[publication, day]]
   list: {columns: [day, publication, account, impressions, engagements], sort: day desc}
 
+- name: SocialMetric
+  label: Metric
+  label_plural: Metrics
+  kind: master
+  module: social
+  title_field: day
+  description: "What an account or one of its posts had by a day, read through its connection: impressions, reach, engagements, clicks and followers, whatever the network calls them. One row a day for each."
+  fields:
+    - {name: metric_key, type: data, required: true, read_only: true, hidden: true, unique: true}
+    - {name: account, type: link, to: SocialAccount, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: publication, type: link, to: SocialPublication, read_only: true, in_list: true, in_filter: true, description: "Empty for the account's own numbers"}
+    - {name: day, type: date, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: impressions, type: int, read_only: true, in_list: true}
+    - {name: reach, type: int, read_only: true}
+    - {name: engagements, type: int, read_only: true, in_list: true}
+    - {name: clicks, type: int, read_only: true}
+    - {name: followers, type: int, read_only: true}
+    - {name: read_at, type: datetime, read_only: true, description: "When the network was last asked, which the next reading waits on"}
+  list: {columns: [day, account, publication, impressions, engagements, followers], sort: day desc}
+
 - name: SocialMessage
   label: Message
   label_plural: Inbox
@@ -112,16 +195,21 @@
   title_field: author
   description: A comment, mention or direct message to one of the brand's accounts, read through its connection, and handled by someone.
   fields:
-    - {name: account_handle, type: data, required: true, description: "The account it came to"}
-    - {name: account, type: link, to: SocialAccount, read_only: true, in_list: true, in_filter: true}
+    - {name: external_id, type: data, read_only: true, no_copy: true, description: "The network's id for it: what keeps one message from arriving twice"}
+    - {name: account_handle, type: data, description: "The account it came to, when the network says"}
+    - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true, description: "Found by the handle, or by the post it answers; set it by hand when neither says"}
+    - {name: thread, type: data, description: "The network's conversation it belongs to"}
     - {name: kind, type: select, options: [Comment, Mention, Direct], default: Comment, in_list: true, in_filter: true}
-    - {name: author, type: data, required: true, in_list: true}
+    - {name: author, type: data, required: true, in_list: true, description: "The sender's handle"}
+    - {name: author_id, type: data, description: "The sender's id on the network, where a direct reply needs it"}
     - {name: text, type: text, required: true}
+    - {name: contact_entity, type: data, read_only: true, no_copy: true}
+    - {name: contact_id, type: data, read_only: true, no_copy: true, description: "The record of the person who wrote, when Social Settings match senders to one"}
     - {name: post_external_id, type: data, description: "The post it answers, when it is a comment"}
     - {name: status, type: select, options: [New, Assigned, Answered, Closed], default: New, in_list: true, in_filter: true}
     - {name: assigned_to, type: email, in_list: true, in_filter: true}
   actions:
-    - {name: reply, label: Reply, permission: write, condition: "doc.status != 'Closed'", params: [{name: reply, type: text, label: Your Reply, required: true}]}
+    - {name: reply, label: Reply, permission: write, condition: "doc.status != 'Closed'", params: [{name: reply, type: text, label: Your Reply}, {name: saved_reply, type: link, to: SocialSavedReply, label: Or a Saved Reply}]}
   list: {columns: [author, account, kind, status, assigned_to], sort: updated_at desc}
 
 - name: SocialReply
@@ -137,4 +225,6 @@
     - {name: in_reply_to, type: data, read_only: true, description: "The network's id of the message"}
     - {name: author, type: email, read_only: true, no_copy: true, in_list: true}
     - {name: external_id, type: data, read_only: true, no_copy: true}
+    - {name: failed_at, type: datetime, read_only: true, no_copy: true}
+    - {name: failure, type: text, read_only: true, no_copy: true, description: "What the network said when it would not take the reply"}
   list: {columns: [message, author, external_id], sort: created_at desc}
