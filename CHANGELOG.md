@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.12
+
+The home shows posts that did not go out: a "Did not go out" queue first, in the attention tone, each post with the network's reason (one line per account) and a Retry that sends it again only to the accounts that did not get it. Failed has its red status colour wherever the home lists a post. Its labels, the Retry action and the failure texts have names in Arabic and Hindi. Rebuilt with Ferrum-Frontend 0a47157.
+
 ## 0.6.11
 
 A post that could not be sent now says so. It has a Failed status, with the network's reason kept on the post (one line per account) and on each publication, so one network can have taken it while another did not. The platform's delivery already retries what is temporary (a timeout, a rate limit, a 5xx: eight tries) and ends what is permanent (refused text, revoked access) at once; the post follows the outcome instead of staying in Sending for ever. A Retry action on a failed post sends it again, only to the accounts it did not reach. A post left in Sending from before, whose delivery has left no trace in the job list for a day, is marked failed too. The interface still shows Failed in the default colour and the home page's coming list leaves a failed post out (ui/src/Home.tsx names statuses): to follow in an interface release.
