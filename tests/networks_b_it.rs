@@ -563,6 +563,9 @@ async fn scenario() {
     if wanted("tiktok_business") {
         tiktok_business(&t).await;
     }
+    if wanted("farcaster") {
+        farcaster(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -615,6 +618,20 @@ async fn telegram(t: &T) {
                 let chat = r.part("chat_id").map(|p| p.text()).unwrap_or_default();
                 message(&chat, json!({"text": r.part("caption").map(|p| p.text()), "file": file.text().len(), "bytes": String::from_utf8_lossy(&file.content), "filename": file.filename, "type": file.kind, "via": m}))
             }
+            ("POST", "sendMediaGroup") => {
+                let media: Value = serde_json::from_str(&r.part("media").expect("a media part").text()).unwrap();
+                let chat = r.part("chat_id").map(|p| p.text()).unwrap_or_default();
+                let mut ids = vec![];
+                for (i, m) in media.as_array().unwrap().iter().enumerate() {
+                    let file = r.part(&format!("f{i}")).expect("every item names a part");
+                    assert_eq!(m["media"], format!("attach://f{i}"));
+                    assert_eq!(file.content, PNG);
+                    let id = 100 + sent.len() as i64;
+                    sent.push(json!({"message_id": id, "chat": chat, "text": m["caption"], "via": "group", "type": m["type"]}));
+                    ids.push(json!({"message_id": id, "chat": {"id": chat}}));
+                }
+                ok(json!({"ok": true, "result": ids}))
+            }
             ("POST", "deleteMessages") => {
                 let b = r.json();
                 let ids: Vec<i64> = b["message_ids"].as_array().unwrap().iter().map(|v| v.as_i64().expect("integers")).collect();
@@ -643,18 +660,20 @@ async fn telegram(t: &T) {
     }
     assert_eq!(net.to("POST", "sendMessage").len(), 1);
 
-    // Two pictures: the file as the part, the words as the first one's caption, none on the second.
+    // Two pictures: one album, each file a part its item names, the words as the first one's caption, none on the second.
     net.clear();
     let p = t.post("Two views", vec![target_with(news, "media", json!({}))], json!({"media": [t.media(&t.png, "a"), t.media(&t.png, "b")]})).await;
     let pics = t.out(p, news).await;
     assert_eq!(pics["external_id"], "-100123:101,102");
-    let photos = net.to("POST", "sendPhoto");
-    assert_eq!(photos.len(), 2);
-    let (a, b) = (&photos[0], &photos[1]);
-    assert!(a.header("content-type").starts_with("multipart/form-data"));
-    assert_eq!(a.part("photo").unwrap().content, PNG, "the stored file, byte for byte");
-    assert_eq!((a.part("caption").unwrap().text(), b.part("caption").unwrap().text()), ("Two views".to_string(), String::new()));
-    assert_eq!(a.part("chat_id").unwrap().text(), "-100123");
+    let groups = net.to("POST", "sendMediaGroup");
+    assert_eq!(groups.len(), 1, "one album: {:?}", net.order());
+    assert!(groups[0].header("content-type").starts_with("multipart/form-data"));
+    let media: Value = serde_json::from_str(&groups[0].part("media").unwrap().text()).unwrap();
+    assert_eq!(
+        media,
+        json!([{"type": "photo", "media": "attach://f0", "caption": "Two views", "parse_mode": "HTML"}, {"type": "photo", "media": "attach://f1"}])
+    );
+    assert_eq!(groups[0].part("chat_id").unwrap().text(), "-100123");
 
     // A video, then a follow-up that answers the first message.
     net.clear();
@@ -2880,4 +2899,119 @@ async fn tiktok_business(t: &T) {
     t.upkeep().await;
     assert_eq!(t.get("SocialPost", p).await["status"], "Failed");
     assert_eq!(published.lock().unwrap().len(), 2);
+}
+
+// ───────────── Farcaster (Neynar) ─────────────
+
+async fn farcaster(t: &T) {
+    // Neynar API v2 (docs.neynar.com): `x-api-key`, a managed signer (/signer, approved), /user/bulk, /channel/search,
+    // POST /cast (`signer_uuid`, `text`, `embeds`, `parent`, `channel_id`, and `idem` to make a cast once), DELETE /cast.
+    let casts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (c2, l2) = (casts.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, m: &str| status(code, json!({"code": "InvalidField", "message": m}));
+        if r.header("x-api-key") != "neynar-key" {
+            return err(401, "Invalid API key");
+        }
+        let mut casts = c2.lock().unwrap();
+        let q = r.query();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/v2/farcaster/signer") => {
+                assert_eq!(q["signer_uuid"], "signer-uuid-1");
+                ok(json!({"signer_uuid": "signer-uuid-1", "status": "approved", "fid": 3}))
+            }
+            ("GET", "/v2/farcaster/user/bulk") => ok(json!({"users": [{"fid": 3, "username": "northwind", "display_name": "Northwind", "pfp_url": "https://imagedelivery.test/p.png", "follower_count": 5150}]})),
+            ("GET", "/v2/farcaster/channel/search") => {
+                assert_eq!(q["q"], "bu");
+                ok(json!({"channels": [{"id": "builders", "name": "Builders"}]}))
+            }
+            ("POST", "/v2/farcaster/cast") => {
+                let b = r.json();
+                assert_eq!(b["signer_uuid"], "signer-uuid-1");
+                let idem = b["idem"].as_str().unwrap_or_default().to_string();
+                assert!(!idem.is_empty() && idem.len() <= 16, "{b}");
+                if let Some(old) = casts.iter().find(|c| c["idem"] == idem.as_str()) {
+                    return ok(json!({"success": true, "cast": {"hash": old["hash"]}}));
+                }
+                if b["text"] == "Forbidden" {
+                    return err(400, "Cast text is too long");
+                }
+                let hash = format!("0xcast{:02}", casts.len() + 1);
+                casts.push(json!({"hash": hash, "idem": idem, "body": b}));
+                if l2.lock().unwrap().as_deref() == b["text"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"success": true, "cast": {"hash": hash, "author": {"fid": 3}, "text": b["text"]}}))
+            }
+            ("GET", "/v2/farcaster/cast") => {
+                assert_eq!(q["type"], "hash");
+                ok(json!({"cast": {"reactions": {"likes_count": 12, "recasts_count": 3}, "replies": {"count": 4}}}))
+            }
+            ("DELETE", "/v2/farcaster/cast") => {
+                let h = r.json()["target_hash"].clone();
+                casts.retain(|c| c["hash"] != h);
+                ok(json!({"success": true}))
+            }
+            _ => err(404, "no such route"),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "farcaster_north",
+            "farcaster",
+            &[("https://api.neynar.com", &net.base)],
+            json!({"api_key": "neynar-key", "signer_uuid": "signer-uuid-1"}),
+            |_| {},
+        )
+        .await;
+    let me = t.account("Northwind on Farcaster", "northwind", conn, "3").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["max"].as_u64()), (Some("Farcaster"), Some(320)));
+    let channels = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "channel", "query": "bu"})).await.unwrap();
+    assert_eq!(channels["choices"], json!([{"value": "builders", "label": "Builders"}]));
+
+    // A cast in a channel with two embeds, and a reply that answers it.
+    let p = t
+        .post(
+            "Shipping today",
+            vec![target_with(me, "cast", json!({"channel": "builders", "embeds": "https://northwind.example/a.png, https://northwind.example/spring"}))],
+            json!({"items": [{"text": "Details here"}]}),
+        )
+        .await;
+    let out = t.out(p, me).await;
+    assert_eq!(out["external_id"], "0xcast01");
+    {
+        let c = casts.lock().unwrap();
+        assert_eq!(c[0]["body"]["embeds"], json!([{"url": "https://northwind.example/a.png"}, {"url": "https://northwind.example/spring"}]));
+        assert_eq!((c[0]["body"]["channel_id"].as_str(), c[0]["body"]["parent"].is_null()), (Some("builders"), true));
+        assert_eq!(
+            (c[1]["body"]["parent"].as_str(), c[1]["body"]["channel_id"].is_null()),
+            (Some("0xcast01"), true),
+            "the answer is in the thread, not sent to the channel again"
+        );
+    }
+    // A lost answer: sent again under the same `idem`, Neynar answers with the first cast.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost one", vec![target(me)], json!({})).await;
+    let kept = t.out(p, me).await;
+    assert!(kept["sent_at"].is_string());
+    assert_eq!(casts.lock().unwrap().iter().filter(|c| c["body"]["text"] == "Lost one").count(), 1, "one cast");
+    let tries = net.to("POST", "/cast");
+    assert_eq!(tries.len(), 2);
+    assert_eq!(tries[0].json()["idem"], tries[1].json()["idem"]);
+    // A refusal, in Neynar's words.
+    let p = t.post("Forbidden", vec![target(me)], json!({})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("Cast text is too long"));
+    t.later_upkeep().await;
+    let numbers = t.rows("SocialMetric", json!({})).await;
+    assert!(numbers.iter().any(|m| m["engagements"] == 19), "{numbers:?}");
+    assert!(numbers.iter().any(|m| m["followers"] == 5150));
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(net.to("DELETE", "/cast").iter().map(|d| d.json()["target_hash"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["0xcast02", "0xcast01"]);
 }
