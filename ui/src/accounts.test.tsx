@@ -114,3 +114,34 @@ describe("the pure parts", () => {
     expect(leaveFor(null)).toBeNull();
   });
 });
+
+describe("adding an account from the networks offered", () => {
+  const conn = (name: string, enabled: boolean, ops: object, extra: object = {}) => ({ id: enabled ? name : null, name, label: name, enabled, offered: !enabled, secrets: [], description: { apps: ["social"], operations: ops, auth: { type: "oauth" } }, ...extra });
+  const listed = { connections: [conn("mastodon", true, { publish: {} }), conn("youtube", false, { publish: {} }), conn("stockpics", true, { search_media: {} }), conn("wordpress", false, { publish: {} }, { secrets: ["site_password"] })] };
+
+  it("an administrator sees the networks (not the services), what each needs, and is led to the platform's screen for one that is off", async () => {
+    const fake = fakeServer([["GET", "/api/admin/connections", listed], ["GET", "/api/v1/SocialProfile", { rows: [] }], ["GET", "/api/v1/SocialBrand", brands], ["GET", "/api/v1/SocialAccount", list]]);
+    const host = await draw(<AccountsRoute />, "/accounts", "/accounts");
+    await click(byText(host, "button", "Add an account"));
+    await until(() => document.body.textContent!.includes("youtube"));
+    const dlg = document.body.textContent!;
+    expect(dlg).toContain("mastodon");
+    expect(dlg).not.toContain("stockpics");
+    expect(dlg).toContain("Secrets: site_password");
+    expect(dlg).toContain("A sign-in with the network, once it is turned on");
+    const link = [...document.querySelectorAll<HTMLAnchorElement>("dialog a")].find((a) => a.getAttribute("href") === "/admin?tab=connections");
+    expect(link).toBeTruthy();
+    await click(byText(document.body, "button", "Use it"));
+    expect((document.querySelector("#acc-conn") as HTMLInputElement).value).toBe("mastodon");
+    void fake;
+  });
+
+  it("someone who is not an administrator is told plainly who can, and may still give a connection's name", async () => {
+    fakeServer([["GET", "/api/admin/connections", { error: "forbidden", message: "no" }, 403], ["GET", "/api/v1/SocialProfile", { rows: [] }], ["GET", "/api/v1/SocialBrand", brands], ["GET", "/api/v1/SocialAccount", list]]);
+    const host = await draw(<AccountsRoute />, "/accounts", "/accounts");
+    await click(byText(host, "button", "Add an account"));
+    await until(() => document.body.textContent!.includes("Only an administrator"));
+    await click(byText(document.body, "button", "I know the connection's name"));
+    expect(document.querySelector("#acc-conn")).toBeTruthy();
+  });
+});

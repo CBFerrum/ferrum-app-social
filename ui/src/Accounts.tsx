@@ -121,12 +121,47 @@ function Picker({ account, onClose }: { account: Row; onClose: () => void }) {
   );
 }
 
+/** A connection row of `GET /api/admin/connections`, as far as the choice of a network needs. */
+export interface Offered {
+  id: string | null;
+  name: string;
+  label?: string;
+  enabled: boolean;
+  offered?: boolean;
+  secrets?: string[];
+  description?: { apps?: string[]; operations?: Record<string, unknown> | { name: string }[]; auth?: { type?: string }; meta?: { social?: { name?: string } } };
+}
+
+/** The networks among the connections: those Social uses that publish (a service for pictures, shorteners, writing help or feeds does not). */
+export function networksOf(list: Offered[]): Offered[] {
+  const ops = (c: Offered) => (Array.isArray(c.description?.operations) ? (c.description!.operations as { name: string }[]).map((o) => o.name) : Object.keys((c.description?.operations ?? {}) as object));
+  return list.filter((c) => (c.description?.apps ?? []).includes("social") && ops(c).includes("publish")).sort((a, b) => Number(b.enabled) - Number(a.enabled) || networkName(a).localeCompare(networkName(b)));
+}
+export const networkName = (c: Offered) => c.description?.meta?.social?.name || c.label || c.name;
+
+/** What a network needs set up before it can be used, in words: its secrets, or the sign-in it uses. */
+export function needsWords(c: Offered): string {
+  if (c.secrets?.length) return t("Secrets: {names}", { names: c.secrets.join(", ") });
+  switch (c.description?.auth?.type) {
+    case "oauth":
+      return t("A sign-in with the network, once it is turned on");
+    case "session":
+      return t("A user name and password for the network");
+    case "none":
+      return t("Nothing but turning it on");
+    default:
+      return t("Its connection's details");
+  }
+}
+
 function AddAccount({ brands, onClose }: { brands: Row[]; onClose: () => void }) {
   const client = useQueryClient();
   const profiles = useQuery({ queryKey: ["social", "profiles"], queryFn: () => rows("SocialProfile", [], { sort: "profile_name asc" }) });
-  // Connections are an administrator's to list; anyone else types the name (the server takes its name or its id).
-  const known = useQuery({ queryKey: ["social", "connections"], queryFn: () => api.get<Row[] | { connections: Row[] }>("/api/admin/connections").then((r) => (Array.isArray(r) ? r : r.connections ?? [])), retry: false });
+  // The connections are an administrator's to list (the platform's own screens set them up); anyone else types a name.
+  const known = useQuery({ queryKey: ["social", "connections"], queryFn: () => api.get<{ connections: Offered[] }>("/api/admin/connections").then((r) => r.connections ?? []), retry: false });
+  const networks = networksOf(known.data ?? []);
   const [v, setV] = useState({ account_name: "", brand: "", handle: "", connection: "", profile: "" });
+  const [step, setStep] = useState<"network" | "details">("network");
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState("");
   const set = (k: keyof typeof v) => (e: { target: { value: string } }) => setV({ ...v, [k]: e.target.value });
@@ -144,57 +179,84 @@ function AddAccount({ brands, onClose }: { brands: Row[]; onClose: () => void })
       setBusy(false);
     }
   };
+  const admin = known.isSuccess;
   return (
     <Dialog
       open
       onClose={onClose}
       title={t("Add an account")}
       footer={
-        <>
+        step === "network" ? (
           <Button onClick={onClose}>{t("Cancel")}</Button>
-          <Button variant="primary" loading={busy} disabled={!v.account_name || !v.brand || !v.connection || !v.handle} onClick={() => void save()}>
-            {t("Add")}
-          </Button>
-        </>
+        ) : (
+          <>
+            <Button onClick={() => setStep("network")}>{t("Back")}</Button>
+            <Button variant="primary" loading={busy} disabled={!v.account_name || !v.brand || !v.connection || !v.handle} onClick={() => void save()}>
+              {t("Add")}
+            </Button>
+          </>
+        )
       }
     >
       {refused && <Alert tone="error">{refused}</Alert>}
-      <div className="stack">
-        <Field label={t("Name")} required htmlFor="acc-name">
-          <input id="acc-name" className="input" value={v.account_name} onChange={set("account_name")} />
-        </Field>
-        <Field label={t("Brand")} required htmlFor="acc-brand">
-          <select id="acc-brand" className="select" value={v.brand} onChange={set("brand")}>
-            <option value="">{t("Choose a brand")}</option>
-            {brands.map((b) => (
-              <option key={b.id} value={b.id}>
-                {isolate(text(b.brand_name))}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={t("Connection")} required htmlFor="acc-conn" hint={t("The connection that reaches it, by its name or id.")}>
-          <input id="acc-conn" className="input" list="acc-conns" value={v.connection} onChange={set("connection")} />
-          <datalist id="acc-conns">
-            {(known.data ?? []).map((c) => (
-              <option key={text(c.id)} value={text(c.name)} />
-            ))}
-          </datalist>
-        </Field>
-        <Field label={t("Its name on the network")} required htmlFor="acc-handle">
-          <input id="acc-handle" className="input" value={v.handle} onChange={set("handle")} />
-        </Field>
-        <Field label={t("What its network takes")} htmlFor="acc-profile" hint={t("Needed only when the connection does not say.")}>
-          <select id="acc-profile" className="select" value={v.profile} onChange={set("profile")}>
-            <option value="">{t("The connection says")}</option>
-            {(profiles.data ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {isolate(text(p.profile_name))}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
+      {step === "network" ? (
+        <div className="stack">
+          {known.isPending && <ListSkeleton rows={4} />}
+          {known.isError && <Alert tone="info">{t("Only an administrator can set up a network's connection (Administration, Connections). Ask one to turn on the network you need; if it is already on, give its connection's name on the next step.")}</Alert>}
+          {admin && networks.length === 0 && <StatePanel kind="empty" title={t("No network is offered")}>{t("The package offers its networks to Administration, Connections.")}</StatePanel>}
+          {admin && (
+            <ul className="stack" aria-label={t("Networks")}>
+              {networks.map((c) => (
+                <li key={c.id ?? c.name} className="card card-body row">
+                  <div className="spacer">
+                    <strong>{isolate(networkName(c))}</strong> {c.enabled ? <Badge tone="green">{t("On")}</Badge> : <Badge>{t("Off")}</Badge>}
+                    <div className="muted">{isolate(needsWords(c))}</div>
+                  </div>
+                  {c.enabled ? (
+                    <Button size="sm" variant="primary" onClick={() => { setV({ ...v, connection: c.name }); setStep("details"); }}>{t("Use it")}</Button>
+                  ) : (
+                    <a className="btn btn-default btn-sm" href="/admin?tab=connections" target="_blank" rel="noreferrer noopener">{t("Set it up and turn it on")}</a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="muted">{t("Stock pictures, GIFs, link shorteners, writing help and feeds are chosen in Social Settings, not added as accounts.")} <Link to="/apps/social/settings">{t("Open the settings")}</Link></p>
+          {!admin && !known.isPending && <div><Button onClick={() => setStep("details")}>{t("I know the connection's name")}</Button></div>}
+        </div>
+      ) : (
+        <div className="stack">
+          <Field label={t("Name")} required htmlFor="acc-name">
+            <input id="acc-name" className="input" value={v.account_name} onChange={set("account_name")} />
+          </Field>
+          <Field label={t("Brand")} required htmlFor="acc-brand">
+            <select id="acc-brand" className="select" value={v.brand} onChange={set("brand")}>
+              <option value="">{t("Choose a brand")}</option>
+              {brands.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {isolate(text(b.brand_name))}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t("Connection")} required htmlFor="acc-conn" hint={t("The connection that reaches it, by its name or id.")}>
+            <input id="acc-conn" className="input" value={v.connection} onChange={set("connection")} />
+          </Field>
+          <Field label={t("Its name on the network")} required htmlFor="acc-handle">
+            <input id="acc-handle" className="input" value={v.handle} onChange={set("handle")} />
+          </Field>
+          <Field label={t("What its network takes")} htmlFor="acc-profile" hint={t("Needed only when the connection does not say.")}>
+            <select id="acc-profile" className="select" value={v.profile} onChange={set("profile")}>
+              <option value="">{t("The connection says")}</option>
+              {(profiles.data ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {isolate(text(p.profile_name))}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      )}
     </Dialog>
   );
 }
