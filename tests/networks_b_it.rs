@@ -514,6 +514,9 @@ async fn scenario() {
     if wanted("devto") {
         devto(&t).await;
     }
+    if wanted("hashnode") {
+        hashnode(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -1372,6 +1375,111 @@ async fn devto(t: &T) {
     t.delete_remote(&out).await;
     assert_eq!(net.order(), ["PUT /api/articles/900"]);
     assert_eq!(articles.lock().unwrap()[0]["unpublished"], true);
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
+}
+
+// ───────────── Hashnode ─────────────
+
+async fn hashnode(t: &T) {
+    // GraphQL (apidocs.hashnode.com): one POST address, the personal access token as the Authorization header with no
+    // prefix, `me`, `publishPost(input)`, `publication(id).posts`, `removePost`; failures are `errors` in a 200 answer.
+    let posts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (p2, l2) = (posts.clone(), lose.clone());
+    let net = fake(move |r| {
+        if r.header("authorization") != "hn-token" {
+            return ok(json!({"errors": [{"message": "You are not authenticated"}], "data": null}));
+        }
+        assert_eq!((r.method.as_str(), r.path()), ("POST", "/"));
+        let b = r.json();
+        let q = b["query"].as_str().unwrap_or_default();
+        let mut posts = p2.lock().unwrap();
+        if q.contains("publishPost") {
+            let i = &b["variables"]["input"];
+            if i["title"] == "Forbidden" {
+                return ok(json!({"errors": [{"message": "You do not have permission to publish to this publication"}], "data": null}));
+            }
+            let id = format!("hn{}", posts.len() + 1);
+            posts.push(json!({"id": id, "input": i, "url": format!("https://northwind.hashnode.dev/{id}"), "at": Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()}));
+            if l2.lock().unwrap().as_deref() == i["title"].as_str() {
+                *l2.lock().unwrap() = None;
+                return Resp::Lost;
+            }
+            return ok(json!({"data": {"publishPost": {"post": {"id": id, "url": format!("https://northwind.hashnode.dev/{id}")}}}}));
+        }
+        if q.contains("removePost") {
+            let id = b["variables"]["input"]["id"].clone();
+            posts.retain(|p| p["id"] != id);
+            return ok(json!({"data": {"removePost": {"post": {"id": id}}}}));
+        }
+        if q.contains("publication(id") {
+            assert_eq!(b["variables"]["id"], "pub1");
+            let edges: Vec<Value> = posts.iter().rev().map(|p| json!({"node": {"id": p["id"], "url": p["url"], "title": p["input"]["title"], "publishedAt": p["at"]}})).collect();
+            return ok(json!({"data": {"publication": {"posts": {"edges": edges}}}}));
+        }
+        if q.contains("publications(first") {
+            return ok(json!({"data": {"me": {"publications": {"edges": [{"node": {"id": "pub1", "title": "Northwind Engineering"}}]}}}}));
+        }
+        if q.contains("me {") {
+            return ok(json!({"data": {"me": {"id": "user1", "username": "northwind", "name": "Northwind", "profilePicture": "https://cdn.hashnode.test/me.png"}}}));
+        }
+        ok(json!({"errors": [{"message": "unknown query"}]}))
+    })
+    .await;
+    let conn = t.connect("hashnode_north", "hashnode", &[("https://gql.hashnode.com", &net.base)], json!({"access_token": "hn-token"}), |_| {}).await;
+    let me = t.account("Northwind Hashnode", "northwind", conn, "user1").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["settings"][0]["key"].as_str()), (Some("Hashnode"), Some("publication")));
+    let pubs = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "publication"})).await.unwrap();
+    assert_eq!(pubs["choices"], json!([{"value": "pub1", "label": "Northwind Engineering"}]));
+    let article = |settings: Value| target_with(me, "article", settings);
+    let e = t.refused("Body", vec![article(json!({"title": "T"}))], json!({})).await;
+    assert!(e.contains("Publication is needed"), "{e}");
+
+    let p = t
+        .post(
+            "# Spring\n\nIt is here.",
+            vec![article(json!({"publication": "pub1", "title": "Spring", "subtitle": "At last", "tags": "Rust, web dev,, ", "canonical": "https://northwind.example/spring", "cover": "https://northwind.example/cover.png"}))],
+            json!({}),
+        )
+        .await;
+    let out = t.out(p, me).await;
+    assert_eq!((out["external_id"].as_str(), out["permalink"].as_str()), (Some("hn1"), Some("https://northwind.hashnode.dev/hn1")));
+    {
+        let i = posts.lock().unwrap()[0]["input"].clone();
+        assert_eq!(
+            (i["publicationId"].as_str(), i["contentMarkdown"].as_str(), i["subtitle"].as_str()),
+            (Some("pub1"), Some("# Spring\n\nIt is here."), Some("At last"))
+        );
+        assert_eq!(i["tags"], json!([{"slug": "rust", "name": "Rust"}, {"slug": "web-dev", "name": "web dev"}]));
+        assert_eq!(
+            (i["originalArticleURL"].as_str(), i["coverImageOptions"]["coverImageURL"].as_str()),
+            (Some("https://northwind.example/spring"), Some("https://northwind.example/cover.png"))
+        );
+    }
+
+    // A lost answer: the post was made; the call finds it in the publication's latest posts and does not send again.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost", vec![article(json!({"publication": "pub1", "title": "Lost one"}))], json!({})).await;
+    let kept = t.out(p, me).await;
+    assert!(kept["sent_at"].is_string(), "{kept:?}");
+    assert_eq!(net.seen().iter().filter(|r| r.text().contains("publishPost")).count(), 1, "sent once");
+    assert_eq!(posts.lock().unwrap().iter().filter(|p| p["input"]["title"] == "Lost one").count(), 1);
+    assert_eq!(kept["external_id"], "hn2");
+
+    // A refusal arrives as `errors` in a 200 answer: the call fails, once (the words are the platform's limit; see the notes).
+    net.clear();
+    let p = t.post("No", vec![article(json!({"publication": "pub1", "title": "Forbidden"}))], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert_eq!(post["status"], "Failed", "{post:?}");
+    assert_eq!(net.seen().iter().filter(|r| r.text().contains("publishPost")).count(), 1, "not sent again");
+
+    net.clear();
+    t.delete_remote(&out).await;
+    assert!(net.seen()[0].text().contains("removePost") && posts.lock().unwrap().iter().all(|p| p["id"] != "hn1"));
     let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
 }
