@@ -21,6 +21,7 @@
 //! so a workspace without the `social` package never runs them.
 
 mod accounts;
+mod content;
 mod inbox;
 mod insights;
 mod metrics;
