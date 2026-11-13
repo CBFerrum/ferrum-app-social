@@ -27,7 +27,7 @@ export function Pick({ accounts, brands, chosen, onToggle, locked }: { accounts:
                 const on = chosen.includes(a.id);
                 return (
                   <label key={a.id} className="chip" title={off ? t("Paused") : other ? t("Another brand's") : undefined}>
-                    <input type="checkbox" checked={on} disabled={(off || other) && !on} onChange={() => onToggle(a.id)} />
+                    <input type="checkbox" checked={on} disabled={(off || other) && !on} aria-label={`${text(a.display_name) || text(a.account_name)}${text(a.state) ? `, ${stateWord(text(a.state))}` : ""}${off ? `, ${t("Paused")}` : ""}`} onChange={() => onToggle(a.id)} />
                     <Face name={text(a.account_name)} picture={text(a.picture)} />
                     {nameOf(a)}
                     {text(a.state) && text(a.state) !== "Connected" && <Badge tone={STATE_TONES[text(a.state) as keyof typeof STATE_TONES] ?? "neutral"}>{stateWord(text(a.state))}</Badge>}
