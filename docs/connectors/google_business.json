@@ -1,0 +1,388 @@
+{
+ "base": "https://mybusiness.googleapis.com",
+ "auth": {
+  "type": "oauth",
+  "owner": "workspace",
+  "provider": {
+   "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+   "token_url": "https://oauth2.googleapis.com/token",
+   "revoke_url": "https://oauth2.googleapis.com/revoke",
+   "scopes": [
+    "https://www.googleapis.com/auth/business.manage"
+   ],
+   "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+   "client_secret": "client_secret",
+   "client_auth": "body",
+   "params": {
+    "access_type": "offline",
+    "prompt": "consent"
+   }
+  }
+ },
+ "apps": [
+  "social"
+ ],
+ "allowed_hosts": [
+  "mybusinessaccountmanagement.googleapis.com",
+  "mybusinessbusinessinformation.googleapis.com"
+ ],
+ "limit": {
+  "concurrent": 3
+ },
+ "meta": {
+  "capabilities": {
+   "name": "Google Business Profile",
+   "max_text": 1500,
+   "images": true,
+   "max_media": 1
+  },
+  "social": {
+   "name": "Google Business Profile",
+   "text": {
+    "max": 1500
+   },
+   "media": {
+    "kinds": [
+     "image"
+    ],
+    "max": 1,
+    "alt": false,
+    "image": {
+     "types": [
+      "image/jpeg",
+      "image/png"
+     ]
+    }
+   },
+   "kinds": [
+    {
+     "name": "standard",
+     "label": "Update"
+    },
+    {
+     "name": "event",
+     "label": "Event"
+    },
+    {
+     "name": "offer",
+     "label": "Offer"
+    }
+   ],
+   "follow_ups": {
+    "as": "none"
+   },
+   "settings": [
+    {
+     "key": "cta",
+     "label": "Button",
+     "type": "select",
+     "default": "NONE",
+     "options": [
+      "NONE",
+      "BOOK",
+      "ORDER",
+      "SHOP",
+      "LEARN_MORE",
+      "SIGN_UP",
+      "GET_OFFER",
+      "CALL"
+     ]
+    },
+    {
+     "key": "cta_url",
+     "label": "Button's address",
+     "type": "text",
+     "required": true,
+     "when": {
+      "cta": [
+       "BOOK",
+       "ORDER",
+       "SHOP",
+       "LEARN_MORE",
+       "SIGN_UP",
+       "GET_OFFER"
+      ]
+     }
+    },
+    {
+     "key": "event_title",
+     "label": "Event title",
+     "type": "text",
+     "required": true,
+     "max": 58,
+     "when": {
+      "kind": [
+       "event",
+       "offer"
+      ]
+     }
+    },
+    {
+     "key": "event_start",
+     "label": "Starts on",
+     "type": "date",
+     "required": true,
+     "when": {
+      "kind": [
+       "event",
+       "offer"
+      ]
+     }
+    },
+    {
+     "key": "event_end",
+     "label": "Ends on",
+     "type": "date",
+     "required": true,
+     "when": {
+      "kind": [
+       "event",
+       "offer"
+      ]
+     }
+    },
+    {
+     "key": "coupon",
+     "label": "Coupon code",
+     "type": "text",
+     "when": {
+      "kind": [
+       "offer"
+      ]
+     }
+    },
+    {
+     "key": "redeem_url",
+     "label": "Where to redeem",
+     "type": "text",
+     "when": {
+      "kind": [
+       "offer"
+      ]
+     }
+    },
+    {
+     "key": "terms",
+     "label": "Terms",
+     "type": "long",
+     "when": {
+      "kind": [
+       "offer"
+      ]
+     }
+    },
+    {
+     "key": "language",
+     "label": "Language",
+     "type": "text",
+     "default": "en",
+     "max": 10
+    }
+   ],
+   "accounts": {
+    "operation": "accounts",
+    "items_at": "/locations",
+    "value_at": "/id",
+    "label_at": "/title",
+    "handle_at": "/locality"
+   }
+  }
+ },
+ "operations": {
+  "accounts_list": {
+   "url": "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+   "result": {
+    "first": "/accounts/0/name"
+   },
+   "error_at": "/error/message"
+  },
+  "locations_list": {
+   "url": "https://mybusinessbusinessinformation.googleapis.com/v1/{{ inputs.account }}/locations",
+   "query": {
+    "readMask": "name,title,storefrontAddress",
+    "pageSize": "100"
+   },
+   "inputs": [
+    "account"
+   ],
+   "result": {
+    "items": {
+     "expr": "has(answer.locations) ? answer.locations.map(l, {'id': inputs.account + '/' + l.name, 'title': l.title, 'locality': has(l.storefrontAddress) ? l.storefrontAddress.locality : ''}) : []"
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "check": {
+   "url": "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+   "result": {
+    "ok": "/accounts/0/name"
+   },
+   "error_at": "/error/message"
+  },
+  "create_post": {
+   "method": "POST",
+   "url": "https://mybusiness.googleapis.com/v4/{{ inputs.location }}/localPosts",
+   "body": "{\"languageCode\": {{ (inputs.language or \"en\") | json }}, \"summary\": {{ inputs.text | json }}, \"topicType\": {{ (inputs.kind or \"standard\") | upper | json }}{% if inputs.cta and inputs.cta != \"NONE\" %}, \"callToAction\": {\"actionType\": {{ inputs.cta | json }}{% if inputs.cta != \"CALL\" %}, \"url\": {{ inputs.cta_url | json }}{% endif %}}{% endif %}{% if inputs.kind in [\"event\", \"offer\"] %}, \"event\": {\"title\": {{ inputs.event_title | json }}, \"schedule\": {\"startDate\": {\"year\": {{ (inputs.event_start | split(\"-\") | list)[0] | int }}, \"month\": {{ (inputs.event_start | split(\"-\") | list)[1] | int }}, \"day\": {{ (inputs.event_start | split(\"-\") | list)[2] | int }}}, \"endDate\": {\"year\": {{ (inputs.event_end | split(\"-\") | list)[0] | int }}, \"month\": {{ (inputs.event_end | split(\"-\") | list)[1] | int }}, \"day\": {{ (inputs.event_end | split(\"-\") | list)[2] | int }}}}}{% endif %}{% if inputs.kind == \"offer\" %}, \"offer\": {\"couponCode\": {{ (inputs.coupon or \"\") | json }}, \"redeemOnlineUrl\": {{ (inputs.redeem_url or \"\") | json }}, \"termsConditions\": {{ (inputs.terms or \"\") | json }}}{% endif %}{% if inputs.photo %}, \"media\": [{\"mediaFormat\": \"PHOTO\", \"sourceUrl\": {{ inputs.photo | json }}}]{% endif %}}",
+   "inputs": [
+    "location",
+    "language",
+    "text",
+    "kind",
+    "cta",
+    "cta_url",
+    "event_title",
+    "event_start",
+    "event_end",
+    "coupon",
+    "redeem_url",
+    "terms",
+    "photo"
+   ],
+   "result": {
+    "id": {
+     "at": "/name",
+     "required": true
+    },
+    "url": "/searchUrl"
+   },
+   "error_at": "/error/message"
+  },
+  "recent": {
+   "url": "https://mybusiness.googleapis.com/v4/{{ inputs.location }}/localPosts",
+   "query": {
+    "pageSize": "10"
+   },
+   "inputs": [
+    "location",
+    "text"
+   ],
+   "result": {
+    "id": {
+     "expr": "has(answer.localPosts) && size(answer.localPosts.filter(p, p.summary == inputs.text)) > 0 ? answer.localPosts.filter(p, p.summary == inputs.text)[0].name : null"
+    },
+    "url": {
+     "expr": "has(answer.localPosts) && size(answer.localPosts.filter(p, p.summary == inputs.text)) > 0 ? answer.localPosts.filter(p, p.summary == inputs.text)[0].searchUrl : null"
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "accounts": {
+   "changes": false,
+   "steps": [
+    {
+     "name": "acc",
+     "operation": "accounts_list"
+    },
+    {
+     "name": "locs",
+     "operation": "locations_list",
+     "inputs": {
+      "account": "steps.acc.first"
+     }
+    }
+   ],
+   "result": {
+    "locations": "/locs/items"
+   }
+  },
+  "publish_media": {
+   "inputs": [
+    "url"
+   ],
+   "steps": [
+    {
+     "name": "check",
+     "operation": "check"
+    }
+   ],
+   "result": {
+    "id": {
+     "expr": "has(inputs.url) && inputs.url != null ? inputs.url : ''"
+    }
+   }
+  },
+  "publish": {
+   "inputs": [
+    "account_id",
+    "text_with_link",
+    "media",
+    "kind",
+    "settings"
+   ],
+   "steps": [
+    {
+     "name": "post",
+     "operation": "create_post",
+     "inputs": {
+      "location": "inputs.account_id",
+      "text": "inputs.text_with_link",
+      "kind": "inputs.kind",
+      "language": "inputs.settings.language",
+      "cta": "inputs.settings.cta",
+      "cta_url": "inputs.settings.cta_url",
+      "event_title": "inputs.settings.event_title",
+      "event_start": "inputs.settings.event_start",
+      "event_end": "inputs.settings.event_end",
+      "coupon": "inputs.settings.coupon",
+      "redeem_url": "inputs.settings.redeem_url",
+      "terms": "inputs.settings.terms",
+      "photo": "inputs.media[0] if inputs.media else none"
+     },
+     "confirm": {
+      "operation": "recent",
+      "inputs": {
+       "location": "inputs.account_id",
+       "text": "sent.text"
+      },
+      "proves": "result.id"
+     }
+    }
+   ],
+   "result": {
+    "id": "/post/id",
+    "url": "/post/url"
+   }
+  },
+  "delete": {
+   "method": "DELETE",
+   "url": "https://mybusiness.googleapis.com/v4/{{ inputs.id }}",
+   "inputs": [
+    "id"
+   ],
+   "error_at": "/error/message"
+  },
+  "metrics": {
+   "method": "POST",
+   "url": "https://mybusiness.googleapis.com/v4/{{ inputs.account_id }}/localPosts:reportInsights",
+   "changes": false,
+   "body": "{\"localPostNames\": [{{ inputs.id | json }}], \"basicRequest\": {\"metricRequests\": [{\"metric\": \"LOCAL_POST_VIEWS_SEARCH\"}, {\"metric\": \"LOCAL_POST_ACTIONS_CALL_TO_ACTION\"}], \"timeRange\": {\"startTime\": \"2020-01-01T00:00:00Z\", \"endTime\": {{ now | json }}}}}",
+   "inputs": [
+    "id",
+    "account_id"
+   ],
+   "result": {
+    "impressions": {
+     "expr": "int(answer.localPostMetrics[0].metricValues.filter(m, m.metric == 'LOCAL_POST_VIEWS_SEARCH')[0].totalValue.value)"
+    },
+    "clicks": {
+     "expr": "int(answer.localPostMetrics[0].metricValues.filter(m, m.metric == 'LOCAL_POST_ACTIONS_CALL_TO_ACTION')[0].totalValue.value)"
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "account": {
+   "url": "https://mybusinessbusinessinformation.googleapis.com/v1/{{ (inputs.account_id | split('/') | list)[2:] | join('/') }}",
+   "query": {
+    "readMask": "title,storefrontAddress"
+   },
+   "inputs": [
+    "account_id"
+   ],
+   "result": {
+    "name": "/title",
+    "handle": "/storefrontAddress/locality"
+   },
+   "error_at": "/error/message"
+  }
+ }
+}
