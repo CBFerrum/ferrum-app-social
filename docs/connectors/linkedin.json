@@ -274,7 +274,8 @@
     "content-type": "application/octet-stream"
    },
    "body": {
-    "file": "{{ inputs.file }}"
+    "file": "{{ inputs.file }}",
+    "max_bytes": 26214400
    },
    "inputs": [
     "url",
