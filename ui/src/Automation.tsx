@@ -79,6 +79,7 @@ function Section({ kind, entity, title, empty, rowsQ }: { kind: "feed" | "plug";
             <li key={r.id} className="stack">
               <div className="row">
                 <Link className="spacer" to={`/e/${entity}/${r.id}`}>{isolate(text(r[nameField]))}</Link>
+                {text(r.address) && <span className="muted">{isolate(text(r.address))}</span>}
                 {r.active === false && <Badge>{t("Off")}</Badge>}
                 {kind === "feed" && text(r.read_at) && <span className="muted">{t("Read {at}", { at: when(r.read_at) })}</span>}
                 <Button size="sm" aria-expanded={open === r.id} onClick={() => setOpen(open === r.id ? null : r.id)}>{open === r.id ? t("Hide runs") : t("Runs")}</Button>
