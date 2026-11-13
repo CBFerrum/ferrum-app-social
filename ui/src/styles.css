@@ -71,3 +71,118 @@
   background: transparent;
   color: var(--primary);
 }
+
+/* The calendar: chips for posts, a column for each day of a week or a day, and empty places where a posting time is free. */
+.cal-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 2px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--tone, var(--border-strong));
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: start;
+  cursor: pointer;
+}
+.cal-chip[draggable="true"] {
+  cursor: grab;
+}
+.cal-chip:hover {
+  background: var(--surface-2);
+}
+.cal-chip[data-tone="blue"] { --tone: var(--primary); }
+.cal-chip[data-tone="green"] { --tone: var(--success); }
+.cal-chip[data-tone="amber"] { --tone: var(--warning); }
+.cal-chip[data-tone="red"] { --tone: var(--danger); }
+.cal-chip[data-tone="purple"] { --tone: var(--purple); }
+.cal-chip-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.cal-chip-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-repeat {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.cal-faces {
+  display: inline-flex;
+  flex: none;
+}
+.cal-cols {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 7), minmax(0, 1fr));
+  gap: 8px;
+}
+.cal-cols[data-days="1"] {
+  --cols: 1;
+}
+.cal-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.cal-col[data-over] {
+  background: var(--primary-soft);
+}
+.cal-col-head {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+.cal-place {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+  background: none;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.cal-place:hover,
+.cal-place[data-over] {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+.cal-add {
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+.cal-day[data-over] {
+  background: var(--primary-soft);
+}
+@media (max-width: 720px) {
+  .cal-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
