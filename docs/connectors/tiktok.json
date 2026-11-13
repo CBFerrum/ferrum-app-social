@@ -15,11 +15,10 @@
         "video.list"
       ],
       "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_id_param": "client_key",
+      "scope_separator": ",",
       "client_secret": "client_secret",
       "client_auth": "body",
-      "params": {
-        "client_key": "REPLACE-WITH-THE-APPS-CLIENT-ID"
-      },
       "account_at": "/open_id"
     }
   },
@@ -197,7 +196,11 @@
         "upload_url": "/data/upload_url"
       },
       "error_at": "/error/message",
-      "idempotency_header": "X-Ferrum-Upload-Key"
+      "idempotency_header": "X-Ferrum-Upload-Key",
+      "limit": {
+        "per": 6,
+        "every": 60
+      }
     },
     "put_chunk": {
       "method": "PUT",
@@ -243,7 +246,11 @@
           "required": true
         }
       },
-      "error_at": "/error/message"
+      "error_at": "/error/message",
+      "limit": {
+        "per": 6,
+        "every": 60
+      }
     },
     "publish_status": {
       "method": "POST",

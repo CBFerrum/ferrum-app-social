@@ -170,7 +170,9 @@
       "result": {
         "username": "/name"
       },
-      "error_at": "/message"
+      "error_at": "/message",
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "subreddits": {
       "path": "/api/subreddit_autocomplete_v2",
@@ -186,7 +188,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "flairs": {
       "path": "/r/{{ inputs.subreddit }}/api/link_flair_v2",
@@ -196,7 +200,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "lease": {
       "method": "POST",
@@ -224,7 +230,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "send": {
       "method": "POST",
@@ -247,7 +255,9 @@
         "location": "/PostResponse/Location"
       },
       "error_at": "/Error/Message",
-      "idempotency_header": "X-Ferrum-Upload-Key"
+      "idempotency_header": "X-Ferrum-Upload-Key",
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "submit": {
       "method": "POST",
@@ -286,7 +296,9 @@
       "error_at": "/json/errors/0/1",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "gallery": {
       "method": "POST",
@@ -310,7 +322,9 @@
       "error_at": "/json/errors/0/1",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "submitted": {
       "path": "/user/{{ auth.username }}/submitted",
@@ -332,7 +346,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "comment": {
       "method": "POST",
@@ -355,7 +371,9 @@
       "error_at": "/json/errors/0/1",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "publish_media": {
       "inputs": [
@@ -482,7 +500,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "like": {
       "method": "POST",
@@ -497,7 +517,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "metrics": {
       "path": "/api/info",
@@ -515,7 +537,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "account": {
       "path": "/api/v1/me",
@@ -528,7 +552,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "messages": {
       "path": "/message/inbox",
@@ -541,7 +567,9 @@
       "error_at": "/message",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "dm": {
       "method": "POST",
@@ -560,7 +588,9 @@
       "error_at": "/json/errors/0/1",
       "headers": {
         "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-      }
+      },
+      "refused_if": "has(answer.json) && has(answer.json.errors) && size(answer.json.errors) > 0",
+      "error": "string(answer.json.errors[0][1])"
     },
     "send_message": {
       "inputs": [

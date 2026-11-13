@@ -1348,13 +1348,19 @@ fn fake_facebook(n: &mut Net, r: &Req) -> Resp {
 
 async fn facebook(t: &T) {
     let conn = t
-        .connect("facebook", "fb", &["graph.facebook.com", "graph-video.facebook.com", "rupload.facebook.com"], json!({"client_secret": "fb-secret"}), |d| {
-            let text = d.to_string().replace(
-                &format!("{}/fb/v25.0/{{{{ inputs.account_id }}}}/videos", t.base),
-                &format!("{}/fbv/v25.0/{{{{ inputs.account_id }}}}/videos", t.base),
-            );
-            *d = serde_json::from_str(&text).unwrap();
-        })
+        .connect(
+            "facebook",
+            "fb",
+            &["graph.facebook.com", "graph-video.facebook.com", "rupload.facebook.com"],
+            json!({"client_secret": "fb-secret", "verify_token": "vt-fb"}),
+            |d| {
+                let text = d.to_string().replace(
+                    &format!("{}/fb/v25.0/{{{{ inputs.account_id }}}}/videos", t.base),
+                    &format!("{}/fbv/v25.0/{{{{ inputs.account_id }}}}/videos", t.base),
+                );
+                *d = serde_json::from_str(&text).unwrap();
+            },
+        )
         .await;
     // The code exchanged, the short token exchanged for a long one, and the pages' own tokens kept sealed with it.
     t.sign_in(conn, "CODE-fb").await;
@@ -1471,6 +1477,50 @@ async fn facebook(t: &T) {
     t.call("facebook", "delete", json!({"id": first["id"], "account_id": "P1"}), Some(&format!("delete:{key}"))).await.unwrap();
     assert!(!t.net().list("fb:posts").iter().any(|p| p["id"] == first["id"]));
     assert!(rests(&t.k, &[PAGE_TOKEN]).await.is_empty(), "{:?}", rests(&t.k, &[PAGE_TOKEN]).await);
+    // (round five) Messenger's messages by the inbound address: Meta's handshake answered, a signed delivery a message.
+    let mid = meta_delivery(
+        t,
+        conn,
+        "vt-fb",
+        "fb-secret",
+        json!({"object": "page", "entry": [{"id": "P1", "time": 1, "messaging": [
+        {"sender": {"id": "PSID-9"}, "recipient": {"id": "P1"}, "timestamp": 1, "message": {"mid": "m_1", "text": "Open on Sunday?"}}]}]}),
+    )
+    .await;
+    assert_eq!((mid["kind"].as_str(), mid["text"].as_str(), mid["author_id"].as_str()), (Some("Direct"), Some("Open on Sunday?"), Some("PSID-9")), "{mid:?}");
+}
+
+/// (round five) Meta's webhook as it reaches the inbound address: the verification handshake (`hub.*`, BD-78) answered
+/// with the challenge only for the right token, then a delivery signed with the app's secret (`X-Hub-Signature-256`);
+/// the message it made.
+async fn meta_delivery(t: &T, conn: Uuid, token: &str, app_secret: &str, body: Value) -> Doc {
+    let q = |token: &str| {
+        BTreeMap::from([
+            ("hub.mode".to_string(), "subscribe".to_string()),
+            ("hub.verify_token".to_string(), token.to_string()),
+            ("hub.challenge".to_string(), "c-42".to_string()),
+        ])
+    };
+    assert_eq!(t.k.connection_handshake(conn, &q(token)).await.unwrap(), "c-42");
+    assert!(t.k.connection_handshake(conn, &q("wrong")).await.is_err(), "a wrong token gets no challenge");
+    let raw = body.to_string().into_bytes();
+    let unsigned = BTreeMap::from([("x-hub-signature-256".to_string(), "sha256=00".to_string())]);
+    assert!(t.k.connection_inbound(conn, &unsigned, &raw).await.is_err(), "an unsigned delivery is refused");
+    let signed = BTreeMap::from([("x-hub-signature-256".to_string(), format!("sha256={}", hmac_hex(app_secret.as_bytes(), &raw)))]);
+    t.k.connection_inbound(conn, &signed, &raw).await.unwrap();
+    while t.k.run_jobs_once(4).await.unwrap() > 0 {}
+    let id = body["entry"][0]["messaging"][0]["message"]["mid"].as_str().or(body["entry"][0]["changes"][0]["value"]["id"].as_str()).unwrap().to_string();
+    t.messages(json!({"external_id": id})).await.into_iter().next().expect("the message the delivery made")
+}
+
+/// HMAC-SHA256, hex.
+fn hmac_hex(key: &[u8], msg: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut k = [0u8; 64];
+    k[..key.len()].copy_from_slice(key);
+    let pad = |b: u8| k.iter().map(|x| x ^ b).collect::<Vec<u8>>();
+    let inner = Sha256::new().chain_update(pad(0x36)).chain_update(msg).finalize();
+    hex::encode(Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize())
 }
 
 // ───────────── Instagram (through a Facebook page, and with Instagram's own sign-in) ─────────────
@@ -1511,7 +1561,11 @@ fn fake_instagram(n: &mut Net, r: &Req) -> Resp {
         n.tokens("ig").push(json!(format!("IGLL-{i}")));
         return ok(json!({"access_token": format!("IGLL-{i}"), "token_type": "bearer", "expires_in": 5183944}));
     }
-    if !n.valid("ig", r) {
+    // (round five) The upload host takes the token as `OAuth <token>` (auth_scheme, BD-73), the Graph API as a bearer.
+    let upload = r.path.trim_start_matches('/').starts_with("ig-api-upload");
+    let token = r.header("authorization").and_then(|h| h.strip_prefix(if upload { "OAuth " } else { "Bearer " })).map(str::to_string);
+    let known = token.or_else(|| r.query.get("access_token").cloned()).is_some_and(|t| n.list("ig:tokens").contains(&json!(t)));
+    if !known {
         return err(401, "Invalid OAuth access token.", 190);
     }
     let mut cs = n.get("ig:containers");
@@ -1629,7 +1683,7 @@ async fn ig_medium(t: &T, name: &str, ct: &str, bytes: &[u8], kind: &str, accoun
 
 async fn instagram(t: &T) {
     let conn = t
-        .connect("instagram", "igf", &["graph.facebook.com", "rupload.facebook.com"], json!({"client_secret": "ig-secret"}), |d| {
+        .connect("instagram", "igf", &["graph.facebook.com", "rupload.facebook.com"], json!({"client_secret": "ig-secret", "verify_token": "vt-ig"}), |d| {
             let text = d.to_string().replace(&format!("{}/igf/ig-api-upload", t.base), &format!("{}/igr/ig-api-upload", t.base));
             *d = serde_json::from_str(&text).unwrap();
         })
@@ -1752,6 +1806,17 @@ async fn instagram(t: &T) {
     let a = t.call("instagram", "account", json!({"account_id": "IG1", "handle": null}), None).await.unwrap();
     assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(999), Some("northwind.ig")));
     assert!(t.net().last("igf", "GET", "/v25.0/oauth/access_token").query.get("fb_exchange_token").is_some_and(|t| t.starts_with("IGL-")));
+    // (round five) Comments by the inbound address (the app subscribed to `comments`), after Meta's handshake.
+    let c = meta_delivery(
+        t,
+        conn,
+        "vt-ig",
+        "ig-secret",
+        json!({"object": "instagram", "entry": [{"id": "IG1", "time": 1, "changes": [{"field": "comments",
+        "value": {"id": "1799", "text": "Is it vegan?", "from": {"id": "U7", "username": "ana"}, "media": {"id": "M3"}}}]}]}),
+    )
+    .await;
+    assert_eq!((c["kind"].as_str(), c["author"].as_str(), c["post_external_id"].as_str()), (Some("Comment"), Some("ana"), Some("M3")), "{c:?}");
 }
 
 async fn instagram_standalone(t: &T) {
@@ -2198,14 +2263,29 @@ fn fake_tiktok(n: &mut Net, r: &Req) -> Resp {
     let err = |code: u16, c: &str, m: &str| status(code, json!({"error": {"code": c, "message": m, "log_id": "L1"}}));
     let base = n.base.clone();
     if r.path == "/v2/oauth/token/" {
-        // TikTok names the client `client_key`, in the form.
+        // TikTok names the client `client_key`, in the form, for the code and the refresh alike.
         let f = r.form();
-        if !f.contains_key("client_key") {
+        if f.get("client_key").map(String::as_str) != Some("tt-client")
+            || f.contains_key("client_id")
+            || f.get("client_secret").map(String::as_str) != Some("tt-secret")
+        {
             return status(400, json!({"error": "invalid_request", "error_description": "client_key is required"}));
         }
-        return ok(json!({"access_token": "TTA", "expires_in": 86400, "open_id": "O1", "refresh_token": "TTR", "scope": "video.publish"}));
+        let fine = match f.get("grant_type").map(String::as_str) {
+            Some("authorization_code") => f.get("code").map(String::as_str) == Some("CODE-tt") && f.contains_key("code_verifier"),
+            Some("refresh_token") => f.get("refresh_token").map(String::as_str) == Some("TTR"),
+            _ => false,
+        };
+        if !fine {
+            return status(400, json!({"error": "invalid_grant", "error_description": "The code or refresh token is invalid"}));
+        }
+        let i = n.next();
+        n.tokens("tt").push(json!(format!("TTA-{i}")));
+        return ok(
+            json!({"access_token": format!("TTA-{i}"), "expires_in": 86400, "open_id": "O1", "refresh_token": "TTR", "refresh_expires_in": 31536000, "scope": "video.publish,video.upload", "token_type": "Bearer"}),
+        );
     }
-    if r.bearer().as_deref() != Some("tt-token") && !r.path.starts_with("/upload/") {
+    if !n.valid("tt", r) && !r.path.starts_with("/upload/") {
         return err(401, "access_token_invalid", "The access token is invalid or not found in the request.");
     }
     let mut pubs = n.get("tt:publishes");
@@ -2293,22 +2373,14 @@ fn fake_tiktok(n: &mut Net, r: &Req) -> Resp {
 }
 
 async fn tiktok(t: &T) {
-    // As the file is: TikTok's token address wants the client as `client_key`, which the platform cannot name yet.
+    // (round five) TikTok's own sign-in: the client named `client_key` on the authorisation address and every token
+    // request (client_id_param), the scopes joined by commas (scope_separator), BD-72.
     let conn = t.connect("tiktok", "tt", &["open.tiktokapis.com", "open-upload.tiktokapis.com"], json!({"client_secret": "tt-secret"}), |_| {}).await;
-    let session = Uuid::now_v7();
-    let url = t.k.connect_start(&t.admin, conn, session).await.unwrap();
-    let q = query_of(reqwest::Url::parse(&url).unwrap().query().unwrap_or_default());
-    assert_eq!(q.get("client_key").map(String::as_str), Some("tt-client"), "the authorisation address names the client as TikTok wants");
-    let e = t.k.connect_finish(&t.admin, session, &q["state"], Some("CODE-tt"), None).await.unwrap_err();
-    assert!(e.to_string().contains("did not give tokens: 400: invalid_request"), "{e}");
-    assert!(t.net().last("tt", "POST", "/v2/oauth/token/").form().contains_key("client_id"), "the platform names it client_id");
-    // The rest, on the same description signed in with a token as a secret.
-    let tested = t
-        .connect_from("tiktok_tested", "tiktok", "tt", &["open.tiktokapis.com", "open-upload.tiktokapis.com"], json!({"token": "tt-token"}), |d| {
-            d["auth"] = json!({"type": "bearer", "secret": "token"});
-        })
-        .await;
-    let account = t.account("Northwind TikTok", tested).await;
+    let q = t.sign_in(conn, "CODE-tt").await;
+    assert_eq!((q.get("client_key").map(String::as_str), q.get("client_id")), (Some("tt-client"), None), "the client as TikTok names it");
+    assert!(q["scope"].contains("video.publish,video.upload"), "scopes joined by commas: {}", q["scope"]);
+    assert!(t.net().last("tt", "POST", "/v2/oauth/token/").form().contains_key("client_key"));
+    let account = t.account("Northwind TikTok", conn).await;
     assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "TikTok");
     let privacy = t.action(account, "choices", json!({"setting": "privacy_level"})).await.unwrap();
     assert_eq!(privacy["choices"].as_array().unwrap().len(), 2, "the creator's own options: {privacy}");
@@ -2318,11 +2390,11 @@ async fn tiktok(t: &T) {
         json!({"privacy_level": "SELF_ONLY", "comment": true, "duet": false, "stitch": false, "brand_content_toggle": false, "brand_organic_toggle": false});
     let key = format!("publish:{}", Uuid::now_v7());
     let m = t.medium("clip.mp4", "video/mp4", &video, Some("video"), settings.clone(), None).await;
-    let id = t.call("tiktok_tested", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let id = t.call("tiktok", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
     let mut v = post_in("Bake with us #bread", None, &[("clip.mp4", "video/mp4", video.len() as i64)], &[id]);
     v["kind"] = json!("video");
     v["settings"] = settings.clone();
-    let out = t.call("tiktok_tested", "publish", v.clone(), Some(&key)).await.unwrap();
+    let out = t.call("tiktok", "publish", v.clone(), Some(&key)).await.unwrap();
     assert!(out["id"].as_str().unwrap().starts_with("73"), "the public post's id: {out}");
     {
         let mut n = t.net();
@@ -2343,12 +2415,12 @@ async fn tiktok(t: &T) {
     let mut pids = vec![];
     for (i, name) in ["a.jpg", "b.jpg"].into_iter().enumerate() {
         let p = t.medium(name, "image/jpeg", format!("JPEG-{i}").as_bytes(), Some("photo"), json!({}), None).await;
-        pids.push(t.call("tiktok_tested", "publish_media", p, Some(&format!("media:{key}:p:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
+        pids.push(t.call("tiktok", "publish_media", p, Some(&format!("media:{key}:p:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
     }
     let mut ph = post_in("Fresh loaves", None, &[("a.jpg", "image/jpeg", 6), ("b.jpg", "image/jpeg", 6)], &pids);
     ph["kind"] = json!("photo");
     ph["settings"] = json!({"privacy_level": "PUBLIC_TO_EVERYONE", "comment": true, "title": "Loaves"});
-    t.call("tiktok_tested", "publish", ph, Some(&format!("{key}:p"))).await.unwrap();
+    t.call("tiktok", "publish", ph, Some(&format!("{key}:p"))).await.unwrap();
     let photos = t.net().list("tt:posts").last().unwrap()["photos"].clone();
     let got: Vec<Option<Vec<u8>>> = photos.as_array().unwrap().iter().map(|u| u.as_str().and_then(common::pulled)).collect();
     assert_eq!(got, vec![Some(b"JPEG-0".to_vec()), Some(b"JPEG-1".to_vec())], "{photos}");
@@ -2357,24 +2429,27 @@ async fn tiktok(t: &T) {
     let small: Vec<u8> = vec![b's'; 1000];
     let m = t.medium("s.mp4", "video/mp4", &small, Some("video"), settings.clone(), None).await;
     let lost = format!("publish:{}", Uuid::now_v7());
-    let sid = t.call("tiktok_tested", "publish_media", m, Some(&format!("media:{lost}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let sid = t.call("tiktok", "publish_media", m, Some(&format!("media:{lost}"))).await.unwrap()["id"].as_str().unwrap().to_string();
     let mut s = post_in("Short and once", None, &[("s.mp4", "video/mp4", 1000)], &[sid]);
     s["kind"] = json!("video");
     s["settings"] = settings.clone();
     let before = t.net().list("tt:posts").len();
     t.net().lose.insert("PUT /ttu/upload/".into());
-    assert!(t.call("tiktok_tested", "publish", s.clone(), Some(&lost)).await.is_err());
-    let e = t.call("tiktok_tested", "publish", s, Some(&lost)).await.unwrap_err();
+    assert!(t.call("tiktok", "publish", s.clone(), Some(&lost)).await.is_err());
+    let e = t.call("tiktok", "publish", s, Some(&lost)).await.unwrap_err();
     assert!(e.to_string().to_lowercase().contains("sent") || e.to_string().contains("lost"), "{e}");
     assert_eq!(t.net().list("tt:posts").len(), before + 1, "one post");
     // A refusal in TikTok's words.
     t.net().set("tt:limit", json!(true));
-    let e = t.call("tiktok_tested", "publish", v, Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    let e = t.call("tiktok", "publish", v, Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
     assert!(e.to_string().contains("daily post cap"), "{e}");
-    let m = t.call("tiktok_tested", "metrics", json!({"id": out["id"], "account_id": null, "handle": null}), None).await.unwrap();
+    let m = t.call("tiktok", "metrics", json!({"id": out["id"], "account_id": null, "handle": null}), None).await.unwrap();
     assert_eq!((m["impressions"].as_i64(), m["engagements"].as_i64()), (Some(5000), Some(330)));
-    let a = t.call("tiktok_tested", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
+    // The token run out: renewed with client_key too.
+    t.expire(conn).await;
+    let a = t.call("tiktok", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
     assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(8800), Some("northwind")));
+    assert_eq!(t.net().last("tt", "POST", "/v2/oauth/token/").form().get("grant_type").map(String::as_str), Some("refresh_token"));
 }
 
 // ───────────── Pinterest ─────────────
@@ -2715,12 +2790,11 @@ async fn reddit(t: &T) {
     let got = t.call("reddit", "publish", post("Once", "self", "Only once", &[]), Some(&lost)).await.unwrap();
     assert_eq!(t.net().list("rd:posts").len(), before + 1);
     assert_eq!(got["id"], t.net().list("rd:posts")[0]["name"]);
-    // A refusal: Reddit answers 200 with its reasons in a list, which the platform cannot read as a refusal yet; the
-    // call fails because the post has no id.
+    // A refusal: Reddit answers 200 with its reasons in a list, read as a refusal in its words (round five, refused_if).
     let mut nowhere = post("x", "self", "Nowhere", &[]);
     nowhere["settings"]["subreddit"] = json!("NoSuchPlace");
     let e = t.call("reddit", "publish", nowhere, Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
-    assert!(!e.to_string().contains("doesn't exist"), "Reddit's words are not read yet: {e}");
+    assert!(e.to_string().contains("that subreddit doesn't exist"), "{e}");
     // The inbox: a reply to a post is a comment on it, a mention a mention, a private message a direct message.
     t.pull(conn, "inbox").await;
     let kinds: BTreeMap<String, String> = t
@@ -3067,7 +3141,10 @@ async fn bluesky(t: &T) {
         }
     }
     assert_eq!((rec["embed"]["external"]["uri"].as_str(), rec["langs"].clone()), (Some("https://northwind.test/card"), json!(["en"])));
-    assert!(first["url"].is_null(), "no permalink: its handle is the connection's secret, masked in answers: {first}");
+    // (round five) Its permalink, from the DID the sign-in kept, said not to be a secret (not_secret, BD-77). Not from
+    // the handle: that is the connection's secret (it signs in with it), masked wherever it appears.
+    let rkey = first["id"].as_str().unwrap().rsplit('/').next().unwrap().to_string();
+    assert_eq!(first["url"], format!("https://bsky.app/profile/did:plc:north/post/{rkey}"), "{first}");
     // A thread: each item answers the one before, with the root's reference carried along.
     let one = kept(0, &first);
     let second = t
@@ -3205,6 +3282,17 @@ fn fake_google_business(n: &mut Net, r: &Req) -> Resp {
         ("GET", "/v4/accounts/1/locations/2/localPosts") => ok(json!({"localPosts": n.list("gb:posts").clone()})),
         ("POST", "/v4/accounts/1/locations/2/localPosts:reportInsights") => {
             let b = r.json();
+            // (round five) A window the description works out (add_time, start_of; BD-70): about eighteen months back, from
+            // a day's start, to now.
+            let range = &b["basicRequest"]["timeRange"];
+            let (from, to) = (
+                chrono::DateTime::parse_from_rfc3339(range["startTime"].as_str().unwrap_or_default()),
+                chrono::DateTime::parse_from_rfc3339(range["endTime"].as_str().unwrap_or_default()),
+            );
+            let (Ok(from), Ok(to)) = (from, to) else { return err(400, "timeRange is invalid", "INVALID_ARGUMENT") };
+            if (to - from).num_days() != 540 && (to - from).num_days() != 539 || from.format("%H:%M:%S").to_string() != "00:00:00" {
+                return err(400, "timeRange is invalid", "INVALID_ARGUMENT");
+            }
             ok(json!({"localPostMetrics": [{"localPostName": b["localPostNames"][0], "metricValues": [
                 {"metric": "LOCAL_POST_VIEWS_SEARCH", "totalValue": {"metricOption": "AGGREGATED_TOTAL", "value": "640"}},
                 {"metric": "LOCAL_POST_ACTIONS_CALL_TO_ACTION", "totalValue": {"metricOption": "AGGREGATED_TOTAL", "value": "12"}}]}]}))

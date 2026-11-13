@@ -17,6 +17,7 @@
         "files:write",
         "users:read"
       ],
+      "scope_separator": ",",
       "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
       "client_secret": "client_secret",
       "client_auth": "body",
@@ -145,7 +146,10 @@
         502,
         503,
         504
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "accounts": {
       "path": "/auth.test",
@@ -161,7 +165,10 @@
         502,
         503,
         504
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "account": {
       "path": "/auth.test",
@@ -176,7 +183,10 @@
         502,
         503,
         504
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "channels": {
       "path": "/conversations.list",
@@ -196,7 +206,10 @@
         502,
         503,
         504
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "mentions": {
       "path": "/users.list",
@@ -217,7 +230,10 @@
       ],
       "inputs": [
         "query"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "post_message": {
       "method": "POST",
@@ -241,7 +257,10 @@
         "thread_ts",
         "media_items",
         "ref"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "recent": {
       "path": "/conversations.history",
@@ -269,7 +288,10 @@
       "inputs": [
         "channel",
         "ref"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "get_permalink": {
       "path": "/chat.getPermalink",
@@ -290,7 +312,10 @@
       "inputs": [
         "channel",
         "ts"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "upload_slot": {
       "path": "/files.getUploadURLExternal",
@@ -315,7 +340,10 @@
       "inputs": [
         "name",
         "size"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "put_bytes": {
       "method": "POST",
@@ -337,7 +365,10 @@
       "inputs": [
         "url",
         "file"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "complete_upload": {
       "method": "POST",
@@ -358,7 +389,10 @@
       "inputs": [
         "file_id",
         "title"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "file_info": {
       "path": "/files.info",
@@ -379,7 +413,10 @@
       ],
       "inputs": [
         "file_id"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     },
     "publish_media": {
       "inputs": [
@@ -489,7 +526,10 @@
       ],
       "inputs": [
         "id"
-      ]
+      ],
+      "refused_if": "has(answer.ok) && !answer.ok",
+      "error": "answer.error",
+      "temporary_if": "has(answer.error) && answer.error == 'ratelimited'"
     }
   }
 }

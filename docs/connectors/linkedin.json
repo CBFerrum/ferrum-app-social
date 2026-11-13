@@ -170,7 +170,11 @@
           "required": true
         }
       },
-      "error_at": "/message"
+      "error_at": "/message",
+      "limit": {
+        "per": 150,
+        "every": 86400
+      }
     },
     "publish": {
       "inputs": [

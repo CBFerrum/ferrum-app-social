@@ -113,7 +113,9 @@
         502,
         503,
         504
-      ]
+      ],
+      "refused_if": "has(answer.data) && size(answer.data) > 0 && has(answer.data[0].is_sent) && !answer.data[0].is_sent",
+      "error": "answer.data[0].drop_reason.message"
     },
     "get_user": {
       "path": "/users",
@@ -129,7 +131,9 @@
         502,
         503,
         504
-      ]
+      ],
+      "refused_if": "has(answer.data) && size(answer.data) > 0 && has(answer.data[0].is_sent) && !answer.data[0].is_sent",
+      "error": "answer.data[0].drop_reason.message"
     },
     "followers": {
       "path": "/channels/followers",
@@ -150,7 +154,9 @@
       ],
       "inputs": [
         "channel"
-      ]
+      ],
+      "refused_if": "has(answer.data) && size(answer.data) > 0 && has(answer.data[0].is_sent) && !answer.data[0].is_sent",
+      "error": "answer.data[0].drop_reason.message"
     },
     "send_chat": {
       "method": "POST",
@@ -174,7 +180,9 @@
         "channel",
         "message",
         "reply_to"
-      ]
+      ],
+      "refused_if": "has(answer.data) && size(answer.data) > 0 && has(answer.data[0].is_sent) && !answer.data[0].is_sent",
+      "error": "answer.data[0].drop_reason.message"
     },
     "announce": {
       "method": "POST",
@@ -201,7 +209,9 @@
         "channel",
         "message",
         "color"
-      ]
+      ],
+      "refused_if": "has(answer.data) && size(answer.data) > 0 && has(answer.data[0].is_sent) && !answer.data[0].is_sent",
+      "error": "answer.data[0].drop_reason.message"
     },
     "delete": {
       "method": "DELETE",
@@ -221,7 +231,9 @@
       ],
       "inputs": [
         "id"
-      ]
+      ],
+      "refused_if": "has(answer.data) && size(answer.data) > 0 && has(answer.data[0].is_sent) && !answer.data[0].is_sent",
+      "error": "answer.data[0].drop_reason.message"
     },
     "account": {
       "changes": false,
