@@ -1586,6 +1586,41 @@ async fn scenario() {
     assert!(runs[0]["people"].as_i64().unwrap() >= 4, "{runs:?}");
     set(json!({"digest_day": "Never"})).await;
 
+    // ───────────── (round two) a feed: new items made posts once each, sent for review, their pictures kept ─────────────
+    let feed_desc = json!({"base": base, "auth": key_auth2.clone(), "apps": ["social"], "operations": {
+        "feed": {"path": "/feed", "error_at": "/error/message"},
+        "fetch_media": {"path": "/fetch", "query": {"u": "{{ inputs.url }}"}, "result": {"file": {"file": {"max_bytes": 100000}}}, "error_at": "/error/message"}},
+        "meta": {"feed": {"items_at": "/items", "id_at": "/id", "link_at": "/url", "title_at": "/title", "text_at": "/content_text", "picture_at": "/image", "published_at": "/date_published"}}});
+    save("chirp_feed", feed_desc, json!({"key": KEY})).await;
+    let blog = t
+        .insert(
+            &manager,
+            "SocialFeed",
+            json!({"feed_name": "Blog", "connection": "chirp_feed", "brand": northwind.to_string(), "then": "Send for Review",
+                                                        "targets": [{"account": nw_key.to_string()}], "owner": "author@brands.test"}),
+        )
+        .await;
+    let old = (Utc::now() - Duration::days(2)).to_rfc3339();
+    let new = (Utc::now() + Duration::minutes(1)).to_rfc3339();
+    t.net.lock().unwrap().feed = vec![
+        json!({"id": "b-0", "url": "https://blog.example/0", "title": "Before the feed", "date_published": old}),
+        json!({"id": "b-1", "url": "https://blog.example/1", "title": "New colours", "date_published": new, "image": "https://blog.example/1.png"}),
+        json!({"id": "b-2", "url": "https://blog.example/2", "title": "Opening hours", "date_published": new}),
+    ];
+    t.upkeep(due + Duration::hours(27)).await;
+    t.upkeep(due + Duration::hours(29)).await;
+    let items = t.rows("SocialFeedItem", json!({"feed": blog["id"]})).await;
+    assert_eq!(items.len(), 2, "each new item once, nothing older than the feed: {items:?}");
+    let made = t.get("SocialPost", uid(&items.iter().find(|i| i["title"] == "New colours").unwrap()["post"])).await;
+    assert_eq!(
+        (made["status"].as_str(), made["author"].as_str(), made["link"].as_str()),
+        (Some("In Review"), Some("author@brands.test"), Some("https://blog.example/1")),
+        "{made:?}"
+    );
+    let pic = t.get("SocialMediaAsset", uid(&made["media"][0]["asset"])).await;
+    assert_eq!((pic["source"].as_str(), pic["source_id"].as_str()), (Some("Feed"), Some("https://blog.example/1.png")));
+    assert!(t.get("SocialFeed", uid(&blog["id"])).await["last_error"].is_null());
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});

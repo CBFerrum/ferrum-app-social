@@ -9,7 +9,7 @@ modules:
     label: Social
     icon: share-2
     order: 66
-    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialTemplate, SocialSet, SocialSnippet, SocialSignature, SocialVariable, SocialMediaAsset, SocialLinkTemplate, SocialPlug, SocialPlugRun, SocialNoticeOptOut, SocialDigestRun, SocialWritingPreset, SocialWritingUse, SocialReview, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
+    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialTemplate, SocialSet, SocialSnippet, SocialSignature, SocialVariable, SocialMediaAsset, SocialLinkTemplate, SocialFeed, SocialFeedItem, SocialPlug, SocialPlugRun, SocialNoticeOptOut, SocialDigestRun, SocialWritingPreset, SocialWritingUse, SocialReview, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
 
 roles:
   - name: Social Writing Help
@@ -90,6 +90,8 @@ roles:
       - {entity: SocialPlugRun, read: true, export: true}
       - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
       - {entity: SocialDigestRun, read: true}
+      - {entity: SocialFeed, read: true, write: true, create: true, delete: true}
+      - {entity: SocialFeedItem, read: true, export: true}
       - {entity: SocialPost, read: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}

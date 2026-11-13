@@ -594,3 +594,48 @@
     - {name: sent_at, type: datetime, read_only: true, in_list: true}
     - {name: people, type: int, read_only: true, in_list: true}
   list: {columns: [week, sent_at, people], sort: week desc}
+
+- name: SocialFeed
+  label: Feed
+  label_plural: Feeds
+  kind: master
+  module: social
+  title_field: feed_name
+  description: "A feed whose new items become posts: of a brand, to its accounts, from a template or a set, then left a draft, sent for review, queued or published now. Read through a connection whose description says where its items are (meta.feed)."
+  fields:
+    - {name: feed_name, type: data, required: true, unique: true, in_list: true}
+    - {name: connection, type: data, required: true, description: "The connection that reads it, by name or id"}
+    - {name: operation, type: data, default: feed, description: "Its operation that answers the items"}
+    - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
+    - {name: targets, type: table, of: SocialTarget, label: Accounts, description: "Where its posts go; empty: the set's or template's accounts"}
+    - {name: template, type: link, to: SocialTemplate}
+    - {name: set, type: link, to: SocialSet}
+    - {name: then, type: select, options: [Draft, Send for Review, Add to Queue, Publish Now], default: Draft, in_list: true, label: Then}
+    - {name: rewrite, type: check, default: false, label: Rewrite With Writing Help}
+    - {name: rewrite_instruction, type: text, label: How to Rewrite}
+    - {name: take_picture, type: check, default: true, label: Take Its Picture}
+    - {name: every_minutes, type: int, default: 60, min: 5, label: Read Every (Minutes)}
+    - {name: owner, type: email, description: "Whose posts they are (their author)"}
+    - {name: since, type: datetime, read_only: true, label: Items From, description: "Only items newer than when the feed was added are taken"}
+    - {name: read_at, type: datetime, read_only: true, no_copy: true}
+    - {name: last_error, type: text, read_only: true, no_copy: true}
+    - {name: active, type: check, default: true, in_list: true}
+  list: {columns: [feed_name, brand, then, active], sort: feed_name asc}
+
+- name: SocialFeedItem
+  label: Feed Item
+  label_plural: Feed Items
+  kind: master
+  module: social
+  title_field: title
+  description: "An item a feed read, once: the post made of it, or why none was."
+  fields:
+    - {name: feed, type: link, to: SocialFeed, read_only: true, in_list: true, in_filter: true}
+    - {name: item_key, type: data, read_only: true, unique: true, hidden: true}
+    - {name: title, type: data, read_only: true, in_list: true}
+    - {name: link, type: data, read_only: true}
+    - {name: published_at, type: datetime, read_only: true}
+    - {name: post, type: link, to: SocialPost, read_only: true, in_list: true}
+    - {name: state, type: select, options: [Made, Skipped, Failed], read_only: true, in_list: true, in_filter: true}
+    - {name: note, type: text, read_only: true}
+  list: {columns: [title, feed, state, post], sort: created_at desc}
