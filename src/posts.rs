@@ -129,6 +129,7 @@ impl DocHook for PostHook {
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        crate::media::fill_lines(hc, doc).await?;
         if s(doc, "author").is_none() && !hc.ctx.email.is_empty() {
             doc.insert("author".into(), json!(hc.ctx.email.to_lowercase()));
         }

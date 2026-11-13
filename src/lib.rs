@@ -30,7 +30,9 @@ mod content;
 mod inbox;
 mod insights;
 mod library;
+mod media;
 mod metrics;
+mod outside;
 mod picker;
 mod posts;
 mod review;
@@ -69,7 +71,9 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("SocialPublication", Arc::new(insights::InsightHook))
         .register("SocialMessage", Arc::new(inbox::MessageHook))
         .register("SocialReply", Arc::new(inbox::ReplyHook))
-        .register("SocialPostingTime", Arc::new(when::PostingTimeHook));
+        .register("SocialPostingTime", Arc::new(when::PostingTimeHook))
+        .register("SocialMediaAsset", Arc::new(media::AssetHook))
+        .register("SocialBrand", Arc::new(BrandHook));
     for library in ["SocialTemplate", "SocialSet", "SocialSignature", "SocialVariable"] {
         hooks.register(library, Arc::new(library::LibraryHook));
     }
@@ -118,6 +122,20 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
         }
     }
     first_error.map_or(Ok(()), Err)
+}
+
+/// The brand's actions: its media library's ways in, and writing help from a blank start.
+pub struct BrandHook;
+
+#[async_trait::async_trait]
+impl ferrum_kernel::DocHook for BrandHook {
+    fn name(&self) -> &'static str {
+        "social.brand"
+    }
+
+    async fn action(&self, hc: &mut ferrum_kernel::HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
+        media::action(hc, name, doc, params).await
+    }
 }
 
 /// A document from JSON.

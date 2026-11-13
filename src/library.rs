@@ -164,6 +164,7 @@ impl DocHook for LibraryHook {
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        crate::media::fill_lines(hc, doc).await?;
         // A signature or a variable of an account is its brand's too.
         if matches!(hc.entity.def.name.as_str(), "SocialSignature" | "SocialVariable")
             && let Some(a) = id(doc, "account")

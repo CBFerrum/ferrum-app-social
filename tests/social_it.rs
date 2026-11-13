@@ -57,6 +57,12 @@ struct Net {
     reject_replies: bool,
     /// A post whose words hold this is refused.
     refuse_text: Option<String>,
+    /// Every request to the round-two fakes (stock, fetch, shortener, writing, plugs, feed): "METHOD path" and its body.
+    calls: Vec<(String, Value)>,
+    /// What the writing fake answers next, in order; then an echo of the prompt.
+    written: Vec<String>,
+    /// The feed's items.
+    feed: Vec<Value>,
     inbox: Vec<Value>,
     stats_down: bool,
     /// Calls to /me and /posts/*/stats.
@@ -142,6 +148,18 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
             n.deleted.push(p.trim_start_matches("/v1/posts/").to_string());
             (200, json!({"deleted": true}))
         }
+        (m, r)
+            if r.starts_with("/v1/stock")
+                || r.starts_with("/v1/fetch")
+                || r.starts_with("/v1/short")
+                || r.starts_with("/v1/messages")
+                || r.starts_with("/v1/picture")
+                || r.starts_with("/v1/posts/") && (r.ends_with("/repost") || r.ends_with("/like"))
+                || r.starts_with("/v1/feed") =>
+        {
+            n.calls.push((format!("{m} {path}"), json_body.clone()));
+            round_two(n, m, r, path, &json_body)
+        }
         ("GET", "/v1/pages") => (
             200,
             json!({"pages": [{"id": "pg-1", "name": "Northwind Shop", "username": "@nwshop", "avatar": "https://chirp.test/a/1.png"},
@@ -191,6 +209,43 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
     }
 }
 
+/// The round-two fakes: shaped like the documented answers of a stock picture source, an image fetcher, a link
+/// shortener, the Claude Messages API, a picture maker, reposts and likes, and a feed read as JSON.
+fn round_two(n: &mut Net, method: &str, route: &str, path: &str, body: &Value) -> (u16, Value) {
+    let png = |t: &str| json!({"__bytes": format!("\u{89}PNG {t}"), "__type": "image/png"});
+    match (method, route) {
+        ("GET", "/v1/stock/search") => (
+            200,
+            json!({"total": 2, "results": [
+            {"id": "s-1", "alt_description": "A lake at dawn", "width": 4000, "height": 3000, "urls": {"small": "https://chirp.test/s/1-small.jpg", "full": "https://chirp.test/s/1.jpg"},
+             "user": {"name": "Ana Lima", "links": {"html": "https://chirp.test/@ana"}}},
+            {"id": "s-2", "urls": {"small": "https://chirp.test/s/2-small.jpg", "full": "https://chirp.test/s/2.jpg"}, "user": {"name": "Bo", "links": {"html": "https://chirp.test/@bo"}}}]}),
+        ),
+        ("GET", r) if r.starts_with("/v1/stock/") && r.ends_with("/download") => (200, png("stock")),
+        ("POST", r) if r.starts_with("/v1/stock/") && r.ends_with("/told") => (200, json!({"ok": true})),
+        ("GET", "/v1/fetch") => (200, png(path.split("u=").nth(1).unwrap_or_default())),
+        ("POST", "/v1/short") => {
+            let i = n.calls.iter().filter(|c| c.0.starts_with("POST /v1/short")).count();
+            (200, json!({"id": format!("k{i}"), "shortLink": format!("https://sh.test/k{i}")}))
+        }
+        ("GET", r) if r.starts_with("/v1/short/") => (200, json!({"clicks": 42})),
+        ("POST", "/v1/messages") => {
+            let prompt = body["messages"][0]["content"].clone();
+            let said =
+                if n.written.is_empty() { format!("ECHO {}", prompt.as_str().map_or_else(|| prompt.to_string(), str::to_string)) } else { n.written.remove(0) };
+            (
+                200,
+                json!({"id": "msg_1", "type": "message", "role": "assistant", "model": body["model"], "content": [{"type": "text", "text": said}], "stop_reason": "end_turn"}),
+            )
+        }
+        ("POST", "/v1/picture") => (200, png("drawn")),
+        ("POST", r) if r.ends_with("/repost") => (200, json!({"id": format!("rp-{}", n.calls.len())})),
+        ("POST", r) if r.ends_with("/like") => (200, json!({"liked": true})),
+        ("GET", "/v1/feed") => (200, json!({"items": n.feed.clone()})),
+        _ => (404, json!({"error": {"message": "No such thing"}})),
+    }
+}
+
 async fn serve(net: Shared) -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -227,9 +282,12 @@ async fn serve(net: Shared) -> u16 {
                     lines.filter_map(|l| l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))).collect();
                 let header = |h: &str| headers.iter().find(|(k, _)| k == h).map(|(_, v)| v.clone());
                 let (status, reply) = answer(&mut net.lock().unwrap(), &method, &path, &header, body);
-                let reply = reply.to_string();
-                let out =
-                    format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
+                // A file is answered as its bytes: `{"__bytes": text, "__type": content type}`.
+                let (kind, reply) = match reply.get("__bytes").and_then(Value::as_str) {
+                    Some(b) => (reply["__type"].as_str().unwrap_or("application/octet-stream").to_string(), b.to_string()),
+                    None => ("application/json".to_string(), reply.to_string()),
+                };
+                let out = format!("HTTP/1.1 {status} X\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
                 let _ = s.write_all(out.as_bytes()).await;
             });
         }
@@ -1262,6 +1320,78 @@ async fn scenario() {
     t.upkeep(due + Duration::hours(19)).await;
     assert_eq!(t.net.lock().unwrap().posts.last().unwrap().1["account"], "pg-1");
 
+    // ───────────── (round two) the media library: stock pictures taken with their credit, an address fetched ─────────────
+    let key_auth2 = json!({"type": "header", "header": "x-api-key", "secret": "key"});
+    let mut stock = json!({"base": base, "auth": key_auth2.clone(), "apps": ["social"], "operations": {
+        "search_media": {"path": "/stock/search", "query": {"query": "{{ inputs.query }}", "page": "{{ inputs.page }}"}, "error_at": "/error/message"},
+        "fetch_media": {"path": "/stock/{{ inputs.id }}/download", "result": {"file": {"file": {"max_bytes": 100000}}}, "error_at": "/error/message"},
+        "media_downloaded": {"method": "POST", "path": "/stock/{{ inputs.id }}/told", "body": "{}", "idempotency_header": "Idempotency-Key", "error_at": "/error/message"}}});
+    stock["meta"] = json!({"social": {"media_search": {"items_at": "/results", "id_at": "/id", "preview_at": "/urls/small", "url_at": "/urls/full", "credit_at": "/user/name",
+        "credit_link_at": "/user/links/html", "alt_at": "/alt_description", "width_at": "/width", "height_at": "/height", "licence": "Free to use; credit asked", "kind": "image"}}});
+    save("chirp_stock", stock, json!({"key": KEY})).await;
+    let fetcher = json!({"base": base, "auth": key_auth2.clone(), "apps": ["social"], "operations": {
+        "fetch_media": {"path": "/fetch", "query": {"u": "{{ inputs.url }}"}, "result": {"file": {"file": {"max_bytes": 100000}}}, "error_at": "/error/message"}}});
+    save("chirp_fetch", fetcher, json!({"key": KEY})).await;
+    let settings_now = t.rows("SocialSettings", json!({})).await;
+    let set = |values: Value| {
+        let (t, manager, now) = (&t, &manager, settings_now.clone());
+        async move {
+            let rows = t.rows("SocialSettings", json!({})).await;
+            match rows.first().or(now.first()) {
+                Some(r) => {
+                    t.k.update(manager, "SocialSettings", uid(&r["id"]), obj(values), None).await.unwrap();
+                }
+                None => {
+                    t.insert(manager, "SocialSettings", values).await;
+                }
+            }
+        }
+    };
+    refused(t.act(&author, "SocialBrand", northwind, "media_search", json!({"query": "lake"})).await, "invalid", "no picture source");
+    set(json!({"media_sources": "chirp_stock", "fetch_connection": "chirp_fetch"})).await;
+    let found = t.act(&author, "SocialBrand", northwind, "media_search", json!({"query": "lake"})).await.unwrap();
+    let first = found["items"][0].clone();
+    assert_eq!(
+        (first["id"].as_str(), first["credit"].as_str(), first["preview"].as_str(), first["licence"].as_str()),
+        (Some("s-1"), Some("Ana Lima"), Some("https://chirp.test/s/1-small.jpg"), Some("Free to use; credit asked")),
+        "{found}"
+    );
+    let mut take = first.clone();
+    take["source"] = json!("chirp_stock");
+    let taken = t.act(&author, "SocialBrand", northwind, "media_take", take.clone()).await.unwrap();
+    let asset = t.get("SocialMediaAsset", uid(&taken["id"])).await;
+    assert_eq!(
+        (
+            asset["source"].as_str(),
+            asset["credit"].as_str(),
+            asset["credit_link"].as_str(),
+            asset["kind"].as_str(),
+            asset["alt"].as_str(),
+            asset["width"].as_i64()
+        ),
+        (Some("Stock"), Some("Ana Lima"), Some("https://chirp.test/@ana"), Some("image"), Some("A lake at dawn"), Some(4000)),
+        "{asset:?}"
+    );
+    assert!(asset["bytes"].as_i64().is_some_and(|b| b > 0) && asset["content_type"] == "image/png");
+    t.act(&author, "SocialBrand", northwind, "media_take", take).await.unwrap();
+    assert_eq!(t.net.lock().unwrap().calls.iter().filter(|c| c.0.ends_with("/told")).count(), 1, "the source told of its download once");
+    refused(t.act(&author, "SocialBrand", northwind, "media_from_address", json!({"url": "file:///etc/passwd"})).await, "invalid", "is a web address");
+    let fetched = t.act(&author, "SocialBrand", northwind, "media_from_address", json!({"url": "https://chirp.test/x/cat.png", "alt": "A cat"})).await.unwrap();
+    let fetched = t.get("SocialMediaAsset", uid(&fetched["id"])).await;
+    assert_eq!(
+        (fetched["source"].as_str(), fetched["asset_name"].as_str(), fetched["source_id"].as_str()),
+        (Some("Address"), Some("cat.png"), Some("https://chirp.test/x/cat.png"))
+    );
+    // A post's medium from the library: its file, description and size carried.
+    let mut from_library = tagged("From the library", &[], "Library");
+    from_library["targets"] = json!([target(nw_threads, answered.clone())]);
+    from_library["media"] = json!([{"item": 1, "asset": asset["id"]}]);
+    let from_library = t.insert(&author, "SocialPost", from_library).await;
+    assert_eq!(
+        (from_library["media"][0]["file"].clone(), from_library["media"][0]["alt"].as_str(), from_library["media"][0]["width"].as_i64()),
+        (asset["file"].clone(), Some("A lake at dawn"), Some(4000))
+    );
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});
@@ -1376,7 +1506,7 @@ async fn scenario() {
     push("delivery-9", item2).await;
     let c9 = &t.rows("SocialMessage", json!({"external_id": "c-9"})).await[0];
     assert!(c9["contact_id"].is_null(), "off unless the workspace says so");
-    t.insert(&manager, "SocialSettings", json!({"match_crm": true, "crm_entity": "Contact", "crm_field": "x_handle"})).await;
+    set(json!({"match_crm": true, "crm_entity": "Contact", "crm_field": "x_handle"})).await;
     push("delivery-10", item("c-10", "comment", "ivy@chirp.test", None, Some(&spring_external), "t-5", "Yet another")).await;
     let c10 = &t.rows("SocialMessage", json!({"external_id": "c-10"})).await[0];
     assert_eq!((c10["contact_entity"].as_str(), c10["contact_id"].clone()), (Some("Contact"), ivy["id"].clone()));

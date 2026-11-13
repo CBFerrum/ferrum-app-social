@@ -61,6 +61,30 @@ fn the_examples_are_descriptions_the_platform_takes() {
     assert_eq!(seen, ["bluesky", "linkedin", "mastodon", "x"]);
 }
 
+/// (round two) The services Social calls outside any account: picture and GIF sources, shorteners, writing help, a feed.
+#[test]
+fn the_service_examples_are_descriptions_the_platform_takes() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/connectors/services");
+    let mut seen = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let d: Description = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert_eq!(d.problem(), None, "{}", path.display());
+        assert!(d.apps.iter().any(|a| a == "social"), "{}", path.display());
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let wants = match name.as_str() {
+            "unsplash" | "pexels" | "giphy" => ["search_media", "fetch_media"].as_slice(),
+            "dub" | "kutt" => &["shorten", "link_clicks"],
+            "claude" => &["write"],
+            _ => &["feed"],
+        };
+        assert!(wants.iter().all(|o| d.operations.contains_key(*o)), "{name}");
+        seen.push(name);
+    }
+    seen.sort();
+    assert_eq!(seen, ["claude", "dub", "giphy", "json_feed", "kutt", "pexels", "unsplash"]);
+}
+
 #[test]
 fn the_package_ships_the_two_the_earlier_releases_had() {
     let packages = ferrum_app_social::packages().unwrap();

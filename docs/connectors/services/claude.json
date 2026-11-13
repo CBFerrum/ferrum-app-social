@@ -1,0 +1,36 @@
+{
+  "base": "https://api.anthropic.com",
+  "auth": {
+    "type": "none"
+  },
+  "apps": [
+    "social"
+  ],
+  "timeout_ms": 60000,
+  "headers": {
+    "x-api-key": "{{ secret.api_key }}",
+    "anthropic-version": "2023-06-01"
+  },
+  "operations": {
+    "write": {
+      "method": "POST",
+      "path": "/v1/messages",
+      "body": "{\"model\": {{ (inputs.model or 'claude-sonnet-5-5') | json }}, \"max_tokens\": {{ inputs.max_tokens or 1024 }}, \"system\": {{ inputs.system | json }}, \"messages\": [{\"role\": \"user\", \"content\": {% if inputs.image_data %}[{\"type\": \"image\", \"source\": {\"type\": \"base64\", \"media_type\": {{ inputs.image_type | json }}, \"data\": {{ inputs.image_data | json }}}}, {\"type\": \"text\", \"text\": {{ inputs.prompt | json }}}]{% else %}{{ inputs.prompt | json }}{% endif %}}]}",
+      "result": {
+        "text": "/content/0/text"
+      },
+      "error_at": "/error/message",
+      "inputs": [
+        "model",
+        "max_tokens",
+        "system",
+        "prompt",
+        "image_data",
+        "image_type"
+      ]
+    }
+  },
+  "meta": {
+    "note": "The Claude Messages API. Secret: api_key. It makes no pictures: a picture source is another description offering picture."
+  }
+}
