@@ -27,6 +27,7 @@
 
 mod accounts;
 mod content;
+mod feeds;
 mod inbox;
 mod insights;
 mod library;
@@ -77,7 +78,8 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("SocialReply", Arc::new(inbox::ReplyHook))
         .register("SocialPostingTime", Arc::new(when::PostingTimeHook))
         .register("SocialMediaAsset", Arc::new(media::AssetHook))
-        .register("SocialBrand", Arc::new(BrandHook));
+        .register("SocialBrand", Arc::new(BrandHook))
+        .register("SocialFeed", Arc::new(feeds::FeedHook));
     for library in ["SocialTemplate", "SocialSet", "SocialSignature", "SocialVariable", "SocialLinkTemplate"] {
         hooks.register(library, Arc::new(library::LibraryHook));
     }
@@ -123,6 +125,7 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             metrics::pull(k, tenant, now).await?;
             links::clicks(k, tenant, now).await?;
             plugs::run(k, tenant, now).await?;
+            feeds::read(k, tenant, now).await?;
             Ok::<(), Error>(())
         };
         if let Err(e) = run.await {
