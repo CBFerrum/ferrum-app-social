@@ -1,614 +1,615 @@
 {
- "base": "https://oauth.reddit.com",
- "auth": {
-  "type": "oauth",
-  "owner": "workspace",
-  "provider": {
-   "authorize_url": "https://www.reddit.com/api/v1/authorize",
-   "token_url": "https://www.reddit.com/api/v1/access_token",
-   "revoke_url": "https://www.reddit.com/api/v1/revoke_token",
-   "scopes": [
-    "identity",
-    "submit",
-    "read",
-    "flair",
-    "edit",
-    "vote",
-    "privatemessages",
-    "history"
-   ],
-   "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
-   "client_secret": "client_secret",
-   "client_auth": "basic",
-   "params": {
-    "duration": "permanent"
-   },
-   "after": [
-    "me"
-   ],
-   "keep": [
-    "username"
-   ],
-   "account_at": "/username"
-  }
- },
- "apps": [
-  "social"
- ],
- "allowed_hosts": [
-  "reddit-uploaded-media.s3-accelerate.amazonaws.com"
- ],
- "limit": {
-  "per": 100,
-  "every": 60,
-  "concurrent": 1
- },
- "meta": {
-  "capabilities": {
-   "name": "Reddit",
-   "max_text": 40000,
-   "images": true,
-   "max_media": 20
-  },
-  "social": {
-   "name": "Reddit",
-   "text": {
-    "max": 40000,
-    "format": "markdown"
-   },
-   "media": {
-    "kinds": [
-     "image"
-    ],
-    "max": 20,
-    "alt": false,
-    "image": {
-     "types": [
-      "image/jpeg",
-      "image/png",
-      "image/gif"
-     ],
-     "max_bytes": 20971520
-    }
-   },
-   "kinds": [
-    {
-     "name": "self",
-     "label": "Text",
-     "media": {
-      "kinds": []
-     }
-    },
-    {
-     "name": "link",
-     "label": "Link",
-     "media": {
-      "kinds": []
-     }
-    },
-    {
-     "name": "media",
-     "label": "Pictures",
-     "media": {
-      "kinds": [
-       "image"
+  "base": "https://oauth.reddit.com",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://www.reddit.com/api/v1/authorize",
+      "token_url": "https://www.reddit.com/api/v1/access_token",
+      "revoke_url": "https://www.reddit.com/api/v1/revoke_token",
+      "scopes": [
+        "identity",
+        "submit",
+        "read",
+        "flair",
+        "edit",
+        "vote",
+        "privatemessages",
+        "history"
       ],
-      "required": true,
-      "max": 20,
-      "alt": false
-     }
-    }
-   ],
-   "follow_ups": {
-    "as": "comment",
-    "media": false
-   },
-   "settings": [
-    {
-     "key": "subreddit",
-     "label": "Subreddit",
-     "type": "select",
-     "required": true,
-     "choices": {
-      "operation": "subreddits",
-      "inputs": {
-       "query": "query"
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "basic",
+      "params": {
+        "duration": "permanent"
       },
+      "after": [
+        "me"
+      ],
+      "keep": [
+        "username"
+      ],
+      "account_at": "/username"
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "reddit-uploaded-media.s3-accelerate.amazonaws.com"
+  ],
+  "limit": {
+    "per": 100,
+    "every": 60,
+    "concurrent": 1
+  },
+  "meta": {
+    "capabilities": {
+      "name": "Reddit",
+      "max_text": 40000,
+      "images": true,
+      "max_media": 20
+    },
+    "social": {
+      "name": "Reddit",
+      "text": {
+        "max": 40000,
+        "format": "markdown"
+      },
+      "media": {
+        "kinds": [
+          "image"
+        ],
+        "max": 20,
+        "alt": false,
+        "image": {
+          "types": [
+            "image/jpeg",
+            "image/png",
+            "image/gif"
+          ],
+          "max_bytes": 20971520
+        }
+      },
+      "kinds": [
+        {
+          "name": "self",
+          "label": "Text",
+          "media": {
+            "kinds": []
+          }
+        },
+        {
+          "name": "link",
+          "label": "Link",
+          "media": {
+            "kinds": []
+          }
+        },
+        {
+          "name": "media",
+          "label": "Pictures",
+          "media": {
+            "kinds": [
+              "image"
+            ],
+            "required": true,
+            "max": 20,
+            "alt": false
+          }
+        }
+      ],
+      "follow_ups": {
+        "as": "comment",
+        "media": false
+      },
+      "settings": [
+        {
+          "key": "subreddit",
+          "label": "Subreddit",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "subreddits",
+            "inputs": {
+              "query": "query"
+            },
+            "items_at": "/data/children",
+            "value_at": "/data/display_name",
+            "label_at": "/data/display_name_prefixed"
+          }
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true,
+          "max": 300
+        },
+        {
+          "key": "flair",
+          "label": "Flair",
+          "type": "select",
+          "choices": {
+            "operation": "flairs",
+            "inputs": {
+              "subreddit": "settings.subreddit"
+            },
+            "items_at": "",
+            "value_at": "/id",
+            "label_at": "/text"
+          }
+        },
+        {
+          "key": "nsfw",
+          "label": "NSFW",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "spoiler",
+          "label": "Spoiler",
+          "type": "bool",
+          "default": false
+        }
+      ],
+      "first_comment": true,
+      "link_preview": true
+    }
+  },
+  "operations": {
+    "me": {
+      "path": "/api/v1/me",
+      "credentials": false,
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)",
+        "authorization": "Bearer {{ inputs.access_token }}"
+      },
+      "inputs": [
+        "access_token",
+        "refresh_token",
+        "client_id"
+      ],
+      "result": {
+        "username": "/name"
+      },
+      "error_at": "/message"
+    },
+    "subreddits": {
+      "path": "/api/subreddit_autocomplete_v2",
+      "query": {
+        "query": "{{ inputs.query }}",
+        "include_over_18": "true",
+        "include_profiles": "false",
+        "limit": "10"
+      },
+      "inputs": [
+        "query"
+      ],
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "flairs": {
+      "path": "/r/{{ inputs.subreddit }}/api/link_flair_v2",
+      "inputs": [
+        "subreddit"
+      ],
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "lease": {
+      "method": "POST",
+      "path": "/api/media/asset.json",
+      "form": {
+        "filepath": "{{ inputs.name }}",
+        "mimetype": "{{ inputs.content_type }}"
+      },
+      "inputs": [
+        "name",
+        "content_type"
+      ],
+      "result": {
+        "action": {
+          "at": "/args/action",
+          "required": true
+        },
+        "fields": "/args/fields",
+        "asset": "/asset/asset_id",
+        "key": {
+          "expr": "answer.args.fields.filter(f, f.name == 'key')[0].value"
+        }
+      },
+      "idempotency_header": "X-Ferrum-Upload-Key",
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "send": {
+      "method": "POST",
+      "url": "{% if inputs.action is startingwith('//') %}https:{% endif %}{{ inputs.action }}",
+      "credentials": false,
+      "form_fields": "{{ inputs.fields | json }}",
+      "form": {
+        "file": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 20971520
+        }
+      },
+      "answer": "xml",
+      "inputs": [
+        "action",
+        "fields",
+        "file"
+      ],
+      "result": {
+        "location": "/PostResponse/Location"
+      },
+      "error_at": "/Error/Message",
+      "idempotency_header": "X-Ferrum-Upload-Key"
+    },
+    "submit": {
+      "method": "POST",
+      "path": "/api/submit",
+      "form": {
+        "api_type": "json",
+        "sr": "{{ inputs.sr }}",
+        "kind": "{{ inputs.kind }}",
+        "title": "{{ inputs.title }}",
+        "text": "{{ inputs.text or '' }}",
+        "url": "{{ inputs.url or '' }}",
+        "flair_id": "{{ inputs.flair or '' }}",
+        "nsfw": "{{ 'true' if inputs.nsfw else 'false' }}",
+        "spoiler": "{{ 'true' if inputs.spoiler else 'false' }}",
+        "resubmit": "true",
+        "sendreplies": "true"
+      },
+      "inputs": [
+        "sr",
+        "kind",
+        "title",
+        "text",
+        "url",
+        "flair",
+        "nsfw",
+        "spoiler"
+      ],
+      "result": {
+        "id": {
+          "at": "/json/data/name",
+          "required": true
+        },
+        "url": "/json/data/url",
+        "said": "/json/errors/0/1"
+      },
+      "error_at": "/json/errors/0/1",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "gallery": {
+      "method": "POST",
+      "path": "/api/submit_gallery_post.json",
+      "body": "{\"api_type\": \"json\", \"sr\": {{ inputs.sr | json }}, \"title\": {{ inputs.title | json }}, \"text\": {{ (inputs.text or \"\") | json }}, \"items\": [{% for a in inputs.assets %}{% if not loop.first %}, {% endif %}{\"media_id\": {{ a | json }}, \"caption\": \"\", \"outbound_url\": \"\"}{% endfor %}], \"flair_id\": {{ inputs.flair | json }}, \"nsfw\": {{ (inputs.nsfw or false) | json }}, \"spoiler\": {{ (inputs.spoiler or false) | json }}, \"sendreplies\": true, \"show_error_list\": true}",
+      "inputs": [
+        "sr",
+        "title",
+        "text",
+        "assets",
+        "flair",
+        "nsfw",
+        "spoiler"
+      ],
+      "result": {
+        "id": {
+          "expr": "'t3_' + answer.json.data.id"
+        },
+        "url": "/json/data/url"
+      },
+      "error_at": "/json/errors/0/1",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "submitted": {
+      "path": "/user/{{ auth.username }}/submitted",
+      "query": {
+        "limit": "10",
+        "sort": "new"
+      },
+      "inputs": [
+        "title"
+      ],
+      "result": {
+        "id": {
+          "expr": "size(answer.data.children.filter(c, c.data.title == inputs.title)) > 0 ? answer.data.children.filter(c, c.data.title == inputs.title)[0].data.name : null"
+        },
+        "url": {
+          "expr": "size(answer.data.children.filter(c, c.data.title == inputs.title)) > 0 ? 'https://www.reddit.com' + answer.data.children.filter(c, c.data.title == inputs.title)[0].data.permalink : null"
+        }
+      },
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "comment": {
+      "method": "POST",
+      "path": "/api/comment",
+      "form": {
+        "api_type": "json",
+        "thing_id": "{{ inputs.parent }}",
+        "text": "{{ inputs.text }}"
+      },
+      "inputs": [
+        "parent",
+        "text"
+      ],
+      "result": {
+        "id": {
+          "at": "/json/data/things/0/data/name",
+          "required": true
+        }
+      },
+      "error_at": "/json/errors/0/1",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "publish_media": {
+      "inputs": [
+        "file",
+        "name",
+        "content_type"
+      ],
+      "steps": [
+        {
+          "name": "lease",
+          "operation": "lease",
+          "inputs": {
+            "name": "inputs.name",
+            "content_type": "inputs.content_type"
+          }
+        },
+        {
+          "name": "send",
+          "operation": "send",
+          "inputs": {
+            "action": "steps.lease.action",
+            "fields": "steps.lease.fields",
+            "file": "inputs.file"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.lease.asset + '|' + (answer.lease.action.startsWith('//') ? 'https:' : '') + answer.lease.action + '/' + answer.lease.key"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "text",
+        "link",
+        "media",
+        "kind",
+        "settings"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "submit",
+          "when": "(inputs.media or []) | length < 2",
+          "inputs": {
+            "sr": "inputs.settings.subreddit",
+            "title": "inputs.settings.title",
+            "flair": "inputs.settings.flair",
+            "nsfw": "inputs.settings.nsfw",
+            "spoiler": "inputs.settings.spoiler",
+            "kind": "'image' if inputs.media else ('link' if inputs.kind == 'link' else 'self')",
+            "text": "inputs.text if not inputs.media and inputs.kind != 'link' else none",
+            "url": "(inputs.media[0] | split('|') | list)[1] if inputs.media else (inputs.link if inputs.kind == 'link' else none)"
+          },
+          "confirm": {
+            "operation": "submitted",
+            "inputs": {
+              "title": "sent.title"
+            },
+            "proves": "result.id"
+          }
+        },
+        {
+          "name": "gallery",
+          "operation": "gallery",
+          "when": "(inputs.media or []) | length > 1",
+          "inputs": {
+            "sr": "inputs.settings.subreddit",
+            "title": "inputs.settings.title",
+            "text": "inputs.text",
+            "flair": "inputs.settings.flair",
+            "nsfw": "inputs.settings.nsfw",
+            "spoiler": "inputs.settings.spoiler",
+            "assets": "inputs.media | map('split', '|') | map('first') | list"
+          },
+          "confirm": {
+            "operation": "submitted",
+            "inputs": {
+              "title": "sent.title"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.post != null ? answer.post.id : answer.gallery.id"
+        },
+        "url": {
+          "expr": "answer.post != null ? answer.post.url : answer.gallery.url"
+        }
+      }
+    },
+    "reply": {
+      "inputs": [
+        "text",
+        "in_reply_to"
+      ],
+      "steps": [
+        {
+          "name": "comment",
+          "operation": "comment",
+          "inputs": {
+            "parent": "inputs.in_reply_to",
+            "text": "inputs.text"
+          }
+        }
+      ],
+      "result": {
+        "id": "/comment/id"
+      }
+    },
+    "delete": {
+      "method": "POST",
+      "path": "/api/del",
+      "form": {
+        "id": "{{ inputs.id }}"
+      },
+      "inputs": [
+        "id"
+      ],
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "like": {
+      "method": "POST",
+      "path": "/api/vote",
+      "form": {
+        "id": "{{ inputs.id }}",
+        "dir": "1"
+      },
+      "inputs": [
+        "id"
+      ],
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "metrics": {
+      "path": "/api/info",
+      "query": {
+        "id": "{{ inputs.id }}"
+      },
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "engagements": {
+          "expr": "answer.data.children[0].data.score + answer.data.children[0].data.num_comments"
+        }
+      },
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "account": {
+      "path": "/api/v1/me",
+      "result": {
+        "name": "/subreddit/title",
+        "handle": "/name",
+        "picture": "/icon_img",
+        "followers": "/subreddit/subscribers"
+      },
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "messages": {
+      "path": "/message/inbox",
+      "query": {
+        "limit": "25"
+      },
+      "inputs": [
+        "cursor"
+      ],
+      "error_at": "/message",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "dm": {
+      "method": "POST",
+      "path": "/api/compose",
+      "form": {
+        "api_type": "json",
+        "to": "{{ inputs.to }}",
+        "subject": "{{ inputs.subject or 'Re:' }}",
+        "text": "{{ inputs.text }}"
+      },
+      "inputs": [
+        "to",
+        "subject",
+        "text"
+      ],
+      "error_at": "/json/errors/0/1",
+      "headers": {
+        "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
+      }
+    },
+    "send_message": {
+      "inputs": [
+        "to",
+        "text"
+      ],
+      "steps": [
+        {
+          "name": "dm",
+          "operation": "dm",
+          "inputs": {
+            "to": "inputs.to",
+            "text": "inputs.text"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "'sent'"
+        }
+      }
+    }
+  },
+  "pulls": [
+    {
+      "name": "inbox",
+      "operation": "messages",
+      "every_minutes": 15,
       "items_at": "/data/children",
-      "value_at": "/data/display_name",
-      "label_at": "/data/display_name_prefixed"
-     }
-    },
-    {
-     "key": "title",
-     "label": "Title",
-     "type": "text",
-     "required": true,
-     "max": 300
-    },
-    {
-     "key": "flair",
-     "label": "Flair",
-     "type": "select",
-     "choices": {
-      "operation": "flairs",
-      "inputs": {
-       "subreddit": "settings.subreddit"
-      },
-      "items_at": "",
-      "value_at": "/id",
-      "label_at": "/text"
-     }
-    },
-    {
-     "key": "nsfw",
-     "label": "NSFW",
-     "type": "bool",
-     "default": false
-    },
-    {
-     "key": "spoiler",
-     "label": "Spoiler",
-     "type": "bool",
-     "default": false
+      "cursor": "time",
+      "max_pages": 1,
+      "map": {
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "/data/name"
+        },
+        "set": {
+          "kind": "item.data.subject == 'username mention' ? 'Mention' : (item.data.was_comment ? 'Comment' : 'Direct')",
+          "author": "/data/author",
+          "text": "/data/body",
+          "post_external_id": "/data/link_id",
+          "thread": "/data/name",
+          "via_connection": "connection.id"
+        },
+        "as": "system"
+      }
     }
-   ],
-   "first_comment": true,
-   "link_preview": true
-  }
- },
- "operations": {
-  "me": {
-   "path": "/api/v1/me",
-   "credentials": false,
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)",
-    "authorization": "Bearer {{ inputs.access_token }}"
-   },
-   "inputs": [
-    "access_token",
-    "refresh_token",
-    "client_id"
-   ],
-   "result": {
-    "username": "/name"
-   },
-   "error_at": "/message"
-  },
-  "subreddits": {
-   "path": "/api/subreddit_autocomplete_v2",
-   "query": {
-    "query": "{{ inputs.query }}",
-    "include_over_18": "true",
-    "include_profiles": "false",
-    "limit": "10"
-   },
-   "inputs": [
-    "query"
-   ],
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "flairs": {
-   "path": "/r/{{ inputs.subreddit }}/api/link_flair_v2",
-   "inputs": [
-    "subreddit"
-   ],
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "lease": {
-   "method": "POST",
-   "path": "/api/media/asset.json",
-   "form": {
-    "filepath": "{{ inputs.name }}",
-    "mimetype": "{{ inputs.content_type }}"
-   },
-   "inputs": [
-    "name",
-    "content_type"
-   ],
-   "result": {
-    "action": {
-     "at": "/args/action",
-     "required": true
-    },
-    "fields": "/args/fields",
-    "asset": "/asset/asset_id",
-    "key": {
-     "expr": "answer.args.fields.filter(f, f.name == 'key')[0].value"
-    }
-   },
-   "idempotency_header": "X-Ferrum-Upload-Key",
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "send": {
-   "method": "POST",
-   "url": "{% if inputs.action is startingwith('//') %}https:{% endif %}{{ inputs.action }}",
-   "credentials": false,
-   "form_fields": "{{ inputs.fields | json }}",
-   "form": {
-    "file": {
-     "file": "{{ inputs.file }}",
-     "max_bytes": 20971520
-    }
-   },
-   "answer": "xml",
-   "inputs": [
-    "action",
-    "fields",
-    "file"
-   ],
-   "result": {
-    "location": "/PostResponse/Location"
-   },
-   "error_at": "/Error/Message",
-   "idempotency_header": "X-Ferrum-Upload-Key"
-  },
-  "submit": {
-   "method": "POST",
-   "path": "/api/submit",
-   "form": {
-    "api_type": "json",
-    "sr": "{{ inputs.sr }}",
-    "kind": "{{ inputs.kind }}",
-    "title": "{{ inputs.title }}",
-    "text": "{{ inputs.text or '' }}",
-    "url": "{{ inputs.url or '' }}",
-    "flair_id": "{{ inputs.flair or '' }}",
-    "nsfw": "{{ 'true' if inputs.nsfw else 'false' }}",
-    "spoiler": "{{ 'true' if inputs.spoiler else 'false' }}",
-    "resubmit": "true",
-    "sendreplies": "true"
-   },
-   "inputs": [
-    "sr",
-    "kind",
-    "title",
-    "text",
-    "url",
-    "flair",
-    "nsfw",
-    "spoiler"
-   ],
-   "result": {
-    "id": {
-     "at": "/json/data/name",
-     "required": true
-    },
-    "url": "/json/data/url",
-    "said": "/json/errors/0/1"
-   },
-   "error_at": "/json/errors/0/1",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "gallery": {
-   "method": "POST",
-   "path": "/api/submit_gallery_post.json",
-   "body": "{\"api_type\": \"json\", \"sr\": {{ inputs.sr | json }}, \"title\": {{ inputs.title | json }}, \"text\": {{ (inputs.text or \"\") | json }}, \"items\": [{% for a in inputs.assets %}{% if not loop.first %}, {% endif %}{\"media_id\": {{ a | json }}, \"caption\": \"\", \"outbound_url\": \"\"}{% endfor %}], \"flair_id\": {{ inputs.flair | json }}, \"nsfw\": {{ (inputs.nsfw or false) | json }}, \"spoiler\": {{ (inputs.spoiler or false) | json }}, \"sendreplies\": true, \"show_error_list\": true}",
-   "inputs": [
-    "sr",
-    "title",
-    "text",
-    "assets",
-    "flair",
-    "nsfw",
-    "spoiler"
-   ],
-   "result": {
-    "id": {
-     "expr": "'t3_' + answer.json.data.id"
-    },
-    "url": "/json/data/url"
-   },
-   "error_at": "/json/errors/0/1",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "submitted": {
-   "path": "/user/{{ auth.username }}/submitted",
-   "query": {
-    "limit": "10",
-    "sort": "new"
-   },
-   "inputs": [
-    "title"
-   ],
-   "result": {
-    "id": {
-     "expr": "size(answer.data.children.filter(c, c.data.title == inputs.title)) > 0 ? answer.data.children.filter(c, c.data.title == inputs.title)[0].data.name : null"
-    },
-    "url": {
-     "expr": "size(answer.data.children.filter(c, c.data.title == inputs.title)) > 0 ? 'https://www.reddit.com' + answer.data.children.filter(c, c.data.title == inputs.title)[0].data.permalink : null"
-    }
-   },
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "comment": {
-   "method": "POST",
-   "path": "/api/comment",
-   "form": {
-    "api_type": "json",
-    "thing_id": "{{ inputs.parent }}",
-    "text": "{{ inputs.text }}"
-   },
-   "inputs": [
-    "parent",
-    "text"
-   ],
-   "result": {
-    "id": {
-     "at": "/json/data/things/0/data/name",
-     "required": true
-    }
-   },
-   "error_at": "/json/errors/0/1",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "publish_media": {
-   "inputs": [
-    "file",
-    "name",
-    "content_type"
-   ],
-   "steps": [
-    {
-     "name": "lease",
-     "operation": "lease",
-     "inputs": {
-      "name": "inputs.name",
-      "content_type": "inputs.content_type"
-     }
-    },
-    {
-     "name": "send",
-     "operation": "send",
-     "inputs": {
-      "action": "steps.lease.action",
-      "fields": "steps.lease.fields",
-      "file": "inputs.file"
-     }
-    }
-   ],
-   "result": {
-    "id": {
-     "expr": "answer.lease.asset + '|' + (answer.lease.action.startsWith('//') ? 'https:' : '') + answer.lease.action + '/' + answer.lease.key"
-    }
-   }
-  },
-  "publish": {
-   "inputs": [
-    "text",
-    "link",
-    "media",
-    "kind",
-    "settings"
-   ],
-   "steps": [
-    {
-     "name": "post",
-     "operation": "submit",
-     "when": "(inputs.media or []) | length < 2",
-     "inputs": {
-      "sr": "inputs.settings.subreddit",
-      "title": "inputs.settings.title",
-      "flair": "inputs.settings.flair",
-      "nsfw": "inputs.settings.nsfw",
-      "spoiler": "inputs.settings.spoiler",
-      "kind": "'image' if inputs.media else ('link' if inputs.kind == 'link' else 'self')",
-      "text": "inputs.text if not inputs.media and inputs.kind != 'link' else none",
-      "url": "(inputs.media[0] | split('|') | list)[1] if inputs.media else (inputs.link if inputs.kind == 'link' else none)"
-     },
-     "confirm": {
-      "operation": "submitted",
-      "inputs": {
-       "title": "sent.title"
-      },
-      "proves": "result.id"
-     }
-    },
-    {
-     "name": "gallery",
-     "operation": "gallery",
-     "when": "(inputs.media or []) | length > 1",
-     "inputs": {
-      "sr": "inputs.settings.subreddit",
-      "title": "inputs.settings.title",
-      "text": "inputs.text",
-      "flair": "inputs.settings.flair",
-      "nsfw": "inputs.settings.nsfw",
-      "spoiler": "inputs.settings.spoiler",
-      "assets": "inputs.media | map('split', '|') | map('first') | list"
-     },
-     "confirm": {
-      "operation": "submitted",
-      "inputs": {
-       "title": "sent.title"
-      },
-      "proves": "result.id"
-     }
-    }
-   ],
-   "result": {
-    "id": {
-     "expr": "answer.post != null ? answer.post.id : answer.gallery.id"
-    },
-    "url": {
-     "expr": "answer.post != null ? answer.post.url : answer.gallery.url"
-    }
-   }
-  },
-  "reply": {
-   "inputs": [
-    "text",
-    "in_reply_to"
-   ],
-   "steps": [
-    {
-     "name": "comment",
-     "operation": "comment",
-     "inputs": {
-      "parent": "inputs.in_reply_to",
-      "text": "inputs.text"
-     }
-    }
-   ],
-   "result": {
-    "id": "/comment/id"
-   }
-  },
-  "delete": {
-   "method": "POST",
-   "path": "/api/del",
-   "form": {
-    "id": "{{ inputs.id }}"
-   },
-   "inputs": [
-    "id"
-   ],
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "like": {
-   "method": "POST",
-   "path": "/api/vote",
-   "form": {
-    "id": "{{ inputs.id }}",
-    "dir": "1"
-   },
-   "inputs": [
-    "id"
-   ],
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "metrics": {
-   "path": "/api/info",
-   "query": {
-    "id": "{{ inputs.id }}"
-   },
-   "inputs": [
-    "id"
-   ],
-   "result": {
-    "engagements": {
-     "expr": "answer.data.children[0].data.score + answer.data.children[0].data.num_comments"
-    }
-   },
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "account": {
-   "path": "/api/v1/me",
-   "result": {
-    "name": "/subreddit/title",
-    "handle": "/name",
-    "picture": "/icon_img",
-    "followers": "/subreddit/subscribers"
-   },
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "messages": {
-   "path": "/message/inbox",
-   "query": {
-    "limit": "25"
-   },
-   "inputs": [
-    "cursor"
-   ],
-   "error_at": "/message",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "dm": {
-   "method": "POST",
-   "path": "/api/compose",
-   "form": {
-    "api_type": "json",
-    "to": "{{ inputs.to }}",
-    "subject": "{{ inputs.subject or 'Re:' }}",
-    "text": "{{ inputs.text }}"
-   },
-   "inputs": [
-    "to",
-    "subject",
-    "text"
-   ],
-   "error_at": "/json/errors/0/1",
-   "headers": {
-    "user-agent": "web:ferrum-social:1.0 (by /u/REPLACE-WITH-THE-APPS-REDDIT-USER)"
-   }
-  },
-  "send_message": {
-   "inputs": [
-    "to",
-    "text"
-   ],
-   "steps": [
-    {
-     "name": "dm",
-     "operation": "dm",
-     "inputs": {
-      "to": "inputs.to",
-      "text": "inputs.text"
-     }
-    }
-   ],
-   "result": {
-    "id": {
-     "expr": "'sent'"
-    }
-   }
-  }
- },
- "pulls": [
-  {
-   "name": "inbox",
-   "operation": "messages",
-   "every_minutes": 15,
-   "items_at": "/data/children",
-   "cursor": "time",
-   "max_pages": 1,
-   "map": {
-    "entity": "SocialMessage",
-    "outside": true,
-    "by": {
-     "external_id": "/data/name"
-    },
-    "set": {
-     "kind": "item.data.subject == 'username mention' ? 'Mention' : (item.data.was_comment ? 'Comment' : 'Direct')",
-     "author": "/data/author",
-     "text": "/data/body",
-     "post_external_id": "/data/link_id",
-     "thread": "/data/name",
-     "via_connection": "connection.id"
-    }
-   }
-  }
- ]
+  ]
 }
