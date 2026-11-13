@@ -22,7 +22,8 @@ Administration, Connections, turned off and without secrets. None is switched on
    `{PUBLIC_URL}/api/connections/callback`, the permissions it needs).
 3. Put the app's client id where the description says, and the secrets it names under the connection's secrets
    (`client_secret`, an API key, a bot token, an app password); a server's own address where the description has a
-   placeholder (Mastodon, Lemmy, WordPress, Listmonk). Leave `social` in its `apps`.
+   placeholder (Mastodon, Lemmy, WordPress, Listmonk). Leave `social` in its `apps`. (round five) Meta's networks: the webhook's verify token under `verify_token`, and
+   the inbound address (Administration, Connections) given to Meta for `comments` (Instagram) or `messages` (a page).
 4. Turn it on.
 5. In Social, Accounts: add an account on that connection and Connect it (OAuth signs in in the browser); where the
    network has an `accounts` operation, pick the pages, channels, boards' owners or locations it reaches (Choose
@@ -32,7 +33,7 @@ Administration, Connections, turned off and without secrets. None is switched on
 only where the network honours a key (Mastodon's `Idempotency-Key`, Discord's nonce, Neynar's `idem`, Bluesky's record
 key from the call's key) or after a read-back proves it did not happen (`confirm`); elsewhere a lost answer fails the call
 saying it may have been sent. Steps that leave nothing public carry the key in `X-Ferrum-Upload-Key`, which networks
-ignore. A reading operation made of steps says `"changes": false`. Answers to what a network asks come in
+ignore. A reading operation made of steps reads by its steps (round five, BD-69). Answers to what a network asks come in
 `inputs.settings`; the title in `inputs.title` (round four).
 
 ## What Social calls
@@ -65,11 +66,8 @@ answer can still post twice (see each network below).
 * (round three) **A `publish` made of steps** (BD-53 to BD-55) may upload its own media: then the description needs no
   `publish_media`, Social asks for none, and the item's media come only in `media_items`: `[{id (null: nothing uploaded
   apart), file (the stored file's id, for a step's `range`, `chunks` or a file body), name, kind, content_type, size,
-  width, height, seconds, alt (when `media.alt`), thumbnail (a stored file's id, when `media.thumbnail`), public_url}]`.
-  `public_url` is null today: the platform gives an app no short-lived public address for a stored file (a file
-  uploaded `public` has `/files/public/{id}`, for good, pictures and PDFs only, and an app cannot mark one public or
-  ask whether it is). A network that pulls media by address needs that call (`Kernel::file_link(file, seconds)` or the
-  like). Each item also gets `root_item` (the first item as kept: `{item, id, url, media, sent_at, answer}`, `answer`
+  width, height, seconds, alt (when `media.alt`), thumbnail (a stored file's id, when `media.thumbnail`)}]`. (round
+  five) A network that pulls media by address makes the address itself from `file` (below, round five). Each item also gets `root_item` (the first item as kept: `{item, id, url, media, sent_at, answer}`, `answer`
   holding every other field its `result` maps, a `cid` say) beside `previous` (the item before, the same shape):
   `inputs.previous.answer.cid`, `inputs.root_item.url`.
 * `publish_media`, before the item that carries the medium, for each medium (inputs `file`, the stored file's id, for a
@@ -209,9 +207,8 @@ Connections named in Social Settings, called as the workspace (examples in `serv
   `file`), which the Claude example does not offer. Each call has a key of its own (`write:<uuid>`).
 * **Feeds** (a feed's own `connection`; `json_feed.json`): its operation (`feed` unless the feed names another), the
   items where `meta.feed` says (`items_at`, `id_at`, `link_at`, `title_at`, `text_at`, `picture_at`, `published_at`);
-  its `fetch_media` (`url`) keeps an item's picture. An RSS or Atom feed waits on the platform reading XML answers (GAPS.md
-  P7): then the same description, its `feed` operation marked to answer XML as P7 names it and its pointers into the
-  XML's shape, and nothing in Social changes.
+  its `fetch_media` (`url`) keeps an item's picture. RSS and Atom are `feeds.json` (XML answers, round three). (round
+  five) Both read any public host (`any_host`), so a feed is only an address: no administrator step per site.
 
 On an account's connection (plugs): `repost` (`id`, `account_id`), `like` (`id`, `account_id`), `reply` (`text`,
 `in_reply_to`, `root`), each keyed `plug:<plug>:<publication>:<account>`. A connection that lacks the operation is
@@ -223,9 +220,8 @@ skipped and the run says so.
   operation of the post; a network that takes one says `meta.social.title: {required, max}` and is checked; no network
   asks it as a setting.
 * `publish_media` (round four): the medium's own `kind` (image, video, document) is kept; the post's kind is
-  `post_kind`. `url`: the stored file's short-lived public address, **null until the platform gives one** (also in
-  `media_items[].url`); a network that takes some media only by address says `meta.social.media.by_address: [kinds]` and
-  a post with such media is refused plainly until then (`rules::PUBLIC_MEDIA_ADDRESSES` switches it).
+  `post_kind`. (round five: `url` is gone; the description makes the address, below.) A network that takes some media
+  only by address says `meta.social.media.by_address: [kinds]`.
 * `media_items[].file` (round three, used now): the stored file, for a `publish` that sends files itself; Telegram,
   Discord, Tumblr and Dribbble no longer have a read-only `publish_media`.
 * `reply` (round four): `account_id` and `handle` on every reply, the first comment's (`first_comment: true`) and the
@@ -238,17 +234,35 @@ skipped and the run says so.
   by the first medium when the person picks none (Telegram, Slack); `_calc`'s `checks` show the kind chosen.
 * Read-back posts (round three): a pull onto `SocialPublication` sets `via_connection` (create) to find the account.
 
+## Round five: on the platform's 0.3.8
+
+* **Public addresses** (BD-64): a network that pulls media by address names them in `public_files` on the operation
+  Social calls (a step's own operation cannot have them; a step reads `public_files.<name>`), a fixed set of names
+  (`p0`, `p1`, …) for the media an item may carry, a name past the item's media taking its first file again. A text post
+  has no file to make one from, so Social calls `publish_with_media` for an item with media where a description has it
+  (Threads, Google Business), `publish` otherwise. An address lives an hour or two (the network fetches while it
+  processes), Pinterest's 60 minutes. A server without `PUBLIC_URL` refuses such media on the post, in the platform's
+  words, before it leaves Draft. The test fakes pull each address (a range first, then the whole) and check its bytes.
+* **Refusals in a 2xx answer** (BD-68): `refused_if`, `error`, `temporary_if` on every operation of Slack, Hashnode, VK,
+  Twitch, Kick, TikTok Business and Reddit; the person reads the network's words.
+* **Sign-in** (BD-72, BD-77, BD-78): TikTok's `client_key` and Slack's and TikTok's comma-joined scopes; Bluesky's
+  permalink from the DID its session keeps (`not_secret`); Meta's webhook handshake on the inbound address.
+* **Per operation** (BD-73, BD-74, BD-75, BD-76, BD-70, BD-69): posting limits (X, LinkedIn, TikTok, Instagram);
+  Instagram's upload host given the token as `OAuth`; one request with a file part for each item (Discord, Tumblr,
+  Telegram); Whop's upload headers from its answer; Google Business numbers over a window from `now`; WordPress's
+  content types sorted.
+* **Feeds** (BD-65): `any_host`; a workspace's feeds connection of the earlier shape takes the new one at the upkeep.
+
 ## Each network
 
-What each statement below says Social would need was done in round four (`account_id` on replies, `post_kind`, the
-title, `delete`'s inputs, a first comment's id, `via_connection` on publications, reads by `changes`, a kind by the
-media, files in `media_items`), except a public address for a stored file, which waits on the platform.
+What each statement below says Social would need was done in rounds four and five. Every network is tested against a
+fake of its documented API; none has run against the real network.
 
 ### X (`x.json`)
 
 | | |
 |---|---|
-| Can | OAuth 2 with PKCE, client by basic authentication, the user read after sign-in (`after: me`, kept `user_id`); text (weighted counting, links as 23); up to 4 pictures or one video by INIT/APPEND/FINALIZE, processing waited for, alt text set; threads as reply chains; first comment; delete, repost, like; direct messages sent; numbers (public metrics), followers, name and picture; mentions lookup; mentions pulled forward by `since_id`, a reply told as a comment on the post it answers. |
+| Can | OAuth 2 with PKCE, client by basic authentication, the user read after sign-in (`after: me`, kept `user_id`); text (weighted counting, links as 23); up to 4 pictures or one video by INIT/APPEND/FINALIZE, processing waited for, alt text set; threads as reply chains; first comment; delete, repost, like; direct messages sent; numbers (public metrics), followers, name and picture; mentions lookup; mentions pulled forward by `since_id`, a reply told as a comment on the post it answers. (round five) Posting is limited to X's 100 posts in 15 minutes on the operation itself. |
 | Cannot yet, and why | a lost post is not resent (X honours no idempotency key; reading back would compare text X rewrites with t.co links); direct messages are not read (a DM pull would read the account's own messages too, and a mapping cannot tell them apart); link clicks (`non_public_metrics`) not read; Premium's longer posts (the limit is fixed at 280 in the rules). |
 | Set up at the network | a developer app with OAuth 2.0 on, type "Web App" (confidential), callback `{PUBLIC_URL}/api/connections/callback`, a plan that allows posting and media. |
 | Unverified | the v2 media endpoints `/2/media/upload/initialize\|{id}/append\|{id}/finalize`, `/2/media/metadata`, the `STATUS` query. |
@@ -258,7 +272,7 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | sign-in (client in the body), the member read from `/v2/userinfo`; the page picked from the organisations the member administers; text escaped as LinkedIn's little format wants (as Postiz does); pictures, PDF documents (title from the settings) and video by initialise → put (a video in the parts LinkedIn names, finalised with their ETags) → post, videos waited for (a page's pictures and documents too); several pictures as `multiImage`; comments as follow-ups and first comment (a page's as the organisation); delete of posts and comments; a page's numbers (impressions, reach, clicks, likes + comments + shares) and followers. A page's lost post is found among its recent posts by its commentary. |
+| Can | sign-in (client in the body), the member read from `/v2/userinfo`; the page picked from the organisations the member administers; text escaped as LinkedIn's little format wants (as Postiz does); pictures, PDF documents (title from the settings) and video by initialise → put (a video in the parts LinkedIn names, finalised with their ETags) → post, videos waited for (a page's pictures and documents too); several pictures as `multiImage`; comments as follow-ups and first comment (a page's as the organisation); delete of posts and comments; a page's numbers (impressions, reach, clicks, likes + comments + shares) and followers. A page's lost post is found among its recent posts by its commentary. (round five) A member's 150 posts a day are a limit on the posting operation. |
 | Cannot yet, and why | a member's lost post fails (reading a member's posts needs `r_member_social`, which LinkedIn grants to partners); mentions and hashtags are escaped to plain text (a template cannot leave `@[name](urn:…)` unescaped while escaping the rest); member numbers (`r_member_postAnalytics`); comments are not read (webhooks for approved partners); a member's token is not refreshed unless the app has programmatic refresh. |
 | Set up at the network | an app with "Share on LinkedIn" and "Sign In with LinkedIn using OpenID Connect" (member), "Community Management API" (page, a review), the redirect address, and the page's admin role for the signing member. |
 | Unverified | `Linkedin-Version: 202610`; a comment's id in the answer body (`id`) else `x-restli-id`; deleting a comment without `actor`; `organizationalEntityShareStatistics` with `shares=List(…)` for a Posts API URN. |
@@ -268,8 +282,8 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | sign-in, the short token exchanged for a long-lived one, and every page's own token kept **sealed with the sign-in** (`keep: pages`), never in an answer (tested: it rests nowhere); a page's calls are made with its own token; the long-lived token renewed by exchanging it again; the page picked; text with the link as its card; up to 10 photos uploaded unpublished then attached; a video post (bytes to `graph-video`); reels and video stories by start → bytes to `rupload` → wait → finish; photo stories; comments and first comment; delete, like; numbers (`post_media_view`, `post_total_media_view_unique`, `post_clicks`, reactions + comments + shares) and followers. A lost feed post is found among the page's latest by its message; a lost reel by its publishing status. |
-| Cannot yet, and why | a lost story fails; a page added after sign-in needs signing in again (its token is kept then); comments are not read (webhook handshake); first comment and inbox answers need `account_id` from Social (above); videos over 25 MB. |
+| Can | sign-in, the short token exchanged for a long-lived one, and every page's own token kept **sealed with the sign-in** (`keep: pages`), never in an answer (tested: it rests nowhere); a page's calls are made with its own token; the long-lived token renewed by exchanging it again; the page picked; text with the link as its card; up to 10 photos uploaded unpublished then attached; a video post (bytes to `graph-video`); reels and video stories by start → bytes to `rupload` → wait → finish; photo stories; comments and first comment; delete, like; numbers (`post_media_view`, `post_total_media_view_unique`, `post_clicks`, reactions + comments + shares) and followers. A lost feed post is found among the page's latest by its message; a lost reel by its publishing status. (round five) Messenger messages arrive by the inbound address: Meta's handshake is answered for the connection's `verify_token`, deliveries are checked against the app's secret (`X-Hub-Signature-256`). |
+| Cannot yet, and why | a lost story fails; a page added after sign-in needs signing in again (its token is kept then); a page's comments are not read (its `feed` webhook mixes comments with likes and posts, and an inbound mapping cannot pass over the others); a delivery with several entries is read for its first; videos over 25 MB. |
 | Set up at the network | a Meta app (Business type) with Facebook Login for Business, the permissions `pages_show_list pages_manage_posts pages_read_engagement pages_manage_engagement read_insights business_management` through App Review, the redirect address, the app live. |
 | Unverified | Graph `v25.0`; the `post_media_view` / `post_total_media_view_unique` metric names (Meta replaced impressions in 2025); `rupload` taking `offset`/`file_size` headers with the bytes. |
 
@@ -278,8 +292,8 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | the account picked from the pages' Instagram accounts (or the signed-in one, `/me`); a picture by address, a video by its bytes to the upload host (`upload_type=resumable`); carousels (children made, a video child's bytes sent, all waited for together with `?ids=`), reels (trial reels), stories; collaborators; published once, a lost answer found among the account's media by its caption, then its permalink read; first comment and comments; numbers (`views`, `reach`, `total_interactions`) and followers; long-lived tokens exchanged and renewed (`fb_exchange_token`; `ig_exchange_token` and `ig_refresh_token`). |
-| Cannot yet, and why | pictures need Social's public address (above); delete (the Instagram API has none); a lost story fails (no caption to find it by); comments are not read (webhooks); location and user tags not offered. |
+| Can | the account picked from the pages' Instagram accounts (or the signed-in one, `/me`); a picture by address, a video by its bytes to the upload host (`upload_type=resumable`); carousels (children made, a video child's bytes sent, all waited for together with `?ids=`), reels (trial reels), stories; collaborators; published once, a lost answer found among the account's media by its caption, then its permalink read; first comment and comments; numbers (`views`, `reach`, `total_interactions`) and followers; long-lived tokens exchanged and renewed (`fb_exchange_token`; `ig_exchange_token` and `ig_refresh_token`). (round five) Pictures by an address the description makes from the stored file (`public_files`), stories with their picture; the upload host given the token as `OAuth`; Instagram's 100 posts a day on the publishing operation; comments by the inbound address (the app subscribed to `comments`), after Meta's handshake. |
+| Cannot yet, and why | delete (the Instagram API has none); a lost story fails (no caption to find it by); location and user tags not offered; a delivery with several entries is read for its first; an item makes ten addresses whatever its media (a fixed set of names; a video's is never sent). |
 | Set up at the network | a Meta app with "Instagram API with Facebook Login" (or "with Instagram Login"), `instagram_content_publish` (resp. `instagram_business_content_publish`) and the rest through App Review, the account a Business or Creator account (linked to a page for the first), the redirect address. |
 | Unverified | multi-id status reads (`/?ids=`) on graph.instagram.com; `views` as the impressions metric; the upload host taking `Bearer`. |
 
@@ -288,8 +302,8 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | sign-in, long-lived token exchanged (`th_exchange_token`) and renewed (`th_refresh_token`); text with the link as `link_attachment`; pictures and videos by address; carousels with children waited for together; reply chains; first comment; who may reply; topic tag; published once (a lost answer found among the account's posts by its text); permalink; repost; delete; numbers (views; likes + replies + reposts + quotes + shares) and followers; mentions pulled, a mention answering a post as a comment on it. |
-| Cannot yet, and why | any media without Social's public address; replies to the account's posts other than mentions are not read (per-post `/replies`). |
+| Can | sign-in, long-lived token exchanged (`th_exchange_token`) and renewed (`th_refresh_token`); text with the link as `link_attachment`; pictures and videos by address; carousels with children waited for together; reply chains; first comment; who may reply; topic tag; published once (a lost answer found among the account's posts by its text); permalink; repost; delete; numbers (views; likes + replies + reposts + quotes + shares) and followers; mentions pulled, a mention answering a post as a comment on it. (round five) Pictures and videos by an address the description makes (`publish_with_media`, which Social calls for an item with media). |
+| Cannot yet, and why | replies to the account's posts other than mentions are not read (per-post `/replies`); comments by webhook (Threads' webhooks are not described). |
 | Set up at the network | a Meta app with the Threads use case, the `threads_*` permissions, the redirect address. |
 | Unverified | `?ids=` status reads on graph.threads.net; deleting by `DELETE /{id}`; `topic_tag`. |
 
@@ -308,9 +322,9 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | privacy options from the creator's own as choices; comment/duet/stitch and branded settings; a video initialised with its chunk size and count and sent in chunks (the remainder in the last), its publishing waited for, the public post's id kept; photo carousels by address; numbers (views; likes + comments + shares) and followers. |
-| Cannot yet, and why | sign in (platform, item 1); a lost chunk stops the call (TikTok publishes an upload once whole and offers no way to ask what it holds, so restarting could post twice); delete and comments (no API); photos without Social's address and a verified domain; videos over 25 MB. |
-| Set up at the network | a TikTok developer app with Login Kit and Content Posting API (Direct Post needs an audit; unaudited apps post privately), the redirect address, `user.info.stats` and `video.list` scopes. |
+| Can | privacy options from the creator's own as choices; comment/duet/stitch and branded settings; a video initialised with its chunk size and count and sent in chunks (the remainder in the last), its publishing waited for, the public post's id kept; photo carousels by address; numbers (views; likes + comments + shares) and followers. (round five) TikTok's own sign-in: `client_key` on the authorisation address and every token request, scopes joined by commas (tested); photos by an address the description makes, at most ten (a fixed set of names; TikTok takes 35); six initialisations a minute on each. |
+| Cannot yet, and why | a lost chunk stops the call (TikTok publishes an upload once whole and offers no way to ask what it holds, so restarting could post twice); delete and comments (no API); more than ten photos; videos over 25 MB. |
+| Set up at the network | a TikTok developer app with Login Kit and Content Posting API (Direct Post needs an audit; unaudited apps post privately), the redirect address, `user.info.stats` and `video.list` scopes. (round five) Verify the domain of the server's public address (`PUBLIC_URL`) in the app: TikTok pulls photos only from a verified domain. |
 | Unverified | `publicaly_available_post_id` being the id `video/query` takes. |
 
 
@@ -318,8 +332,8 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | sign-in with basic client authentication and refresh; boards as choices; a pin of one picture or several (carousel) by address, or of a video registered, sent to the storage address with the fields the answer names, and waited for; title, link, alt text, colour; a lost pin found on its board by its description; numbers (impressions, pin + outbound clicks, saves + reactions + comments), followers, delete. |
-| Cannot yet, and why | pictures without Social's address; a video's own cover (key frame 0 is used); comments (no API). |
+| Can | sign-in with basic client authentication and refresh; boards as choices; a pin of one picture or several (carousel) by address, or of a video registered, sent to the storage address with the fields the answer names, and waited for; title, link, alt text, colour; a lost pin found on its board by its description; numbers (impressions, pin + outbound clicks, saves + reactions + comments), followers, delete. (round five) Pictures by addresses the description makes (up to five, an hour each). |
+| Cannot yet, and why | a video's own cover (key frame 0 is used); comments (no API). |
 | Set up at the network | a Pinterest app with Standard access (trial access posts only to sandbox), the redirect address. |
 | Unverified | `pin_metrics.lifetime_metrics` field names. |
 
@@ -329,7 +343,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | a permanent sign-in, the user kept; subreddits searched and their flairs as choices; text, link and picture posts (an upload lease, the file to storage with the lease's fields) and galleries; NSFW, spoiler; a lost post found among the account's submissions by its title; first comment and comments; the inbox (replies as comments, mentions, private messages); private messages sent; votes; numbers (score + comments), delete; one request at a time. |
-| Cannot yet, and why | Reddit's refusals are not read in its words (platform, item 2); video posts (Reddit wants a poster picture and a websocket for processing). |
+| Cannot yet, and why | video posts (Reddit wants a poster picture and a websocket for processing). (round five) Reddit's refusals in a 200 are read in its words. |
 | Set up at the network | a "web app" at reddit.com/prefs/apps, the redirect address, and a User-Agent naming the app's Reddit user (replace the placeholder in the file's headers). |
 | Unverified | `/api/subreddit_autocomplete_v2`; `submit_gallery_post.json`'s shape. |
 
@@ -348,8 +362,8 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | a session from the handle and an app password, refreshed; the record key made from the call's key (`key \| tid`), so a lost answer is found where the record would be and never made twice; links, tags and mentions as facets at their byte offsets (mentions resolved to DIDs; an unknown handle stays text); link cards; up to 4 pictures with descriptions and shapes, or a video; threads and the first comment with the root's and the parent's references; likes, reposts; direct messages through the chat service; languages; notifications pulled as before; numbers and followers. |
-| Cannot yet, and why | a permalink (platform, item 5); link cards carry no title, description or picture (fetching the page is not a network call). |
+| Can | a session from the handle and an app password, refreshed; the record key made from the call's key (`key \| tid`), so a lost answer is found where the record would be and never made twice; links, tags and mentions as facets at their byte offsets (mentions resolved to DIDs; an unknown handle stays text); link cards; up to 4 pictures with descriptions and shapes, or a video; threads and the first comment with the root's and the parent's references; likes, reposts; direct messages through the chat service; languages; notifications pulled as before; numbers and followers. (round five) The post's permalink, `bsky.app/profile/<did>/post/<rkey>`, from the DID the session keeps (`not_secret`). |
+| Cannot yet, and why | link cards carry no title, description or picture (fetching the page is not a network call); a permalink with the handle (the handle is the connection's secret, masked wherever it shows: the permalink names the DID, which Bluesky resolves the same). |
 | Set up at the network | an app password (with direct messages allowed, for DMs). |
 | Unverified | a video by `uploadBlob` and `app.bsky.embed.video` without the video service. |
 
@@ -358,8 +372,8 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | Google sign-in with refresh; the location picked from the first account's; updates, events and offers with their button, dates, coupon, redeem address and terms; one picture by address; a lost post found among the location's by its words; numbers (search views, button clicks), the location's name, delete. |
-| Cannot yet, and why | pictures without Social's address; locations of a second account (the picker reads the first); no comments (posts have none). |
+| Can | Google sign-in with refresh; the location picked from the first account's; updates, events and offers with their button, dates, coupon, redeem address and terms; one picture by address; a lost post found among the location's by its words; numbers (search views, button clicks), the location's name, delete. (round five) The picture by an address the description makes (`publish_with_media`); numbers over the last 540 days from the start of a day, worked out from now. |
+| Cannot yet, and why | locations of a second account (the picker reads the first); no comments (posts have none). |
 | Set up at the network | a Google Cloud project with the Business Profile APIs (access by application to Google), an OAuth client, the redirect address. |
 | Unverified | `localPosts:reportInsights` still served, and from a fixed start date. |
 
@@ -368,8 +382,8 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | bot token as the connection's secret (in the URL path, as Telegram wants it); the chats the bot was added to are what the sign-in reaches (`getUpdates`, `my_chat_member`), the chat id is the account's id on the network; two kinds: `message` (HTML, 4096) and `media` (caption 1024, one to nine photos, videos or files); text, a single photo, video or document, and an album of two to nine (`sendMediaGroup`: one operation for each count, because a `form` has a fixed set of parts; photos and videos may mix, documents only with documents; the words are the first item's caption); follow-ups as replies (`reply_parameters`), text only; delete (`deleteMessages`, every message of the item in one call, the id is `<chat>:<first>,<second>...`); the account's members (`getChatMemberCount`) and name. |
-| Cannot yet, and why | ten in an album (Telegram takes 10; one operation may have 12 steps, and text, three singles and eight album sizes use them: *needed from the platform*, more steps or a file part repeated for each item of a list); numbers for a post (the Bot API gives a bot no views or reactions); mentions; files above 25 MB (Telegram takes 50 MB, the platform's part limit is 25 MB); a lost answer on a send fails the call (no idempotency header and no way to read a message back). |
+| Can | bot token as the connection's secret (in the URL path, as Telegram wants it); the chats the bot was added to are what the sign-in reaches (`getUpdates`, `my_chat_member`), the chat id is the account's id on the network; two kinds: `message` (HTML, 4096) and `media` (caption 1024, one to ten photos, videos or files); text, a single photo, video or document, and an album of two to ten (`sendMediaGroup`, a part for each file; photos and videos may mix, documents only with documents; the words are the first item's caption); follow-ups as replies (`reply_parameters`), text only; delete (`deleteMessages`, every message of the item in one call, the id is `<chat>:<first>,<second>...`); the account's members (`getChatMemberCount`) and name. |
+| Cannot yet, and why | numbers for a post (the Bot API gives a bot no views or reactions); mentions; files above 25 MB (Telegram takes 50 MB, the platform's part limit is 25 MB); a lost answer on a send fails the call (no idempotency header and no way to read a message back). (round five) An album takes ten, in one request with a part for each item. |
 | Set up at the network | create the bot with @BotFather, put its token under the connection's `bot_token`, add the bot to the group or channel as an administrator with the right to post, send one message there (a channel: make a post) so that `getUpdates` shows it, then pick the chat in Social. Do not set a webhook on the bot (`getUpdates` stops working). |
 | Unverified | the token's `:` is sent as it is (the `url` form of an operation prints it unencoded; a path would percent-encode it); an empty `caption` on the second and later pictures; that 429 carries a `Retry-After` header (the API gives `parameters.retry_after` in the body, which the platform does not read, so the call is "later" with the platform's own backoff); `characters` as the counting unit (the docs say "characters after entities parsing"). |
 
@@ -378,7 +392,7 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | a bot token (`Authorization: Bot`); the servers the bot is in are what the sign-in reaches (server icon as the picture), the server id is the account's id on the network, the channel is a required setting whose choices are the server's text and announcement channels (categories and voice channels filtered out by the description); markdown text up to 2000 characters; up to 10 files in one message (a `payload_json` part and `files[n]`, one operation for each count 1 to 10, because a `form` has a fixed set of parts), each with its description; follow-ups as a thread made from the first message (made once, every later item posted in it); a first comment as a reply in the channel; delete by channel and message; mentions (`<@id>`, member search); the server's name and member count. Never twice: Discord has no idempotency header but takes a `nonce` with `enforce_nonce`: the description sends the call's key as the nonce (`{{ key \| tid }}`, 13 characters) so a second send is answered with the first message. The operations name an `idempotency_header` (`X-Idempotency-Key`, ignored by Discord) only so that the platform may send again after a lost answer; the protection is the nonce. A thread made twice is refused by Discord (160004); its step reads the thread back (`confirm`) instead of sending again. |
+| Can | a bot token (`Authorization: Bot`); the servers the bot is in are what the sign-in reaches (server icon as the picture), the server id is the account's id on the network, the channel is a required setting whose choices are the server's text and announcement channels (categories and voice channels filtered out by the description); markdown text up to 2000 characters; up to 10 files in one message (a `payload_json` part and `files[n]`, a part for each file), each with its description; follow-ups as a thread made from the first message (made once, every later item posted in it); a first comment as a reply in the channel; delete by channel and message; mentions (`<@id>`, member search); the server's name and member count. Never twice: Discord has no idempotency header but takes a `nonce` with `enforce_nonce`: the description sends the call's key as the nonce (`{{ key \| tid }}`, 13 characters) so a second send is answered with the first message. The operations name an `idempotency_header` (`X-Idempotency-Key`, ignored by Discord) only so that the platform may send again after a lost answer; the protection is the nonce. A thread made twice is refused by Discord (160004); its step reads the thread back (`confirm`) instead of sending again. |
 | Cannot yet, and why | numbers for a post (reactions cannot be summed in the platform's expression language); embeds, stickers, polls, forum or voice channels, a thread name of its own (always "Replies"); files above 10 MiB (see unverified); the message's permalink (the link needs the server id, which `publish` is not given: Social would have to pass `account_id` into `url`, the description does not map one). |
 | Set up at the network | a Discord application with a bot (discord.com/developers), the bot token under `bot_token`, the bot invited with View Channel, Send Messages, Attach Files, Create Public Threads, Send Messages in Threads (and Manage Messages to delete other people's), the Server Members intent for mentions. |
 | Unverified | the 10 MiB file limit (Discord's limit for bots has changed more than once, 8 / 25 MiB before); that a new upload may be described in `attachments` by `id` and `description` without `filename`; that the member search needs the privileged Server Members intent (it does in the docs I know); the `User-Agent` form. |
@@ -389,9 +403,9 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | OAuth v2 (the workspace's Slack app, bot token; the workspace is the account, picked from `auth.test`); the channel is a required setting with choices from `conversations.list`; two kinds: `message` (4000 characters) and `images` (3000, a section block and one image block for each of up to 10 pictures); pictures through Slack's external upload flow (`files.getUploadURLExternal`, the bytes to the signed address with no credentials, `files.completeUploadExternal`); follow-ups as replies in the first message's thread (`thread_ts`); delete (`chat.delete`, the id is `<channel>:<ts>`); the message's permalink (`chat.getPermalink`); mentions (`<@id>`, from `users.list`); the workspace's name. Never twice: Slack has no idempotency header. Each post carries the call's key in the message's `metadata`; if the answer is lost the call reads the channel's recent messages (`conversations.history` with `include_all_metadata`) and takes the message with that key as the answer. If it cannot prove it (the bot is not a member of the channel, so it cannot read it) the call fails and is not sent again. The upload's completion is read back (`files.info`) the same way. |
-| Cannot yet, and why | say why Slack refused in Slack's words. Slack answers 200 with `{"ok": false, "error": "channel_not_found"}` and the platform reads an `error_at` only on a failing status; the description makes the missing id fail the call (`required`), so the person sees "the answer has no id". *Needed from the platform*: a way to say that a 2xx answer is a refusal (an expression over the answer, e.g. `fail_if: "not answer.ok"`) and read `error_at` from it. Also: numbers (Slack gives none for a bot's post); mrkdwn is shown as plain text in the composer (no `mrkdwn` text format in `meta.social`); posts to a channel the bot is not in need `chat:write.public` and cannot be read back; user-scope tokens; token rotation (`never_expires` is set; a workspace that turns rotation on must connect again). |
+| Cannot yet, and why | numbers (Slack gives none for a bot's post); mrkdwn is shown as plain text in the composer (no `mrkdwn` text format in `meta.social`); posts to a channel the bot is not in need `chat:write.public` and cannot be read back; user-scope tokens; token rotation (`never_expires` is set; a workspace that turns rotation on must connect again). (round five) Slack's refusals in a 200 (`ok: false`) are read in its words, `ratelimited` as "later"; scopes go comma-separated. |
 | Set up at the network | a Slack app (api.slack.com/apps) with the redirect `{PUBLIC_URL}/api/connections/callback`, the client id in the description and the client secret under `client_secret`; the bot scopes the description lists; add the bot to the channels it posts to (or leave `chat:write.public`, losing the read-back there). |
-| Unverified | that the platform's space-separated `scope` is taken by Slack (its docs say comma-separated; the platform's `params` may not set `scope`); that an image block's `slack_file` may name a file completed without a `channel_id` (Slack's docs say the file must be visible to the bot; Postiz shares the file into the channel); that `chat.getPermalink` needs no scope beyond `chat:write`; the `Retry-After` of a 429 (Slack sends it). |
+| Unverified | that an image block's `slack_file` may name a file completed without a `channel_id` (Slack's docs say the file must be visible to the bot; Postiz shares the file into the channel); that `chat.getPermalink` needs no scope beyond `chat:write`; the `Retry-After` of a 429 (Slack sends it). |
 
 
 ### WordPress (`wordpress.json`)
@@ -399,7 +413,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | the site's REST API with an application password (basic auth; the user name is in the description, the password under `application_password`, the site address is the placeholder in `base`, `accounts` and `account`: four places); the site is the account; html text; settings: title (required), kind of content (`/types`, so pages and custom types with `show_in_rest`), status (publish, draft, pending, private), categories and tags (choices, searchable), address name; a cover picture (upload, then its description, then `featured_media`); the post's permalink; delete to the trash (no `force`), the id is `<rest_base>:<id>`. Never twice: WordPress has no idempotency header. The post step reads back after a lost answer: posts of that kind with that exact title (`context=edit`, `status=any`) created after the publication's `created_at`. A medium's upload is a one-step operation: a lost answer fails the call rather than uploading twice. |
-| Cannot yet, and why | new tags or categories (only existing ones are chosen); inline pictures (only the cover; Social has no `html` of a medium); scheduled posts (`future` needs a date setting: add when Social passes the post's time); the title as a first-class input (it is a setting); excerpt, comment status, sticky, formats; a different author; follow-ups (none); numbers (WordPress core has none). The read-back would match a different post with the same title made in the same moments by someone else. |
+| Cannot yet, and why | new tags or categories (only existing ones are chosen); inline pictures (only the cover; Social has no `html` of a medium); scheduled posts (`future` needs a date setting: add when Social passes the post's time); excerpt, comment status, sticky, formats; a different author; follow-ups (none); numbers (WordPress core has none). The read-back would match a different post with the same title made in the same moments by someone else. (round five) The content types come sorted by name. |
 | Set up at the network | a user with the right to publish, an application password (Users, Profile), HTTPS and the REST API reachable at `/wp-json` (pretty permalinks or `?rest_route=` not supported here); put the site address where the placeholder is (four places) and the user name in `auth.username`. |
 | Unverified | that `after` accepts the RFC 3339 `created_at` with a `Z` (WordPress compares in the site's time zone); the `Content-Disposition` form with a quoted file name for names with quotes; no rate limit is described (hosts differ). |
 
@@ -419,7 +433,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | an API key (`api-key` header, the v1 `Accept` type); the key's user is the account; a markdown article with title, tags (up to four, choices from `/tags`), cover picture by address, original address, summary, series, an organisation (choices) and a draft switch; the article's address; "delete" unpublishes (`PUT /articles/{id}` with `published: false`; the API has no delete). Never twice: no idempotency header. After a lost answer the call reads the author's own articles (`/articles/me/all`) for one with that title published since the publication's `created_at` (compared to the second); a draft cannot be found that way, so a lost answer on a draft fails the call instead of being resent. |
-| Cannot yet, and why | upload a cover (the API has no upload: the cover is an address typed as a setting. *Needed from Social*: a public address for a stored file, e.g. `media_items[].url`, to fill `main_image` from the composer's picture; and a title as a first-class input); list all organisations (Forem has no call for a user's own: the choices are the organisations of the articles already written, as Postiz does); edit; numbers (page views and reactions are in `/articles/me/all`; they are not mapped here: `metrics` would need the article's own read); follow-ups (none). |
+| Cannot yet, and why | upload a cover (the API has no upload: the cover is an address typed as a setting; a public address for a stored file would serve, not described yet); list all organisations (Forem has no call for a user's own: the choices are the organisations of the articles already written, as Postiz does); edit; numbers (page views and reactions are in `/articles/me/all`; they are not mapped here); follow-ups (none). |
 | Set up at the network | an API key (Settings, Extensions) under `api_key`. |
 | Unverified | rate limits (the pages I could recall name none that I trust, so none is set); that `PUT /articles/{id}` unpublishes with an API key for the author's own article; `published_timestamp` as the field to read back by; the 128-character title limit; a tag outside the list is refused (the choices only offer the list). |
 
@@ -429,7 +443,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | GraphQL at `gql.hashnode.com` with a personal access token (the `Authorization` header, no prefix); the token's user is the account; a markdown article with publication (required, choices from `me.publications`), title, subtitle, tags (comma-separated names, sent as `{slug, name}`), cover picture by address, original address, address name; the article's address; delete (`removePost`). Never twice: no idempotency header. After a lost answer the call reads the publication's ten latest posts for the same title published since the publication's `created_at` and takes that post as the answer; if it is not there the call fails instead of sending again. |
-| Cannot yet, and why | say why Hashnode refused in its words. GraphQL answers 200 with `errors`; the platform reads `error_at` only on a failing status, so the description makes the missing id fail the call (`required`: "the answer has no id"). *Needed from the platform*: an expression that marks a 2xx answer as a refusal and a pointer for its text (the same need as Slack's `ok: false`). Upload a cover (an address only; *needed from Social*: a public address for a stored file); choose tags from Hashnode's own list (a text setting; the tag's slug is the lower-cased name, so a tag Hashnode knows under another slug is created or refused); series, scheduling, newsletter switch, co-authors, drafts; numbers; follow-ups. `check` works only because `account` is a one-step operation without a method: Social reads an account's name through an operation that is a GET, and a GraphQL query is a POST (*needed from Social*: ask the operation's `changes`, not its method, whether it reads). |
+| Cannot yet, and why | upload a cover (an address only: Hashnode would fetch a stored file by a public address, not described yet); choose tags from Hashnode's own list (a text setting; the tag's slug is the lower-cased name, so a tag Hashnode knows under another slug is created or refused); series, scheduling, newsletter switch, co-authors, drafts; numbers; follow-ups. (round five) Hashnode's refusals in a 200 (`errors`) are read in its words. |
 | Set up at the network | a personal access token (hashnode.com/settings/developer) under `access_token`. |
 | Unverified | all of it against the live API (the mutation and field names are from Hashnode's public schema as I know it; Postiz still calls the old `gql-beta` address); the mutation limit of 500 a minute that `limit` sets; that unknown tag slugs are accepted; the 250-character title limit. |
 
@@ -438,7 +452,7 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | OAuth 2 (the workspace's Tumblr app; scopes `basic write offline_access`, refreshed by the platform); the blogs the sign-in reaches are the accounts to pick (the blog's name is its id); posts in NPF: the text split into a text block for each paragraph (blank line), tags (text, commas) and a state (published, draft, queue, private); up to 10 pictures and videos in one post (one operation for each count, the post as the `json` part and each file as a part the blocks name by `identifier`), a picture's description as `alt_text`; the post's address; delete (`post/delete`; the id is `<blog>:<post>`); the post's notes (`note_count`) as engagements; the blog's name and followers; the documented limit of 1000 requests an hour. Never twice: no idempotency header. After a lost answer the call reads the blog's ten latest posts (`npf=true`) for one made since the publication began whose first text block is this post's first paragraph; a post without text cannot be found that way, so a lost answer there fails the call. |
+| Can | OAuth 2 (the workspace's Tumblr app; scopes `basic write offline_access`, refreshed by the platform); the blogs the sign-in reaches are the accounts to pick (the blog's name is its id); posts in NPF: the text split into a text block for each paragraph (blank line), tags (text, commas) and a state (published, draft, queue, private); up to 10 pictures and videos in one post (the post as the `json` part and each file as a part the blocks name by `identifier`), a picture's description as `alt_text`; the post's address; delete (`post/delete`; the id is `<blog>:<post>`); the post's notes (`note_count`) as engagements; the blog's name and followers; the documented limit of 1000 requests an hour. Never twice: no idempotency header. After a lost answer the call reads the blog's ten latest posts (`npf=true`) for one made since the publication began whose first text block is this post's first paragraph; a post without text cannot be found that way, so a lost answer there fails the call. (round five) The files in one request with a part for each item. |
 | Cannot yet, and why | formatting (bold, links inside the text: NPF takes them as `formatting` ranges with offsets, which a template cannot count; the text is plain and a link is written after it); reblogs, polls, audio, links as link blocks; the 250 posts a day limit is Tumblr's, not counted here; a video above 25 MB (the platform's part limit; Tumblr takes 100 MB); follow-ups (none); mentions; the account's picture is Tumblr's avatar address. |
 | Set up at the network | a Tumblr app (tumblr.com/oauth/apps) with the redirect `{PUBLIC_URL}/api/connections/callback`; the consumer key as `client_id` in the description and the consumer secret under `client_secret`. |
 | Unverified | that the `json` part needs no content type of its own; that the token address takes the client secret in the body; the error text pointer (`/errors/0/detail`; an answer without it shows the raw body); `timestamp()` of the publication's moment against a post's epoch `timestamp`. |
@@ -458,7 +472,7 @@ media, files in `media_items`), except a public address for a stored file, which
 
 | | |
 |---|---|
-| Can | VK ID OAuth 2 with PKCE (`id.vk.ru`, a public client: no client secret; scopes `vkid.personal_info wall photos video`; `keep: ["device_id"]`, a `refresh_vk` operation that sends the kept device id); the user is the account; wall posts with up to 10 attachments, a picture through `photos.getWallUploadServer`, the upload and `photos.saveWallPhoto`, a clip through `video.save` and its upload; the attachments named `photo<owner>_<id>`, `video<owner>_<id>`; a friends-only switch; follow-ups and the first comment as comments (`wall.createComment`); delete of a post or a comment (the comment first); views as impressions, likes + reposts + comments as engagements (`wall.getById`); the user's name, picture and followers; the documented 3 requests a second. Never twice: no idempotency header. After a lost answer the call reads the wall's ten newest posts (`wall.get`) for one with those words dated since the publication began. A lost answer on a comment or an upload step fails the call. |
+| Can | VK ID OAuth 2 with PKCE (`id.vk.ru`, a public client: no client secret; scopes `vkid.personal_info wall photos video`; `keep: ["device_id"]`, a `refresh_vk` operation that sends the kept device id); the user is the account; wall posts with up to 10 attachments, a picture through `photos.getWallUploadServer`, the upload and `photos.saveWallPhoto`, a clip through `video.save` and its upload; the attachments named `photo<owner>_<id>`, `video<owner>_<id>`; a friends-only switch; follow-ups and the first comment as comments (`wall.createComment`); delete of a post or a comment (the comment first); views as impressions, likes + reposts + comments as engagements (`wall.getById`); the user's name, picture and followers; the documented 3 requests a second. Never twice: no idempotency header. After a lost answer the call reads the wall's ten newest posts (`wall.get`) for one with those words dated since the publication began. A lost answer on a comment or an upload step fails the call. (round five) VK's refusals in a 200 (`error`) read in its words; too many requests (codes 6, 9, 29) as "later". |
 | Cannot yet, and why | **connect.** VK ID wants the callback's `device_id` (and `state`) in the code exchange, and in every refresh; the platform's exchange sends neither and its `refresh` operation is not given `auth.*`. The description is written for what the brief said (the device id in the token answer, `keep`) but I believe VK gives it only in the redirect's query. *Needed from the platform*: (1) extra parameters of the redirect (`device_id`, `ext_id`) added to the token request and kept with the tokens (e.g. `provider.callback_params`); (2) the kept fields (`auth.*`) available to the `refresh` and `after` operations (they are `bare` now, so `{{ auth.device_id }}` is undefined and the refresh fails with "a template failed"). The fake in the test takes the code without a device id and gives tokens that outlast the test, so the exchange with a device id and the refresh are **not proved**. Also: say why VK refused in VK's words (VK answers 200 with `error`; the description makes the missing id fail the call: *needed from the platform*, a refusal marker for a 2xx answer, as for Slack); `publish_media` is given `kind` as the post's kind, not the medium's (the description reads `content_type`; *needed from Social*: a separate name for the medium's kind, e.g. `media_kind`); posting as a community (a community's own token and `owner_id` `-<group>`: a second account kind); stories, polls, albums; a post's address on a custom domain. |
 | Set up at the network | a VK ID application (id.vk.ru/business) with the redirect `{PUBLIC_URL}/api/connections/callback`; its id as `client_id` in the description (twice: `provider` and `refresh_vk`). |
 | Unverified | the hosts (VK moved from vk.com to vk.ru; the upload servers' hosts vary and each must be in `allowed_hosts`: the list has the ones I know); `v=5.251` (Postiz's); the bearer header on API methods (VK documents it; Postiz puts the token in the query); the 16384-character message limit; that scopes are passed space-separated. |
@@ -469,7 +483,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | OAuth 2 (the workspace's Twitch app; `Client-Id` header beside the bearer, so the client id appears twice); the signed-in user's own channel is the account; two kinds: a chat message (500 characters, `/chat/messages`) and an announcement (`/chat/announcements`, a colour setting); follow-ups as replies to the message before (`reply_parent_message_id`); delete of a chat message (`/moderation/chat`, the answer first); followers of the channel as the account's number; the documented 20 messages in 30 seconds. Never twice: Twitch has no idempotency header and no call that reads a chat back, so a lost answer on a message or an announcement fails the call ("may have been sent") and is not sent again. |
-| Cannot yet, and why | say why Twitch dropped a message in its words: it answers 200 with `is_sent: false` and a `drop_reason`; the description makes the missing id fail the call (*needed from the platform*: a refusal marker for a 2xx answer, as for Slack and VK); give an announcement an id (Twitch returns none: the id is `<channel>:announcement-<moment>` and deleting it is refused by Twitch); post in another channel (the account's own only; chatting elsewhere would need the channel as a setting and the moderator rights it implies); numbers for a message (none exist); media; mentions (typed `@name`). |
+| Cannot yet, and why | give an announcement an id (Twitch returns none: the id is `<channel>:announcement-<moment>` and deleting it is refused by Twitch); post in another channel (the account's own only); numbers for a message (none exist); media; mentions (typed `@name`). (round five) A dropped message is refused with Twitch's `drop_reason`. |
 | Set up at the network | a Twitch application (dev.twitch.tv/console) with the redirect `{PUBLIC_URL}/api/connections/callback`, a confidential client; its id twice in the description, its secret under `client_secret`; connect as the broadcaster. |
 | Unverified | the scope list (`moderator:manage:chat_messages` for deleting, `moderator:read:followers` for the count); the 20 messages in 30 seconds applies to an ordinary chatter (a moderator's is 100); `account_at: /user_id` (Twitch's token answer has no user; the account then shows without a name until `check`); a 204 answer for an announcement. |
 
@@ -479,7 +493,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | OAuth 2.1 with PKCE (`id.kick.com`; Kick's app is confidential: the client secret goes in the body too); the signed-in user's channel is the account (`/users`, the user id is the broadcaster id); chat messages up to 500 characters (`POST /chat`, `type: user`); follow-ups as replies (`reply_to_message_id`); delete (`DELETE /chat/{id}`). Never twice: no idempotency header and no call that reads a chat back: a lost answer fails the call and is not sent again. |
-| Cannot yet, and why | say why Kick dropped a message (a 200 with `is_sent: false`: the call fails with "the answer has no id"; *needed from the platform*: a refusal marker for a 2xx answer); followers or numbers (I could not confirm a call for them, so none is described); chat in another channel; announcements; media; rate limits (none published that I could confirm, so no `limit`). |
+| Cannot yet, and why | say why Kick dropped a message beyond that it did (a 200 with `is_sent: false` and no reason: refused as such since round five); followers or numbers (I could not confirm a call for them, so none is described); chat in another channel; announcements; media; rate limits (none published that I could confirm, so no `limit`). |
 | Set up at the network | an app in Kick's developer settings (needs two-factor sign-in) with the redirect `{PUBLIC_URL}/api/connections/callback`; its id in the description, its secret under `client_secret`. |
 | Unverified | all of it against the live API, including the scope names (`user:read channel:read chat:write moderation:chat_message:manage`), that `type: user` with the broadcaster's own id sends as the signed-in user, and that the token address takes the client secret in the body. |
 
@@ -489,7 +503,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | OAuth 2 (`public upload`; Dribbble's tokens do not expire, `never_expires`); the user is the account; a shot with exactly one picture (png, jpeg, gif; at least 400x300; 8 MB), a title (required), an html description and the team to post as (choices from `/user`); the shot's id from the `Location` header of the 202 answer; delete; views as impressions, likes + comments as engagements; followers; the documented 60 requests a minute. Never twice: no idempotency header. After a lost answer the call reads the user's own shots for one with that title published since the publication began; Dribbble makes a shot asynchronously (202), so one not yet listed is not found and the call fails rather than sending again. |
-| Cannot yet, and why | tags, scheduling (`scheduled_for`), low profile, rebounds; follow-ups (the API has no comments); the picture's description; a GIF's smaller limit; the media as a first-class thing for a design: the picture is sent as a part from the stored file (the `publish_media` step is a read of the account that returns the file id, as for Telegram). |
+| Cannot yet, and why | tags, scheduling (`scheduled_for`), low profile, rebounds; follow-ups (the API has no comments); the picture's description; a GIF's smaller limit. |
 | Set up at the network | an application at dribbble.com/account/applications/new with the callback `{PUBLIC_URL}/api/connections/callback`; its id in the description, its secret under `client_secret`. |
 | Unverified | `DELETE /shots/{id}` and `GET /shots/{id}` counts (`views_count`, `likes_count`, `comments_count`) and `team_id` on create; the size limits; `published_at` on `/user/shots`; that `headers.location` is lower-cased in the expression. The 202's `Location` is read as the platform stores it. |
 
@@ -499,7 +513,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | OAuth 2 with PKCE (a public client: no secret); the user is the account (`/oauth/userinfo`); company and forum are required settings (the forum's choices depend on the company picked); a forum post in markdown with an optional title and up to 10 files: a file record, the bytes `PUT` to the address the record gives (no credentials), then the file's status read every 2 seconds until `ready` (a `wait` step, failing on `failed`), and the post names the files; follow-ups and the first comment as replies (`parent_id`); delete; the post's address. Never twice: no idempotency header. After a lost answer the call reads the forum's ten newest posts for one with those words created since the publication began. |
-| Cannot yet, and why | numbers (none known); mentions; edit; the file's own `upload_headers` (the record may name headers the `PUT` must carry; header names cannot come from an answer: *needed from the platform*, headers from a list; Postiz sends them); a file above 25 MB; follow-ups with files. |
+| Cannot yet, and why | numbers (none known); mentions; edit; a file above 25 MB; follow-ups with files. (round five) The headers the file record names go with the bytes (`headers_from`). |
 | Set up at the network | a Whop app (whop.com/dashboard/developer) with the redirect `{PUBLIC_URL}/api/connections/callback`; its client id in the description; connect as a member of the company who may post in the forum. |
 | Unverified | nearly everything, from Postiz's code and my memory of Whop's v1 API: the token address taking a form (Postiz sends JSON); `error.message` as the error text; `created_at` and `content` on a forum post; `DELETE /forum_posts/{id}`; the scopes; that the `PUT` needs nothing but the signed address. |
 
@@ -539,7 +553,7 @@ media, files in `media_items`), except a public address for a stored file, which
 | | |
 |---|---|
 | Can | the Business API (`business-api.tiktok.com/open_api/v1.3`) with a **session** in place of OAuth: the connection holds the app's `client_id` and `client_secret`, the business account's `business_id` (its `open_id`) and a first `refresh_token` (obtained once, by hand, through TikTok's authorize page); the platform exchanges it for an access token (sent as `Access-Token`) and renews it with the refresh token each answer gives (checked: the rotated one is used); the business account is the account (name, picture, followers); two kinds: a video (2200 characters, counted in UTF-16) and a photo carousel (1 to 35 pictures, title of 90, 4000 characters, who can see it); comments, duet, stitch, brand switches; publishing by address, then the status polled every 3 seconds (a `wait` step, up to 15 minutes) until `PUBLISH_COMPLETE`, whose public video id is the post's id; views as impressions, likes + comments + shares as engagements. |
-| Cannot yet, and why | **publish from Social.** TikTok pulls the media from a public address on a domain verified in the app; Social hands `publish` only stored files' ids. *Needed from Social*: `media_items[].url`, a public (signed, or on a verified domain) address for each stored file; the description reads `inputs.media_items[].url`. It is proved only by the platform's own call with that input; through Social a video goes out with no address and TikTok refuses it. **Sign in with OAuth**: the authorize address wants `client_key` and the token call a JSON body with `auth_code`, answered under `data`: *needed from the platform*: a token exchange described in the file (the request's fields and the pointer to the tokens in the answer). **Say why TikTok refused in its words** (HTTP 200 with a non-zero `code`: the call fails with "the answer has no share_id"; *needed from the platform*: a refusal marker for a 2xx answer, a pointer to `message`). Also: `publish_media` is a read of the account (no upload exists); delete (the Business API has none); music and location search; a draft instead of a post (`upload_to_draft`); a lost answer on the publish call fails the call (no key, and nothing to read back before the status exists). |
+| Cannot yet, and why | **sign in with OAuth**: the authorize address wants `client_key` and the token call a JSON body with `auth_code`, answered under `data`, a code exchange the platform does not describe (0.3.8 did not add it): the connection is given a refresh token by hand. Delete (the Business API has none); music and location search; a draft instead of a post (`upload_to_draft`); a lost answer on the publish call fails the call (no key, and nothing to read back before the status exists); more than ten photos. (round five) Videos and photos go from Social by addresses the description makes, which TikTok pulls; its refusals in a 200 (`code` not 0) are read in its words. |
 | Set up at the network | a TikTok for Business developer app with the media domain verified; authorize once to get the first refresh token; put the four values under the connection's secrets. |
 | Unverified | all of it against the live API: field names, `video_views`, the `filters` form of the video list, `post_ids`, that the refresh call also serves as the first login, `expires_in` in seconds, the UTF-16 counting. |
 
@@ -576,55 +590,24 @@ media, files in `media_items`), except a public address for a stored file, which
 
 ## Needed from the platform
 
-Collected from the two sets of networks. Marked **(follow-up)**: the platform follow-up being built (public file
-addresses, menu rows, an approval hook, open-host reads, 2xx refusals, sign-in extras) is expected to answer it; when
-it lands, Social switches on the public address (`rules::PUBLIC_MEDIA_ADDRESSES`, `url`) and the descriptions drop their
-workarounds (a missing id standing for a 2xx refusal).
+(round five) The platform's follow-up (App API 0.3.8, BD-63 to BD-78) answered: public addresses for stored files,
+menu rows, an approval hook, reads of any public host, refusals in a 2xx answer, the client's parameter name and the
+scope separator, kept sign-in values in results, Meta's handshake, a limit per operation, an operation's token scheme,
+a part for each item of a list, headers from an answer, date arithmetic, a sorted list, reading steps that read, and
+the stack. What remains:
 
-### From the first fourteen
-
-1. **(follow-up)** **The client's parameter name and the scope separator** on `auth.provider` (TikTok: `client_key`, scopes joined by
-   commas). The authorisation address carries `client_key` through `params`, but the token and refresh requests send
-   `client_id`, so TikTok's sign-in fails (tested: "did not give tokens: 400: invalid_request"). Smallest addition:
-   `provider.client_id_param: "client_key"` and `provider.scope_separator: ","`.
-2. **(follow-up)** **A refusal read from a 2xx answer, and codes put in words.** Reddit answers 200 with `json.errors` (a call fails
-   only because the post has no id, without Reddit's words); TikTok and Meta refuse with codes whose message is
-   sometimes empty. Smallest addition: `error_at` as a pick (an `expr`), read also on a 2xx when it gives a value.
-3. **Limits per operation**, not per connection: a connection's `limit` counts every request, polls included, so the
-   networks' posting caps (X 100 posts / 15 min, TikTok 6 initialisations / min, Instagram 100 posts / 24 h, LinkedIn
-   150 member posts / day) are left to the network's own 429. Smallest addition: `limit` on an operation.
-4. **The authorisation scheme of one operation.** Instagram's upload host documents `Authorization: OAuth <token>`; the
-   platform sends `Bearer` *(unverified whether it takes Bearer)*. Smallest addition: `credentials: {"prefix": "OAuth "}`.
-5. **A public value not masked.** Bluesky's handle is a secret of the connection, so it is masked wherever an answer
-   shows it, and no permalink can be built (the post's URL needs the handle or the DID the session kept). Smallest
-   addition: `auth.<kept>` in result expressions, or a secret marked not-masked.
-6. **Meta's webhook handshake** (a `GET` answered with `hub.challenge`) on `inbound`: Facebook, Instagram and Threads
-   comments arrive only by webhook, so no inbox for them.
-7. **Date arithmetic in templates** (`now | days_ago(90)`): Pinterest's analytics and Google's insights want a window;
-   the descriptions read lifetime numbers or start at a fixed date instead.
-8. **Seen while testing**: in a step's `inputs`, `items | selectattr('content_type', 'startingwith', 'image/')` kept
-   every item, while the same filter in a body template filtered; Bluesky picks its media in the template.
-9. Files sent in chunks or as one body stop at 25 MB (`FERRUM_CONNECTION_UPLOAD_MB`): every video limit in the rules is
-   at most that, though the networks take far more.
-
-### From the second nineteen
-
-1. **(follow-up)** **A 2xx answer that is a refusal.** Slack (`ok: false`), Hashnode (GraphQL `errors`), VK (`error`), Twitch (`is_sent:
-   false`), Kick (`is_sent: false`) and TikTok Business (`code != 0`) answer 200; `error_at` is read only on a failing
-   status. The descriptions make the missing id fail the call (`required`), so the person sees "the answer has no id", not
-   the network's words. Wanted: `fail_if` (an expression over the answer) with the text at a pointer.
-2. **(follow-up)** **Sign-ins that are not the code exchange the platform makes**: VK ID needs the callback's `device_id` in the exchange and in
-   every refresh, and the `refresh` operation is not given `auth.*` (it is `bare`); TikTok Business wants `client_key`, a JSON
-   body with `auth_code` and tokens under `data`; MeWe exchanges a `loginRequestToken` by a GET with the app's headers.
-   Wanted: `provider.callback_params`, `auth.*` in `refresh` and `after`, and an exchange described as an operation.
-3. **More than 12 steps, or a form part repeated for a list of files.** A form has a fixed set of parts, so Discord,
-   Tumblr and Telegram have an operation for each file count (1 to 10); Telegram's publish uses all 12 steps and stops
-   at 9 files in an album (Telegram takes 10).
-4. **Headers named by an answer** (Whop's `upload_headers`), and `scope` separators (Slack wants commas; `params` may not
-   set `scope`).
-5. **Signing and sockets for Nostr** (see its verdict).
-6. **Stack**: parsing the larger descriptions (Tumblr: 14 operations with long templates) overflowed a 2 MB thread's stack in
-   the test (the scenario runs on 16 MB); worth a check that saving one on a server worker cannot do the same.
-7. Small: a map's order in a `result` expression is arbitrary (WordPress content types come back in any order; no `sort`);
-   an operation of steps with no method counts as one that changes something (say `"changes": false` on reads); the
-   expression of `proves` and `wait` is minijinja while `result`'s is CEL (documented, but easy to mix up).
+1. **Sign-ins that are not the code exchange the platform makes**: VK ID needs the callback's `device_id` in the
+   exchange and every refresh, and `auth.*` in `refresh`; TikTok Business wants `client_key`, a JSON body with
+   `auth_code` and tokens under `data`; MeWe exchanges a `loginRequestToken` by a GET with the app's headers. Wanted:
+   `provider.callback_params`, `auth.*` in `refresh` and `after`, an exchange described as an operation.
+2. **Public addresses for each item of a list**: `public_files` is a fixed set of names, so an item makes as many
+   addresses as its network's most media (ten for Instagram and TikTok, twenty for Threads), and photo posts to TikTok
+   are held to ten. Wanted: `public_files` with `each`, as a file part has.
+3. **An inbound mapping that passes over items**: a Facebook page's `feed` webhook mixes comments with likes and posts;
+   a mapping cannot skip the others, so page comments are not read. Wanted: `when` on a mapping (or `skip_if`); and
+   `items_at` over every entry of a delivery (Meta may batch several; the first is read).
+4. **A secret shown where it is public**: Bluesky signs in with its handle, so the handle is masked everywhere; the
+   permalink names the DID.
+5. Files sent in chunks or as one body stop at `FERRUM_CONNECTION_UPLOAD_MB` (25 MB unless the operator raises it):
+   every video limit in the rules is at most that.
+6. **Signing and sockets for Nostr** (see its verdict).
