@@ -16,16 +16,44 @@ export interface Choice {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** The choices a setting fetches (boards, subreddits, flairs …) for a search, given the answers so far. */
+/** Refusals kept by what was asked (account, setting, search, the answers it depends on): a refused lookup is not asked again until the search or an answer it depends on changes, or the person presses Try again. */
+const refusals = new Map<string, Error>();
+
+/** Forgets every kept refusal (a new page load starts with none; the tests start each case so). */
+export const clearRefusals = () => refusals.clear();
+
+/** The answers a lookup's inputs name (`settings.<key>`): only these, when changed, ask again. */
+function dependsOn(s: Setting, answers: Record<string, unknown>): Record<string, unknown> {
+  const inputs = ((s.choices as { inputs?: Record<string, unknown> } | undefined)?.inputs ?? {}) as Record<string, unknown>;
+  const keys = Object.values(inputs).filter((v): v is string => typeof v === "string" && v.startsWith("settings.")).map((v) => v.slice(9));
+  return Object.fromEntries(keys.map((k) => [k, answers[k] ?? null]));
+}
+
+/** The choices a setting fetches (boards, subreddits, flairs …) for a search: asked once for the account, setting, search and the answers it depends on. */
 export function useChoices(account: string, s: Setting, answers: Record<string, unknown>, query: string, enabled = true) {
   const q = useDebounced(query, 250);
-  const fetched = !!s.choices;
-  return useQuery({
-    queryKey: ["social", "choices", account, s.key, q, JSON.stringify(answers)],
-    queryFn: () => run<{ choices: Choice[] }>("SocialAccount", account, "choices", { setting: s.key, query: q, settings: answers }).then((r) => r.choices),
-    enabled: enabled && fetched,
+  const deps = dependsOn(s, answers);
+  const key = ["social", "choices", account, s.key, q, JSON.stringify(deps)];
+  const result = useQuery({
+    queryKey: key,
+    queryFn: async () => {
+      const id = key.join("|");
+      const kept = refusals.get(id);
+      if (kept) throw kept;
+      try {
+        return await run<{ choices: Choice[] }>("SocialAccount", account, "choices", { setting: s.key, query: q, settings: answers }).then((r) => r.choices);
+      } catch (e) {
+        refusals.set(id, e as Error);
+        throw e;
+      }
+    },
+    enabled: enabled && !!s.choices,
     retry: false,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
+  return { ...result, retryNow: () => { refusals.delete(key.join("|")); void result.refetch(); } };
 }
 
 function Choose({ account, s, value, answers, onChange, id }: { account: string; s: Setting; value: unknown; answers: Record<string, unknown>; onChange: (v: unknown) => void; id: string }) {
@@ -40,7 +68,7 @@ function Choose({ account, s, value, answers, onChange, id }: { account: string;
     return (
       <div className="stack" role="group" aria-labelledby={`${id}-label`}>
         {fetched && <input className="input" type="search" aria-label={t("Search")} placeholder={t("Search")} value={search} onChange={(e) => setSearch(e.target.value)} />}
-        {fetched && q.isError && <p className="field-error">{(q.error as Error).message}</p>}
+        {fetched && q.isError && <p className="field-error">{(q.error as Error).message} <button type="button" className="link-btn" onClick={q.retryNow}>{t("Try again")}</button></p>}
         {shown.map((o, i) => (
           <label key={i} className="row">
             <input type="checkbox" checked={chosen.some((c) => same(c, o.value))} onChange={(e) => onChange(e.target.checked ? [...chosen, o.value] : chosen.filter((c) => !same(c, o.value)))} />
@@ -62,7 +90,7 @@ function Choose({ account, s, value, answers, onChange, id }: { account: string;
           </option>
         ))}
       </select>
-      {fetched && q.isError && <p className="field-error">{(q.error as Error).message}</p>}
+      {fetched && q.isError && <p className="field-error">{(q.error as Error).message} <button type="button" className="link-btn" onClick={q.retryNow}>{t("Try again")}</button></p>}
     </div>
   );
 }

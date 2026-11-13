@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { ComposerRoute } from "./Composer";
 import { mentionToken } from "./composer/Items";
+import { clearRefusals } from "./composer/Settings";
 import { byText, draw, fakeServer, settle, until } from "./testkit";
 
 afterEach(() => {
+  clearRefusals();
   calcOverride = null;
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
@@ -301,5 +303,25 @@ describe("every checkbox has a name", () => {
     const box = host.querySelector<HTMLInputElement>("fieldset input[type=checkbox]")!;
     expect(box.getAttribute("aria-label")).toBe("North, Connected");
     for (const b of host.querySelectorAll<HTMLInputElement>("input[type=checkbox]")) expect(b.getAttribute("aria-label") || b.closest("label")?.textContent?.trim()).toBeTruthy();
+  });
+});
+
+describe("a refused choices call", () => {
+  it("is asked once; the sentence shows once; Try again asks again", async () => {
+    const fake = server([["POST", "/api/v1/SocialAccount/x/actions/choices", { error: "invalid", message: "the connection youtube is turned off" }, 422]]);
+    const host = await draw(<ComposerRoute />, "/compose", "/compose");
+    await press(host.querySelector<HTMLInputElement>("input[type=checkbox]")!);
+    await until(() => !!field(host, "kind-x"));
+    await type(field(host, "kind-x"), "pin");
+    await until(() => host.textContent!.includes("the connection youtube is turned off"));
+    // more renders and checks of the post (typing) do not ask again
+    await type(field(host, "post-headline"), "Spring");
+    await type(field(host, "post-headline"), "Spring again");
+    await until(() => host.textContent!.includes("Checking") === false);
+    const asked = () => fake.seen.filter((s) => s.line.endsWith("/choices")).length;
+    expect(asked()).toBe(1);
+    expect(host.textContent!.split("the connection youtube is turned off").length - 1).toBe(1);
+    await press(byText(host, "button", "Try again"));
+    expect(asked()).toBe(2);
   });
 });
