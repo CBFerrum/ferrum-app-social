@@ -3,12 +3,12 @@
 //! check of a post's content for one account against it; no network is named here. The shape is documented in
 //! docs/connectors/README.md ("meta.social"), and docs/connectors/examples/ holds nine networks written in it.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 /// How a network counts the length of a text.
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Count {
     /// Unicode scalar values (what 0.7.0 counted).
@@ -25,7 +25,7 @@ pub enum Count {
     Weighted,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Text {
     pub max: Option<usize>,
@@ -37,7 +37,7 @@ pub struct Text {
     pub format: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Medium {
     pub max_bytes: Option<i64>,
@@ -54,7 +54,7 @@ pub struct Medium {
     pub max_seconds: Option<f64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Media {
     /// Kinds taken: `image`, `video`, `document`, or any other name a medium is given. None: no media.
@@ -110,7 +110,7 @@ impl Media {
 }
 
 /// What an item after the first is on this network.
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum FollowAs {
     /// A post answering the one before (`publish` with `reply_to` and `root`).
@@ -121,7 +121,7 @@ pub enum FollowAs {
     None,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FollowUps {
     #[serde(rename = "as")]
@@ -136,7 +136,7 @@ pub struct FollowUps {
 
 /// A kind of post a network takes (post, reel, story, short, article, poll...: free names), with its own rules where
 /// they differ from the network's.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Kind {
     pub name: String,
@@ -147,7 +147,7 @@ pub struct Kind {
     pub first_comment: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Opt {
     Plain(String),
@@ -173,7 +173,7 @@ impl Opt {
 /// Where choices, accounts or mentions are read from: an operation of the description, its inputs (literals, or
 /// `settings.<key>`, `account.id`, `account.handle`, `query`), the list in its answer, and in each item where its value,
 /// label, handle, picture and kind are (JSON pointers).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Lookup {
     pub operation: String,
@@ -189,7 +189,7 @@ pub struct Lookup {
 }
 
 /// A question the composer asks for this network.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Setting {
     pub key: String,
@@ -210,7 +210,7 @@ pub struct Setting {
 }
 
 /// `meta.social`.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Rules {
     pub name: Option<String>,

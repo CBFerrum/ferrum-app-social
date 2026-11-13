@@ -207,6 +207,9 @@ impl DocHook for PostHook {
         if let Some(out) = crate::library::post_action(hc, name, doc, params).await? {
             return Ok(Some(out));
         }
+        if name == "copies" {
+            return copies(hc, doc).await.map(Some);
+        }
         if name != "retry" {
             return Ok(None);
         }
@@ -222,6 +225,39 @@ impl DocHook for PostHook {
         hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "Sending", "failure": null}))).await?;
         Ok(Some(json!({"status": "Sending"})))
     }
+}
+
+/// `copies`: what each account gets, its words final (variables filled, signature added), each item's length as its
+/// network counts it against its most, and what is wrong, for the composer's preview and counters.
+async fn copies(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> {
+    let system = elevated(hc.ctx);
+    let mut out = vec![];
+    for account in content::accounts(doc) {
+        let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
+        let r = rules_of(hc.kernel, hc.ctx, hc.tx, &a).await?.unwrap_or_default();
+        let (v, mut problems) = match content::version(hc.kernel, hc.ctx, hc.tx, doc, &a).await {
+            Ok(v) => (v, vec![]),
+            Err(e) => (Version::default(), vec![e.to_string()]),
+        };
+        problems.extend(rules::problems(&r, &v.copy()));
+        let kind = r.kind(v.kind.as_deref()).ok().flatten();
+        let (text, _, follow, _) = r.effective(kind);
+        let items: Vec<Value> = v
+            .items
+            .iter()
+            .enumerate()
+            .map(|(n, i)| {
+                let t = if n > 0 { follow.text.as_ref().unwrap_or(&text) } else { &text };
+                let length = rules::length(t, &i.text) + i.link.as_deref().map_or(0, |l| t.link_counts.unwrap_or_else(|| rules::length(t, l)) + 1);
+                json!({"text": i.text, "link": i.link, "delay_minutes": i.delay, "length": length, "max": t.max,
+                       "media": i.media.iter().map(|m| json!({"file": format!("/files/{}", m.file), "kind": m.kind, "alt": m.alt, "name": m.name})).collect::<Vec<_>>()})
+            })
+            .collect();
+        out.push(json!({"account": account, "account_name": s(&a, "account_name"), "network": r.name(), "kind": kind.map(|k| k.name.clone()),
+                        "follow_ups": format!("{:?}", follow.as_).to_lowercase(), "items": items, "first_comment": v.first_comment,
+                        "settings": rules::answers(&r, kind.map(|k| k.name.as_str()), &v.settings).unwrap_or_default(), "problems": problems}));
+    }
+    Ok(json!({"copies": out}))
 }
 
 /// One job for a publication: queued once while one is waiting or running.

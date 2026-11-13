@@ -127,13 +127,15 @@ fn picked(params: &Value) -> Vec<String> {
 
 /// The account's lookup actions; `None` for another.
 pub(crate) async fn action(hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
-    if !matches!(name, "reachable" | "choose" | "mentions" | "choices" | "check") {
+    if !matches!(name, "reachable" | "choose" | "mentions" | "choices" | "check" | "rules") {
         return Ok(None);
     }
     let r = rules_of(hc.kernel, hc.ctx, hc.tx, doc).await?.unwrap_or_default();
     let account = id(doc, "id").ok_or_else(|| Error::internal("an account without an id"))?;
     let system = elevated(hc.ctx);
     match name {
+        // What its network takes and asks, as the composer reads it: the description's, else the profile's.
+        "rules" => Ok(Some(json!({"rules": r}))),
         "reachable" => Ok(Some(json!({"accounts": reachable(hc, doc, &r).await?}))),
         "choose" => {
             let want = picked(params);

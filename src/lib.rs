@@ -9,8 +9,13 @@
 //! `account`), and a network profile record saying what a post may carry (examples: docs/connectors/).
 //!
 //! * `accounts`: accounts, their state on the connection, and the profile each names.
-//! * `posts`: posts, their review, validation against the profile, and each account's publication, sent by a queued
-//!   job through the connection, once.
+//! * `rules`: what a network takes and asks (`meta.social`, or a network profile), and the one check of a copy against it.
+//! * `content`: a post's original and per-account versions, items and media, as one account's copy.
+//! * `posts`: posts, their validation, and each account's publication, sent item by item by a queued job, once.
+//! * `review`: review by the platform's approval policy, and review links for people outside.
+//! * `when`: publish now, move, back to draft, duplicate, the queue of posting times, repeats.
+//! * `library`: templates, sets, snippets, signatures, variables.
+//! * `picker`: what a sign-in reaches, picked as accounts; an account's rules, mentions and a setting's choices.
 //! * `inbox`: messages arriving through a connection's inbound address or pulls, and replies sent back.
 //! * `upgrade`: accounts of the networks the earlier releases had connectors for, given a connection from the shipped
 //!   description (turned off), and the administrators told.

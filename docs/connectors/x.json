@@ -48,7 +48,8 @@
       "inputs": [
         "text_with_link",
         "media"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "publish_media": {
       "method": "POST",
@@ -68,7 +69,8 @@
       "inputs": [
         "file",
         "name"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "delete": {
       "method": "DELETE",
@@ -76,7 +78,8 @@
       "error_at": "/detail",
       "inputs": [
         "id"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "reply": {
       "method": "POST",
@@ -89,7 +92,8 @@
       "inputs": [
         "text",
         "in_reply_to"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "send_message": {
       "method": "POST",
@@ -102,7 +106,8 @@
       "inputs": [
         "to",
         "text"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "metrics": {
       "path": "/2/tweets/{{ inputs.id }}",
