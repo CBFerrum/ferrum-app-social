@@ -342,3 +342,23 @@ no delete, no numbers, no comments; the post's permalink); video (Postiz filters
 **Unverified**: everything: MeWe's host, paths, field names and the `Forbidden` / `Unauthorized` / 420 texts come from Postiz
 and have not been checked against MeWe's documentation, which I could not read.
 **Setup**: a MeWe developer app (by request to MeWe), its id and key, and an `apiToken` for the user (via MeWe's login flow).
+
+## Listmonk (`listmonk.json`)
+
+**Does**: basic auth (the API user's name in the description, its token under `password`; the instance address is the
+placeholder in `base` and `publish`'s address: two places); the instance is the account (its site name); an e-mail campaign
+with subject (required), list (required, choices) and template (choices, "Default" first), the html as the body; created as a
+draft and then started (`PUT /campaigns/{id}/status` to `running`); the campaign's address in the admin; views as impressions,
+clicks and sent as reach; delete.
+**Never twice**: no idempotency header, and an e-mail sent twice is the worst case here, so both writing steps read back.
+A lost answer on the creation: the campaigns are searched by subject for one created since the publication began and used
+as the answer. A lost answer on the start: the campaign is read and, if it is running, finished or scheduled, the start
+is not sent again. If neither is proved the call fails.
+**Cannot**: schedule at Listmonk (`send_at`; Social sends at the time itself), choose several lists, a from address, a
+plain-text alternative, a preview text (the hidden preheader Postiz adds is not reproduced), upload pictures (images are
+addresses in the html); follow-ups.
+**Unverified**: all of it against a live instance; `created_at` and `subject` in the campaign search; `per_page=all`;
+that a draft with the same subject is not found as a duplicate by a person re-sending the same subject (it would be, within
+the publication's own window only).
+**Setup**: an API user (Settings, Users) with campaign rights, its name in `auth.username` and its token under `password`;
+the instance's address in place of the placeholder (twice).

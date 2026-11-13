@@ -1,0 +1,318 @@
+{
+  "base": "https://listmonk.example/api",
+  "auth": {
+    "type": "basic",
+    "username": "REPLACE-WITH-THE-LISTMONK-USER",
+    "secret": "password"
+  },
+  "apps": [
+    "social"
+  ],
+  "timeout_ms": 30000,
+  "meta": {
+    "carries": {
+      "network": "Listmonk",
+      "provider": "listmonk",
+      "server": "instance",
+      "placeholder": "https://listmonk.example"
+    },
+    "social": {
+      "name": "Listmonk",
+      "text": {
+        "format": "html",
+        "min": 1
+      },
+      "media": {
+        "kinds": []
+      },
+      "kinds": [
+        {
+          "name": "campaign",
+          "label": "E-mail campaign"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "subject",
+          "label": "Subject",
+          "type": "text",
+          "required": true,
+          "max": 255
+        },
+        {
+          "key": "list",
+          "label": "List",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "lists",
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "template",
+          "label": "Template",
+          "type": "select",
+          "default": "0",
+          "choices": {
+            "operation": "templates",
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/sites",
+        "value_at": "/id",
+        "label_at": "/name",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/settings",
+      "result": {
+        "sites": {
+          "expr": "[{'id': answer.data['app.site_name'], 'name': answer.data['app.site_name'], 'picture': answer.data['app.logo_url'] != '' ? answer.data['app.logo_url'] : null}]"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/settings",
+      "result": {
+        "name": "/data/app.site_name"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "lists": {
+      "path": "/lists",
+      "query": {
+        "per_page": "all"
+      },
+      "result": {
+        "items": {
+          "expr": "answer.data.results.map(l, {'id': string(l.id), 'name': l.name})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "templates": {
+      "path": "/templates",
+      "result": {
+        "items": {
+          "expr": "[{'id': '0', 'name': 'Default'}] + answer.data.map(t, {'id': string(t.id), 'name': t.name})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "create_campaign": {
+      "method": "POST",
+      "path": "/campaigns",
+      "body": "{\"name\": {{ inputs.subject | json }}, \"subject\": {{ inputs.subject | json }}, \"lists\": [{{ inputs.list | int | json }}], \"type\": \"regular\", \"content_type\": \"html\", \"messenger\": \"email\", \"body\": {{ inputs.content | json }}{% if inputs.template and inputs.template | int %}, \"template_id\": {{ inputs.template | int | json }}{% endif %}}",
+      "result": {
+        "id": {
+          "expr": "string(answer.data.id)",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "subject",
+        "list",
+        "content",
+        "template"
+      ]
+    },
+    "find_campaign": {
+      "path": "/campaigns",
+      "query": {
+        "query": "{{ inputs.subject }}",
+        "per_page": "10",
+        "order_by": "created_at",
+        "order": "DESC"
+      },
+      "result": {
+        "id": {
+          "expr": "answer.data.results.filter(c, c.subject == inputs.subject && c.created_at >= inputs.after.substring(0, 19)).map(c, string(c.id)).join('')"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "subject",
+        "after"
+      ]
+    },
+    "start_campaign": {
+      "method": "PUT",
+      "path": "/campaigns/{{ inputs.id }}/status",
+      "body": "{\"status\": \"running\"}",
+      "result": {
+        "status": "/data/status"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "get_campaign": {
+      "path": "/campaigns/{{ inputs.id }}",
+      "result": {
+        "status": "/data/status",
+        "views": "/data/views",
+        "clicks": "/data/clicks",
+        "sent": "/data/sent"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/campaigns/{{ inputs.id }}",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "campaign",
+          "operation": "create_campaign",
+          "inputs": {
+            "subject": "inputs.settings.subject",
+            "list": "inputs.settings.list",
+            "content": "inputs.text",
+            "template": "inputs.settings.template"
+          },
+          "confirm": {
+            "operation": "find_campaign",
+            "inputs": {
+              "subject": "sent.subject",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        },
+        {
+          "name": "start",
+          "operation": "start_campaign",
+          "inputs": {
+            "id": "steps.campaign.id"
+          },
+          "confirm": {
+            "operation": "get_campaign",
+            "inputs": {
+              "id": "sent.id"
+            },
+            "proves": "result.status in ['running', 'finished', 'scheduled']"
+          }
+        }
+      ],
+      "result": {
+        "id": "/campaign/id",
+        "url": {
+          "expr": "'https://listmonk.example/admin/campaigns/' + answer.campaign.id"
+        }
+      }
+    },
+    "metrics": {
+      "inputs": [
+        "id"
+      ],
+      "changes": false,
+      "steps": [
+        {
+          "name": "c",
+          "operation": "get_campaign",
+          "inputs": {
+            "id": "inputs.id"
+          }
+        }
+      ],
+      "result": {
+        "impressions": "/c/views",
+        "clicks": "/c/clicks",
+        "reach": "/c/sent"
+      }
+    }
+  }
+}
