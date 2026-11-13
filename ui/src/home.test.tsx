@@ -42,7 +42,7 @@ describe("social's home", () => {
     expect(text).toContain("North Pins");
     expect(text).toContain("No time yet");
     const links = [...host.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-    for (const to of ["/compose", "/calendar", "/queue", "/accounts"]) expect(links).toContain(to);
+    for (const to of ["/compose", "/calendar", "/queue", "/accounts", "/media", "/inbox", "/numbers", "/library", "/automation", "/notices"]) expect(links).toContain(to);
   });
 
   it("says plainly when a read is refused", async () => {

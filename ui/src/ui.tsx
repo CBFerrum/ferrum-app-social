@@ -19,6 +19,11 @@ export function Nav() {
     ["/calendar", t("Calendar"), "calendar"],
     ["/queue", t("Posting times"), "timeline"],
     ["/accounts", t("Accounts"), "apps"],
+    ["/media", t("Media"), "file"],
+    ["/inbox", t("Inbox"), "mail"],
+    ["/numbers", t("Numbers"), "chart"],
+    ["/library", t("Library"), "doc"],
+    ["/automation", t("Feeds and plugs"), "refresh"],
   ];
   return (
     <nav className="row" aria-label={t("Social")}>
