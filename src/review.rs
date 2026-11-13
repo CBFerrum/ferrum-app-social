@@ -5,8 +5,11 @@
 //! change (`reset_on`). A workspace edits it like any policy (more steps, approvers by brand through a field or an
 //! expression, N of M, stand-ins, escalation) without code. Send for Review makes the post In Review and asks; the
 //! approvers decide in the platform's approvals (`POST /api/v1/SocialPost/{id}/approval/decide`); the last approval runs
-//! `review` as the author, which approves the post. A rejection is read back by the upkeep (the platform tells an app
-//! nothing when a request is decided): the post is sent back with the approver's words.
+//! `review` as the author, which approves the post. (round five) The platform tells the post's hook when the request is
+//! decided (`approval_decided`, BD-66), in the deciding transaction: a rejection sends the post back with the approver's
+//! words, an approval names the deciding step's approver, an approval whose `review` was then refused sends it back saying why. The
+//! upkeep's read-back stays only as the safety net for a hook that failed: the platform then rolls its writes back and
+//! commits the decision anyway (audited as `approval:hook_failed`), and the next upkeep settles the post.
 //!
 //! What approval fixes is kept as before (`approved_hash`): an approved post that changes is a draft again, which the
 //! platform's approval does not do (it ends with the decision). Without the policy (a workspace switched it off), or
@@ -25,7 +28,7 @@ use chrono::{Duration, Utc};
 use ferrum_domain::util::{elevated, id, s};
 use ferrum_kernel::action_link::LinkSpec;
 use ferrum_kernel::messages::{self, Message, Recipient};
-use ferrum_kernel::{Ctx, Doc, Error, Filter, HookCtx, Kernel, Result, Tx};
+use ferrum_kernel::{ApprovalDecided, Ctx, Doc, Error, Filter, HookCtx, Kernel, Result, Tx};
 use ferrum_meta::DocumentAction;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -162,8 +165,37 @@ async fn approved(hc: &mut HookCtx<'_>, post: Uuid, doc: &Doc, by: Option<String
     Ok(json!({"status": "Approved"}))
 }
 
-/// The upkeep's look at the platform's decisions: a post In Review whose request was rejected is sent back with the
-/// approver's words; an approved one is told who approved it.
+/// (round five) The post's review decided (BD-66): shown on the post in the deciding transaction.
+pub(crate) async fn decided(hc: &mut HookCtx<'_>, doc: &Doc, d: &ApprovalDecided<'_>) -> Result<()> {
+    let post = id(doc, "id").unwrap_or_default();
+    if d.action != REVIEW || s(doc, "approval_request") != Some(d.request.to_string().as_str()) {
+        return Ok(());
+    }
+    let system = elevated(hc.ctx);
+    match d.outcome {
+        "rejected" => {
+            let values = json!({"status": "Rejected", "review_note": d.comment.unwrap_or_default()});
+            hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(values)).await?;
+        }
+        "failed" => {
+            let why = format!("approved, but it could not be approved here: {}", d.failure.unwrap_or_default());
+            hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "Rejected", "review_note": why}))).await?;
+        }
+        // Approved: `review` made it so in this transaction; who approved it is the deciding step's approver (the request
+        // cannot be read back inside the deciding transaction).
+        _ => {
+            let who = d.on_behalf_of.unwrap_or(d.decided_by);
+            let people = hc.kernel.user_directory(&system).await.unwrap_or_default();
+            if let Some(email) = people.iter().find(|p| p["id"] == json!(who.to_string())).and_then(|p| p["email"].as_str()) {
+                hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"approved_by": email}))).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The upkeep's look at the platform's decisions, the safety net for a hook that failed: a post In Review whose request
+/// was rejected is sent back with the approver's words; an approved one is told who approved it.
 pub(crate) async fn settle(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<()> {
     let asked = |status: &str| [Filter::eq("status", status)];
     let mut people: Option<Vec<Value>> = None;
@@ -173,29 +205,35 @@ pub(crate) async fn settle(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<()> {
             if s(&found, "approval_request").is_none() || (status == "Approved" && s(&found, "approved_by").is_some()) {
                 continue;
             }
-            let Some(r) = request(k, ctx, post, &found).await? else { continue };
-            let decided: Vec<&Value> = r["decisions"].as_array().into_iter().flatten().filter(|d| d["void"] != true).collect();
-            match (status, r["status"].as_str()) {
-                ("In Review", Some("rejected")) => {
-                    let why = decided.iter().rev().find(|d| d["outcome"] == "reject").and_then(|d| d["comment"].as_str()).unwrap_or_default();
-                    k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"status": "Rejected", "review_note": why}))).await?;
-                }
-                ("Approved", Some("approved")) => {
-                    if people.is_none() {
-                        people = Some(k.user_directory(ctx).await.unwrap_or_default());
-                    }
-                    let by: Vec<String> = decided
-                        .iter()
-                        .filter(|d| d["outcome"] == "approve")
-                        .filter_map(|d| people.iter().flatten().find(|p| p["id"] == d["decider"]).and_then(|p| p["email"].as_str()).map(str::to_string))
-                        .collect();
-                    if !by.is_empty() {
-                        k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"approved_by": by.join(", ")}))).await?;
-                    }
-                }
-                _ => {}
+            settle_one(k, ctx, tx, post, &found, &mut people).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Post `post` (as `found`) after its request's decision: sent back when rejected, told who approved it when approved.
+async fn settle_one(k: &Kernel, ctx: &Ctx, tx: &mut Tx, post: Uuid, found: &Doc, people: &mut Option<Vec<Value>>) -> Result<()> {
+    let Some(r) = request(k, ctx, post, found).await? else { return Ok(()) };
+    let decided: Vec<&Value> = r["decisions"].as_array().into_iter().flatten().filter(|d| d["void"] != true).collect();
+    match (s(found, "status"), r["status"].as_str()) {
+        (Some("In Review"), Some("rejected")) => {
+            let why = decided.iter().rev().find(|d| d["outcome"] == "reject").and_then(|d| d["comment"].as_str()).unwrap_or_default();
+            k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"status": "Rejected", "review_note": why}))).await?;
+        }
+        (Some("Approved"), Some("approved")) => {
+            if people.is_none() {
+                *people = Some(k.user_directory(ctx).await.unwrap_or_default());
+            }
+            let by: Vec<String> = decided
+                .iter()
+                .filter(|d| d["outcome"] == "approve")
+                .filter_map(|d| people.iter().flatten().find(|p| p["id"] == d["decider"]).and_then(|p| p["email"].as_str()).map(str::to_string))
+                .collect();
+            if !by.is_empty() {
+                k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"approved_by": by.join(", ")}))).await?;
             }
         }
+        _ => {}
     }
     Ok(())
 }

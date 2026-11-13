@@ -144,6 +144,11 @@ impl DocHook for PostHook {
         "social.post"
     }
 
+    /// (round five) The review's decision shows on the post at once (BD-66).
+    async fn approval_decided(&self, hc: &mut HookCtx<'_>, doc: &Doc, decided: &ferrum_kernel::ApprovalDecided<'_>) -> Result<()> {
+        crate::review::decided(hc, doc, decided).await
+    }
+
     fn fills(&self) -> &'static [&'static str] {
         &["author", "status", "approved_by", "approved_hash"]
     }
