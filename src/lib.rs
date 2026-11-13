@@ -100,6 +100,7 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             upgrade::carry_connections(k, &ctx, &mut tx).await?;
             accounts::carry_over(k, &ctx, &mut tx).await?;
             accounts::refresh_all(k, &ctx, &mut tx).await?;
+            review::settle(k, &ctx, &mut tx).await?;
             posts::send_due(k, &ctx, &mut tx, now).await?;
             posts::mark_sent(k, &ctx, &mut tx, now).await?;
             tx.commit().await?;
