@@ -159,6 +159,8 @@
     - {name: repeat_key, type: data, read_only: true, no_copy: true, hidden: true, unique: true}
     - {name: repeat_note, type: text, read_only: true, no_copy: true, visible_if: "!isEmpty(doc.repeat_note)", label: Not Repeated, description: "Why its next occurrence could not be made"}
     - {name: origin, type: link, to: SocialPost, read_only: true, no_copy: true, label: Copied From}
+    - {name: add_signature, type: check, default: false, label: Add the Signature, description: "Adds, at the end of each account's words, the signature named below, else the account's default, else its brand's, else the workspace's; never twice"}
+    - {name: signature, type: link, to: SocialSignature}
   actions:
     - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
     - {name: approve, label: Approve It, permission: write, condition: "doc.status == 'In Review'"}
@@ -170,6 +172,7 @@
     - {name: unschedule, label: Back to Draft, permission: write, condition: "doc.status == 'In Review' || doc.status == 'Approved'", confirm: "Take it off the calendar and back to a draft? It needs approving again."}
     - {name: duplicate, label: Duplicate, permission: write}
     - {name: stop_repeat, label: Stop Repeating, permission: write, condition: "!isEmpty(doc.repeat_every)"}
+    - {name: save_as_template, label: Save as Template, permission: read, params: [{name: name, type: data, label: Template Name, required: true}]}
   list: {columns: [headline, brand, scheduled_at, status], sort: scheduled_at desc}
 
 - name: SocialPostingTime
@@ -298,3 +301,91 @@
     - {name: failed_at, type: datetime, read_only: true, no_copy: true}
     - {name: failure, type: text, read_only: true, no_copy: true, description: "What the network said when it would not take the reply"}
   list: {columns: [message, author, external_id], sort: created_at desc}
+
+- name: SocialTemplate
+  label: Post Template
+  label_plural: Post Templates
+  kind: master
+  module: social
+  title_field: template_name
+  description: "A post's content kept to start posts from: its words, link, media, follow-ups, and each account's version and answers. Use Template makes a draft of it."
+  fields:
+    - {name: template_name, type: data, required: true, unique: true, in_list: true}
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true, description: "Empty: any brand's"}
+    - {name: headline, type: data}
+    - {name: text, type: text}
+    - {name: link, type: data}
+    - {name: image, type: attach}
+    - {name: image_alt, type: data, label: Image Description}
+    - {name: first_comment, type: text}
+    - {name: targets, type: table, of: SocialTarget, label: Accounts}
+    - {name: items, type: table, of: SocialItem, label: Follow-ups}
+    - {name: media, type: table, of: SocialMedia}
+    - {name: add_signature, type: check, default: false, label: Add the Signature}
+    - {name: signature, type: link, to: SocialSignature}
+  actions:
+    - {name: use_template, label: Use Template, permission: read, params: [{name: brand, type: link, to: SocialBrand, label: Brand}, {name: set, type: link, to: SocialSet, label: Accounts of a Set}, {name: accounts, type: text, label: Or These Accounts}, {name: headline, type: data, label: Headline}]}
+  list: {columns: [template_name, brand], sort: template_name asc}
+
+- name: SocialSet
+  label: Set
+  label_plural: Sets
+  kind: master
+  module: social
+  title_field: set_name
+  description: "A named selection of a brand's accounts, with their kinds and answers and, if wanted, words to start with: Use Set makes a draft going to them."
+  fields:
+    - {name: set_name, type: data, required: true, unique: true, in_list: true}
+    - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
+    - {name: targets, type: table, of: SocialTarget, required: true, label: Accounts}
+    - {name: text, type: text}
+    - {name: link, type: data}
+    - {name: first_comment, type: text}
+    - {name: items, type: table, of: SocialItem, label: Follow-ups}
+    - {name: media, type: table, of: SocialMedia}
+  actions:
+    - {name: use_set, label: Use Set, permission: read, params: [{name: headline, type: data, label: Headline}]}
+  list: {columns: [set_name, brand], sort: set_name asc}
+
+- name: SocialSnippet
+  label: Snippet
+  label_plural: Snippets
+  kind: master
+  module: social
+  title_field: snippet_name
+  description: "Words kept to insert into a post: a group of hashtags, a caption."
+  fields:
+    - {name: snippet_name, type: data, required: true, unique: true, in_list: true}
+    - {name: kind, type: select, options: [Hashtags, Caption, Other], default: Hashtags, in_list: true, in_filter: true}
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true, description: "Empty: any brand's"}
+    - {name: text, type: text, required: true}
+  list: {columns: [snippet_name, kind, brand], sort: snippet_name asc}
+
+- name: SocialSignature
+  label: Signature
+  label_plural: Signatures
+  kind: master
+  module: social
+  title_field: signature_name
+  description: "Words added at the end of a post that asks for them: an account's, a brand's or the workspace's. One default in each."
+  fields:
+    - {name: signature_name, type: data, required: true, unique: true, in_list: true}
+    - {name: text, type: text, required: true}
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true, description: "Empty with no account: the workspace's"}
+    - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true}
+    - {name: is_default, type: check, default: false, in_list: true, label: Default, description: "The one added when a post asks for a signature and names none; a new default ends the others' of the same account, brand or workspace"}
+  list: {columns: [signature_name, brand, account, is_default], sort: signature_name asc}
+
+- name: SocialVariable
+  label: Variable
+  label_plural: Variables
+  kind: master
+  module: social
+  title_field: variable_name
+  description: "A value written in a post as {{name}}, filled when the post is checked and sent: an account's value before its brand's before the workspace's. A name with no value refuses the post, saying so."
+  fields:
+    - {name: variable_name, type: data, required: true, in_list: true, label: Name, description: "Letters, digits and _"}
+    - {name: value, type: text, required: true, in_list: true}
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true}
+  list: {columns: [variable_name, value, brand, account], sort: variable_name asc}

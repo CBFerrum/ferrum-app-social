@@ -24,6 +24,7 @@ mod accounts;
 mod content;
 mod inbox;
 mod insights;
+mod library;
 mod metrics;
 mod posts;
 mod review;
@@ -63,6 +64,9 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("SocialMessage", Arc::new(inbox::MessageHook))
         .register("SocialReply", Arc::new(inbox::ReplyHook))
         .register("SocialPostingTime", Arc::new(when::PostingTimeHook));
+    for library in ["SocialTemplate", "SocialSet", "SocialSignature", "SocialVariable"] {
+        hooks.register(library, Arc::new(library::LibraryHook));
+    }
     hooks.add_job_handler(Arc::new(posts::PublishJob)).add_job_handler(Arc::new(inbox::ReplyJob));
 }
 

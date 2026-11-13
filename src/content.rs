@@ -142,17 +142,12 @@ pub(crate) async fn version(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, accou
     }
     let kind = s(&target, "kind").or(s(account, "default_kind")).map(str::trim).filter(|k| !k.is_empty()).map(str::to_string);
     let mut v = Version { kind, settings, items, first_comment: s(doc, "first_comment").filter(|c| !c.trim().is_empty()).map(str::to_string) };
-    finish(k, ctx, tx, doc, account, &mut v).await?;
+    crate::library::finish(k, ctx, tx, doc, account, &mut v).await?;
     Ok(v)
 }
 
 fn copy_name(account: &Doc) -> String {
     s(account, "account_name").unwrap_or("the account").to_string()
-}
-
-/// The words made final: variables filled, the signature added (S6).
-async fn finish(_k: &Kernel, _ctx: &Ctx, _tx: &mut Tx, _doc: &Doc, _account: &Doc, _v: &mut Version) -> Result<()> {
-    Ok(())
 }
 
 /// What approval fixes: the words, the link, the media and what they say of them, the follow-ups, where and when it
