@@ -4,7 +4,7 @@
 // PATCH sort_order, POST SocialAccount; the server's words are shown as they come.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { api, errorMessage, isolate, refusal, t } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, confirmDialog, Dialog, Field, ListSkeleton, PageHead, PageStack, StatePanel, StatusBadge, toast } from "@ferrum/kit";
@@ -29,11 +29,20 @@ export interface Connected {
   note?: string | null;
 }
 
-/** Where a sign-in that leaves the page goes: the address the platform's answer names (`url`, `authorize_url` or `redirect`), else nowhere. */
+/** Where a sign-in goes: the provider's address in the platform's answer to the connect path (`{url}`, not a redirect). */
 export function leaveFor(answer: unknown): string | null {
-  const a = (answer ?? {}) as Record<string, unknown>;
-  for (const k of ["url", "authorize_url", "redirect", "location"]) if (typeof a[k] === "string" && a[k]) return a[k] as string;
-  return null;
+  const url = (answer as { url?: unknown } | null)?.url;
+  return typeof url === "string" && url ? url : null;
+}
+
+/**
+ * Opens the provider's sign-in in a new tab, so this page (and the composer, if it is open in another) keeps its state while the
+ * person signs in; the callback page there only says "close this window". Where a new tab is blocked it opens in this one.
+ */
+export function openSignIn(url: string): void {
+  const tab = window.open(url, "_blank");
+  if (tab) tab.opener = null;
+  else window.location.assign(url);
 }
 
 /** Swaps the order of two neighbours: the order values to write (each account's `sort_order`, 0, 1, 2 … by the list shown). */
@@ -190,7 +199,7 @@ function AddAccount({ brands, onClose }: { brands: Row[]; onClose: () => void })
   );
 }
 
-function AccountCard({ a, first, last, canWrite, onMove, onChoose }: { a: Row; first: boolean; last: boolean; canWrite: boolean; onMove: (by: -1 | 1) => void; onChoose: () => void }) {
+function AccountCard({ a, first, last, canWrite, onMove, onChoose, onStarted }: { a: Row; first: boolean; last: boolean; canWrite: boolean; onMove: (by: -1 | 1) => void; onChoose: () => void; onStarted: (id: string) => void }) {
   const client = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [refused, setRefused] = useState("");
@@ -206,7 +215,8 @@ function AccountCard({ a, first, last, canWrite, onMove, onChoose }: { a: Row; f
         const started = await api.post<unknown>(out.connect.path, {});
         const to = leaveFor(started);
         if (to) {
-          window.location.assign(to);
+          onStarted(a.id);
+          openSignIn(to);
           return;
         }
       } else if (name === "connect") toast(out.note || t("Signed in: {state}", { state: text(out.state) }));
@@ -275,6 +285,34 @@ export function AccountsRoute() {
   const canCreate = useAllowed("SocialAccount", "create");
   const [picking, setPicking] = useState<Row | null>(null);
   const [adding, setAdding] = useState(false);
+  // Accounts whose sign-in was opened in another tab: when the person comes back, each is checked, and a sign-in that reaches
+  // several pages offers the picker.
+  const [started, setStarted] = useState<string[]>([]);
+  useEffect(() => {
+    if (!started.length) return;
+    const back = async () => {
+      if (document.visibilityState === "hidden") return;
+      for (const id of started) {
+        try {
+          const out = await run<{ state: string }>("SocialAccount", id, "check");
+          if (out.state !== "Connected") continue;
+          setStarted((s) => s.filter((x) => x !== id));
+          await client.invalidateQueries({ queryKey: ["social", "accounts"] });
+          toast(t("Signed in: {state}", { state: stateWord(out.state) }));
+          const reach = await run<{ accounts: unknown[] }>("SocialAccount", id, "reachable").catch(() => null);
+          if (reach && reach.accounts.length > 1) setPicking((await client.fetchQuery({ queryKey: ["social", "accounts"], queryFn: () => rows("SocialAccount") })).find((a) => a.id === id) ?? null);
+        } catch {
+          // not yet: it is checked again at the next return
+        }
+      }
+    };
+    window.addEventListener("focus", back);
+    document.addEventListener("visibilitychange", back);
+    return () => {
+      window.removeEventListener("focus", back);
+      document.removeEventListener("visibilitychange", back);
+    };
+  }, [started, client]);
   const move = useMutation({
     mutationFn: async ({ list, id, by }: { list: Row[]; id: string; by: -1 | 1 }) => {
       for (const [aid, n] of reorder(list, id, by)) await change("SocialAccount", aid, { sort_order: n });
@@ -318,7 +356,7 @@ export function AccountsRoute() {
                     </h2>
                     <ul className="stack">
                       {own.map((a, i) => (
-                        <AccountCard key={a.id} a={a} first={i === 0} last={i === own.length - 1} canWrite={canWrite} onMove={(by) => move.mutate({ list: own, id: a.id, by })} onChoose={() => setPicking(a)} />
+                        <AccountCard key={a.id} a={a} first={i === 0} last={i === own.length - 1} canWrite={canWrite} onMove={(by) => move.mutate({ list: own, id: a.id, by })} onChoose={() => setPicking(a)} onStarted={(id) => setStarted((s) => [...new Set([...s, id])])} />
                       ))}
                     </ul>
                   </section>
