@@ -219,3 +219,20 @@ export function mediumOfAsset(a: Row): MediaState {
   const n = (v: unknown) => (typeof v === "number" ? v : v == null || v === "" ? undefined : Number(v));
   return { key: keyed(), file: str(a.file), name: str(a.asset_name) || str(a.file), kind: str(a.kind), type: str(a.content_type) || undefined, alt: str(a.alt), thumbnail: "", width: n(a.width), height: n(a.height), seconds: n(a.seconds), bytes: n(a.bytes), asset: a.id };
 }
+
+/** The position of a medium among the media lines a save writes (the original's, then each version's in the order of the accounts): what the `describe` action's `medium` means. */
+export function mediaIndex(d: Draft, key: string): number {
+  let n = 0;
+  const walk = (c: Content): number | null => {
+    for (const it of c.items) for (const m of it.media) { if (m.key === key) return n; n++; }
+    return null;
+  };
+  const found = walk(d.original);
+  if (found !== null) return found;
+  for (const tg of d.targets) {
+    const own = d.versions[tg.account];
+    const f = own ? walk(own) : null;
+    if (f !== null) return f;
+  }
+  return -1;
+}
