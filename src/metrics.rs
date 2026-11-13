@@ -150,6 +150,52 @@ async fn read_one(k: &Kernel, ctx: &Ctx, account: &Doc, t: &Target, today: Naive
     Ok(())
 }
 
+/// Publications out from `from` to `to` (of a brand), and their impressions, engagements and clicks.
+pub(crate) async fn totals(tx: &mut sqlx::PgConnection, tenant: Uuid, from: NaiveDate, to: NaiveDate, brand: Option<Uuid>) -> Result<[i64; 4]> {
+    let (n, i, e, c): (i64, i64, i64, i64) = sqlx::query_as(
+        "select count(*), coalesce(sum(p.impressions), 0)::bigint, coalesce(sum(p.engagements), 0)::bigint, coalesce(sum(p.clicks), 0)::bigint \
+         from e_social_publication p join e_social_account a on a.tenant_id = p.tenant_id and a.id = p.account \
+         where p.tenant_id = $1 and p.sent_at is not null and p.sent_at::date between $2 and $3 and ($4::uuid is null or a.brand = $4)",
+    )
+    .bind(tenant)
+    .bind(from)
+    .bind(to)
+    .bind(brand)
+    .fetch_one(tx)
+    .await?;
+    Ok([n, i, e, c])
+}
+
+/// Each brand's numbers of the last seven days against the seven before, and its top post, kept on the brand for its
+/// weekly report document (`social.brand_report`) and the digest; once a day at most.
+pub(crate) async fn brand_numbers(k: &Kernel, ctx: &Ctx, tx: &mut ferrum_kernel::Tx, today: NaiveDate) -> Result<()> {
+    for b in k.find_tx(ctx, tx, "SocialBrand", &[], None, 500).await? {
+        if b.get("numbers").and_then(|n| n["to"].as_str()).is_some_and(|t| t == today.to_string()) {
+            continue;
+        }
+        let brand = id(&b, "id");
+        let (from, pfrom) = (today - Duration::days(6), today - Duration::days(13));
+        let now = totals(&mut *tx, ctx.tenant, from, today, brand).await?;
+        let before = totals(&mut *tx, ctx.tenant, pfrom, from - Duration::days(1), brand).await?;
+        let top: Option<(String, Option<i64>, Option<String>)> = sqlx::query_as(
+            "select po.headline, p.engagements, p.permalink from e_social_publication p join e_social_account a on a.tenant_id = p.tenant_id and a.id = p.account \
+             join e_social_post po on po.tenant_id = p.tenant_id and po.id = p.post \
+             where p.tenant_id = $1 and p.sent_at::date between $2 and $3 and a.brand = $4 order by coalesce(p.engagements, 0) desc limit 1",
+        )
+        .bind(ctx.tenant)
+        .bind(from)
+        .bind(today)
+        .bind(brand)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let numbers = json!({"from": from.to_string(), "to": today.to_string(), "publications": now[0], "impressions": now[1], "engagements": now[2], "clicks": now[3],
+                             "before": {"publications": before[0], "impressions": before[1], "engagements": before[2], "clicks": before[3]},
+                             "top": top.map(|(h, e, l)| json!({"headline": h, "engagements": e, "permalink": l}))});
+        k.set_values_tx(&elevated(ctx), tx, "SocialBrand", brand.unwrap_or_default(), obj(json!({"numbers": numbers}))).await?;
+    }
+    Ok(())
+}
+
 pub struct MetricReports;
 
 /// The report's span, from its parameters.
@@ -178,10 +224,16 @@ impl ReportSource for MetricReports {
             Value::Array(all)
         };
         let account = json!([{"name": "account", "label": "Account", "type": "link", "to": "SocialAccount"}]);
+        let by = json!([{"name": "by", "label": "By", "type": "select", "options": ["engagements", "impressions", "clicks"]}, {"name": "limit", "label": "How Many", "type": "int"}]);
         vec![
             json!({"name": "social_by_account", "label": "Social Numbers by Account", "module": "social", "entity": "SocialMetric", "scoped": false, "params": params(json!([]))}),
-            json!({"name": "social_by_post", "label": "Social Numbers by Post", "module": "social", "entity": "SocialMetric", "scoped": false, "params": params(account)}),
+            json!({"name": "social_by_post", "label": "Social Numbers by Post", "module": "social", "entity": "SocialMetric", "scoped": false, "params": params(account.clone())}),
             json!({"name": "social_by_tag", "label": "Social Numbers by Tag", "module": "social", "entity": "SocialMetric", "scoped": false, "params": params(json!([]))}),
+            json!({"name": "social_by_network", "label": "Social Numbers by Network", "module": "social", "entity": "SocialPublication", "scoped": false, "params": params(json!([]))}),
+            json!({"name": "social_by_kind", "label": "Social Numbers by Kind of Post", "module": "social", "entity": "SocialPublication", "scoped": false, "params": params(json!([]))}),
+            json!({"name": "social_period_compare", "label": "Social Numbers Against the Period Before", "module": "social", "entity": "SocialPublication", "scoped": false, "params": params(json!([]))}),
+            json!({"name": "social_followers_by_day", "label": "Social Followers by Day", "module": "social", "entity": "SocialMetric", "scoped": false, "params": params(account.clone())}),
+            json!({"name": "social_top_posts", "label": "Social Top Posts", "module": "social", "entity": "SocialPublication", "scoped": false, "params": params(by)}),
         ]
     }
 
@@ -267,6 +319,84 @@ impl ReportSource for MetricReports {
                     json!({"columns": [col("tag", "Tag", "data"), col("publications", "Publications", "int"), col("impressions", "Impressions", "int"), col("reach", "Reach", "int"),
                                        col("engagements", "Engagements", "int"), col("clicks", "Clicks", "int")], "rows": list, "meta": meta})
                 }
+            }
+            "social_by_network" | "social_by_kind" => {
+                let group = if name == "social_by_network" { "coalesce(nullif(a.network, ''), '-')" } else { "coalesce(nullif(p.kind, ''), '-')" };
+                let rows: Vec<(String, i64, i64, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                    "select {group}, count(*), coalesce(sum(p.impressions), 0)::bigint, coalesce(sum(p.engagements), 0)::bigint, coalesce(sum(p.clicks), 0)::bigint \
+                     from e_social_publication p join e_social_account a on a.tenant_id = p.tenant_id and a.id = p.account \
+                     where p.tenant_id = $1 and p.sent_at is not null and p.sent_at::date between $2 and $3 and ($4::uuid is null or a.brand = $4) group by 1 order by 4 desc, 1"
+                )))
+                .bind(ctx.tenant)
+                .bind(from)
+                .bind(to)
+                .bind(brand)
+                .fetch_all(&mut *tx)
+                .await?;
+                let key = if name == "social_by_network" { "network" } else { "kind" };
+                let list: Vec<Value> =
+                    rows.iter().map(|(g, n, i, e, c)| json!({key: g, "publications": n, "impressions": i, "engagements": e, "clicks": c})).collect();
+                let label = if name == "social_by_network" { "Network" } else { "Kind" };
+                json!({"columns": [col(key, label, "data"), col("publications", "Publications", "int"), col("impressions", "Impressions", "int"), col("engagements", "Engagements", "int"),
+                                   col("clicks", "Clicks", "int")], "rows": list, "meta": meta})
+            }
+            "social_period_compare" => {
+                let days = (to - from).num_days() + 1;
+                let (pfrom, pto) = (from - Duration::days(days), from - Duration::days(1));
+                let now = totals(&mut tx, ctx.tenant, from, to, brand).await?;
+                let before = totals(&mut tx, ctx.tenant, pfrom, pto, brand).await?;
+                let list: Vec<Value> = ["publications", "impressions", "engagements", "clicks"]
+                    .iter()
+                    .zip(now.iter().zip(before.iter()))
+                    .map(|(m, (n, b))| {
+                        json!({"measure": m, "this_period": n, "period_before": b, "change": n - b,
+                                              "change_pct": if *b == 0 { Value::Null } else { json!(((n - b) as f64 * 1000.0 / *b as f64).round() / 10.0) }})
+                    })
+                    .collect();
+                json!({"columns": [col("measure", "Number", "data"), col("this_period", "This Period", "int"), col("period_before", "Period Before", "int"), col("change", "Change", "int"),
+                                   col("change_pct", "Change (%)", "decimal")], "rows": list,
+                       "meta": {"from_date": from.to_string(), "to_date": to.to_string(), "before_from": pfrom.to_string(), "before_to": pto.to_string()}})
+            }
+            "social_followers_by_day" => {
+                let rows: Vec<(NaiveDate, String, Option<i64>)> = sqlx::query_as(
+                    "select m.day, a.account_name, m.followers from e_social_metric m join e_social_account a on a.tenant_id = m.tenant_id and a.id = m.account \
+                     where m.tenant_id = $1 and m.publication is null and m.followers is not null and m.day between $2 and $3 and ($4::uuid is null or a.brand = $4) \
+                       and ($5::uuid is null or m.account = $5) order by m.day, a.account_name",
+                )
+                .bind(ctx.tenant)
+                .bind(from)
+                .bind(to)
+                .bind(brand)
+                .bind(p.uuid("account")?)
+                .fetch_all(&mut *tx)
+                .await?;
+                let list: Vec<Value> = rows.iter().map(|(d, a, f)| json!({"day": d.to_string(), "account": a, "followers": f})).collect();
+                json!({"columns": [col("day", "Day", "date"), col("account", "Account", "data"), col("followers", "Followers", "int")], "rows": list, "meta": meta})
+            }
+            "social_top_posts" => {
+                let by = params.get("by").map(String::as_str).filter(|b| matches!(*b, "impressions" | "clicks")).unwrap_or("engagements");
+                let limit = params.get("limit").and_then(|l| l.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
+                let rows: Vec<(String, String, DateTime<Utc>, Option<String>, Option<i64>, Option<i64>, Option<i64>)> =
+                    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                        "select po.headline, a.account_name, p.sent_at, p.permalink, p.impressions, p.engagements, p.clicks \
+                     from e_social_publication p join e_social_account a on a.tenant_id = p.tenant_id and a.id = p.account \
+                       join e_social_post po on po.tenant_id = p.tenant_id and po.id = p.post \
+                     where p.tenant_id = $1 and p.sent_at is not null and p.sent_at::date between $2 and $3 and ($4::uuid is null or a.brand = $4) \
+                     order by coalesce(p.{by}, 0) desc, p.sent_at desc limit $5"
+                    )))
+                    .bind(ctx.tenant)
+                    .bind(from)
+                    .bind(to)
+                    .bind(brand)
+                    .bind(limit)
+                    .fetch_all(&mut *tx)
+                    .await?;
+                let list: Vec<Value> = rows
+                    .iter()
+                    .map(|(h, a, sent, link, i, e, c)| json!({"post": h, "account": a, "sent_at": sent.to_rfc3339(), "permalink": link, "impressions": i, "engagements": e, "clicks": c}))
+                    .collect();
+                json!({"columns": [col("post", "Post", "data"), col("account", "Account", "data"), col("sent_at", "Sent", "datetime"), col("permalink", "Address", "data"),
+                                   col("impressions", "Impressions", "int"), col("engagements", "Engagements", "int"), col("clicks", "Clicks", "int")], "rows": list, "meta": meta})
             }
             _ => return Err(Error::NotFound(format!("report {name}"))),
         };
