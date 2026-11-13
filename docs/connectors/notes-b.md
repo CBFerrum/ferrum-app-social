@@ -31,14 +31,15 @@ provider code (AGPL, read only).
 
 **Does**: bot token as the connection's secret (in the URL path, as Telegram wants it); the chats the bot was added to
 are what the sign-in reaches (`getUpdates`, `my_chat_member`), the chat id is the account's id on the network; two
-kinds: `message` (HTML, 4096) and `media` (caption 1024, 1 to 10 photos, videos or files, one kind in a post); text,
-photos, videos and documents (each medium its own message, the words as the first one's caption); follow-ups as replies
-(`reply_parameters`), text only; delete (`deleteMessages`, every message of the item in one call); the account's
-members (`getChatMemberCount`) and name.
-**Cannot**: an album (`sendMediaGroup` needs every file as a part of one request; `form` cannot take a list of files:
-platform, a `form` part repeated per item of a list); numbers for a post (the Bot API gives a bot no views or
-reactions); mentions; files above 25 MB (Telegram takes 50 MB, the platform's part limit is 25 MB); a lost answer on a
-send fails the call (no idempotency header and no way to read a message back).
+kinds: `message` (HTML, 4096) and `media` (caption 1024, one to nine photos, videos or files); text, a single
+photo, video or document, and an album of two to nine (`sendMediaGroup`: one operation for each count, because a `form`
+has a fixed set of parts; photos and videos may mix, documents only with documents; the words are the first item's
+caption); follow-ups as replies (`reply_parameters`), text only; delete (`deleteMessages`, every message of the item in one
+call, the id is `<chat>:<first>,<second>...`); the account's members (`getChatMemberCount`) and name.
+**Cannot**: ten in an album (Telegram takes 10; one operation may have 12 steps, and text, three singles and eight
+album sizes use them: *needed from the platform*, more steps or a file part repeated for each item of a list); numbers for a
+post (the Bot API gives a bot no views or reactions); mentions; files above 25 MB (Telegram takes 50 MB, the platform's
+part limit is 25 MB); a lost answer on a send fails the call (no idempotency header and no way to read a message back).
 **Unverified**: the token's `:` is sent as it is (the `url` form of an operation prints it unencoded; a path would
 percent-encode it); an empty `caption` on the second and later pictures; that 429 carries a `Retry-After` header (the
 API gives `parameters.retry_after` in the body, which the platform does not read, so the call is "later" with the
@@ -404,3 +405,37 @@ and nothing to read back before the status exists).
 `post_ids`, that the refresh call also serves as the first login, `expires_in` in seconds, the UTF-16 counting.
 **Setup**: a TikTok for Business developer app with the media domain verified; authorize once to get the first refresh
 token; put the four values under the connection's secrets.
+
+## Farcaster (`farcaster.json`, through Neynar)
+
+**Does**: Neynar's hosted-signer API: the API key (`x-api-key`) and a signer's uuid, already approved, as connection secrets;
+the signer's Farcaster user (fid) is the account (name, picture, followers); a cast of 320 bytes with up to two embedded
+addresses (a setting, comma-separated), an optional channel (search-as-you-type choices from `/channel/search`; one channel,
+as Neynar takes one); follow-ups as a thread of replies (`parent` the cast before; the channel only on the first); delete
+(`DELETE /cast`); likes + recasts + replies as engagements.
+**Never twice**: Neynar takes an `idem` key in the body to make a cast once; the description sends the call's key as it
+(`{{ key | tid }}`) and names an `idempotency_header` (ignored by Neynar) only so that the platform may send again after a
+lost answer, as for Discord's nonce. A second send is answered with the first cast.
+**Cannot**: embed a stored picture (Neynar takes web addresses: *needed from Social*, `media_items[].url`; until then the
+addresses are typed into the setting); create or approve the signer (done once in Neynar's dashboard or API; the signer
+needs a Farcaster account's approval); 1024-byte casts of Pro accounts; several channels at once; mentions; edit.
+**Unverified**: the 320-byte limit and its counting in bytes; the `idem` length limit (16 characters; the key's `tid` is 13);
+`DELETE /cast` with a body; the cast's address (not mapped: the id is the hash); Neynar's rate limits depend on the plan.
+**Setup**: a Neynar app (API key), a managed signer approved by the Farcaster account, both under the connection's secrets.
+
+## Nostr: no description
+
+A Nostr post is an event the person's own key signs (a Schnorr signature over the event's hash, secp256k1), sent to relays
+over WebSocket. Neither can be done by a connection description: the platform has no signature of that kind (its `signed`
+auth is an HMAC-SHA256 of a body with a shared secret), no WebSocket, and no way to keep a person's private key that the
+platform itself would not be able to read. What it would need: (1) a **signer**: a connection `auth` type that signs with a
+key held under a secret (BIP-340) over an expression of the event (`id = sha256` of the serialised `[0, pubkey, created_at,
+kind, tags, content]`, already available as filters), or better, a remote signer protocol (NIP-46, bunker) so the key never
+reaches Ferrum; (2) a **relay call**: a request kind that opens a socket, sends `["EVENT", ...]` and reads the `OK`; or
+a relay's HTTP bridge. Postiz keeps the key in a signed (not encrypted) token and posts to five fixed relays. Recorded; not
+built.
+
+## Skool: no description
+
+Skool has no public API; Postiz signs in with cookies taken from a browser extension. The lead has decided not to build it.
+Recorded.
