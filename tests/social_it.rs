@@ -931,6 +931,17 @@ async fn scenario() {
     t.k.update(&author, "SocialPost", uid(&half["id"]), obj(json!({"text": "Fixed", "targets": [target(nw_threads, answered.clone())]})), None).await.unwrap();
     t.act(&author, "SocialPost", uid(&half["id"]), "send_for_review", Value::Null).await.unwrap();
     refused(t.k.update(&author, "SocialPost", uid(&half["id"]), obj(json!({"text": "b".repeat(150)})), None).await, "invalid", "takes 100 characters");
+    // (round two) The same answer for a body never saved: `_calc` with want_checks, nothing written.
+    let mut body = tagged(&"c".repeat(120), &[], "Unsaved");
+    body["link"] = Value::Null;
+    body["targets"] = json!([target(nw_threads, json!({"settings": {"audience": "everyone"}}))]);
+    body["want_checks"] = json!(true);
+    let before_count = t.rows("SocialPost", json!({})).await.len();
+    let calc = t.k.preview(&author, "SocialPost", obj(body)).await.unwrap();
+    let c = &calc["checks"]["copies"][0];
+    assert_eq!((c["items"][0]["length"].as_i64(), c["items"][0]["max"].as_i64()), (Some(120), Some(100)), "{calc:?}");
+    assert!(c["problems"].to_string().contains("this post is 120"));
+    assert_eq!(t.rows("SocialPost", json!({})).await.len(), before_count, "nothing saved");
     // Versions: the original to one account, the account's own words to another.
     let mut versions = tagged("The original words", &[nw_key], "Versions");
     versions["targets"] =

@@ -149,6 +149,12 @@ impl DocHook for PostHook {
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
         crate::media::fill_lines(hc, doc).await?;
+        // Asked for by a body sent to `_calc` (nothing written): each account's copy, as `copies` answers it.
+        if doc.get("want_checks").and_then(Value::as_bool) == Some(true) {
+            let checks = copies_of(hc.kernel, hc.ctx, hc.tx, doc).await?;
+            doc.insert("checks".into(), checks);
+            doc.insert("want_checks".into(), json!(false));
+        }
         if s(doc, "author").is_none() && !hc.ctx.email.is_empty() {
             doc.insert("author".into(), json!(hc.ctx.email.to_lowercase()));
         }
@@ -255,12 +261,16 @@ impl DocHook for PostHook {
 /// `copies`: what each account gets, its words final (variables filled, signature added), each item's length as its
 /// network counts it against its most, and what is wrong, for the composer's preview and counters.
 async fn copies(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> {
-    let system = elevated(hc.ctx);
+    copies_of(hc.kernel, hc.ctx, hc.tx, doc).await
+}
+
+/// What `copies` answers, for a saved post or an unsaved body; accounts read with the caller's rights; no network called.
+pub(crate) async fn copies_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> Result<Value> {
     let mut out = vec![];
     for account in content::accounts(doc) {
-        let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
-        let r = rules_of(hc.kernel, hc.ctx, hc.tx, &a).await?.unwrap_or_default();
-        let (v, mut problems) = match content::version(hc.kernel, hc.ctx, hc.tx, doc, &a).await {
+        let a = k.get_tx(ctx, tx, "SocialAccount", account, false).await?;
+        let r = rules_of(k, ctx, tx, &a).await?.unwrap_or_default();
+        let (v, mut problems) = match content::version(k, ctx, tx, doc, &a).await {
             Ok(v) => (v, vec![]),
             Err(e) => (Version::default(), vec![e.to_string()]),
         };
