@@ -137,3 +137,22 @@ call ("may have been sent"): Medium offers no list of one's stories to read back
 template is minijinja's, checked only by the fake.
 **Setup**: an integration token from Medium's settings (only an account that already has one), under
 `integration_token`.
+
+## DEV Community (`devto.json`)
+
+**Does**: an API key (`api-key` header, the v1 `Accept` type); the key's user is the account; a markdown article with
+title, tags (up to four, choices from `/tags`), cover picture by address, original address, summary, series, an
+organisation (choices) and a draft switch; the article's address; "delete" unpublishes (`PUT /articles/{id}` with
+`published: false`; the API has no delete).
+**Never twice**: no idempotency header. After a lost answer the call reads the author's own articles (`/articles/me/all`)
+for one with that title published since the publication's `created_at` (compared to the second); a draft cannot be
+found that way, so a lost answer on a draft fails the call instead of being resent.
+**Cannot**: upload a cover (the API has no upload: the cover is an address typed as a setting. *Needed from Social*: a
+public address for a stored file, e.g. `media_items[].url`, to fill `main_image` from the composer's picture; and a
+title as a first-class input); list all organisations (Forem has no call for a user's own: the choices are the
+organisations of the articles already written, as Postiz does); edit; numbers (page views and reactions are in
+`/articles/me/all`; they are not mapped here: `metrics` would need the article's own read); follow-ups (none).
+**Unverified**: rate limits (the pages I could recall name none that I trust, so none is set); that `PUT /articles/{id}`
+unpublishes with an API key for the author's own article; `published_timestamp` as the field to read back by; the
+128-character title limit; a tag outside the list is refused (the choices only offer the list).
+**Setup**: an API key (Settings, Extensions) under `api_key`.
