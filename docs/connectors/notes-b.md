@@ -120,3 +120,20 @@ the `Content-Disposition` form with a quoted file name for names with quotes; no
 **Setup**: a user with the right to publish, an application password (Users, Profile), HTTPS and the REST API
 reachable at `/wp-json` (pretty permalinks or `?rest_route=` not supported here); put the site address where the
 placeholder is (four places) and the user name in `auth.username`.
+
+## Medium (`medium.json`)
+
+**Does**: an integration token (bearer); the token's user is the account (`/me`); a story in markdown with title (100),
+tags (comma-separated text, trimmed, empty ones dropped), original address, visibility (public, draft, unlisted), licence,
+"tell followers", and a publication (choices from `/users/{id}/publications`; the story then goes to
+`/publications/{id}/posts`); a picture: uploaded to `/images` and written at the top of the story as `![alt](address)`;
+the story's address.
+**Cannot**: delete or edit (the API has neither: `delete_remote` says the connection does not offer it); numbers (none);
+more than three tags (Medium ignores the rest; the setting does not count them); several pictures (one is the lead; more
+would be inline, which needs Social to place media in the text); follow-ups (none); a lost answer on the story fails the
+call ("may have been sent"): Medium offers no list of one's stories to read back, and no idempotency header.
+**Unverified**: all of it against the live service: Medium stopped issuing integration tokens to new accounts in 2023
+(existing tokens still work); the picture types; the 100-character title limit; `reject("equalto", "")` in the tags
+template is minijinja's, checked only by the fake.
+**Setup**: an integration token from Medium's settings (only an account that already has one), under
+`integration_token`.
