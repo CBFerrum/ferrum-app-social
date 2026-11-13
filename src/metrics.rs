@@ -108,6 +108,10 @@ async fn read_one(k: &Kernel, ctx: &Ctx, account: &Doc, t: &Target, today: Naive
         return Ok(());
     }
     let (Some(conn), Some(calling)) = (conn, calling) else { return Ok(()) };
+    // A service that asked to wait is left alone until then: not an error of the account's.
+    if crate::outside::waiting(ctx.tenant, conn.id).is_some() {
+        return Ok(());
+    }
     let operation = if t.publication.is_some() { "metrics" } else { "account" };
     if !conn.has(operation) {
         return Ok(());
@@ -120,7 +124,10 @@ async fn read_one(k: &Kernel, ctx: &Ctx, account: &Doc, t: &Target, today: Naive
         entity: Some(if t.publication.is_some() { "SocialPublication" } else { "SocialAccount" }.into()),
         record: Some(t.publication.unwrap_or(t.account)),
     };
-    let result = connections::call(k, &calling?, Some(crate::APP), &call).await.map_err(crate::said)?;
+    let result = match crate::outside::heed(ctx.tenant, conn.id, connections::call(k, &calling?, Some(crate::APP), &call).await.map_err(crate::said)) {
+        Err(Error::RetryAfter(..)) => return Ok(()),
+        other => other?,
+    };
     let numbers = read(&result);
     if numbers.is_empty() {
         return Ok(());

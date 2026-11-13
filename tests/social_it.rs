@@ -63,6 +63,9 @@ struct Net {
     written: Vec<String>,
     /// The feed's items.
     feed: Vec<Value>,
+    /// Answer 429 with Retry-After (seconds) this many times to a post, and to every read of numbers while set.
+    posts_retry: usize,
+    stats_retry: Option<u64>,
     inbox: Vec<Value>,
     stats_down: bool,
     /// Calls to /me and /posts/*/stats.
@@ -120,6 +123,10 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
             n.media.push(json_body);
             (200, json!({"media": {"id": format!("m-{}", n.media.len())}}))
         }
+        ("POST", "/v1/posts") if n.posts_retry > 0 => {
+            n.posts_retry -= 1;
+            (429, json!({"error": {"message": "Slow down"}, "__retry_after": 120}))
+        }
         ("POST", "/v1/posts") => {
             if n.refuse_text.as_ref().is_some_and(|r| json_body["text"].as_str().unwrap_or_default().contains(r.as_str())) {
                 return (422, json!({"error": {"message": "That item is not allowed"}}));
@@ -171,6 +178,10 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
             (200, json!(people.into_iter().filter(|p| p["name"].as_str().unwrap().to_lowercase().contains(&q)).collect::<Vec<_>>()))
         }
         ("GET", "/v1/boards") => (200, json!({"items": [{"id": "b-1", "name": "Spring"}, {"id": "b-2", "name": "Summer"}], "for": path.split("for=").nth(1)})),
+        ("GET", "/v1/me") | ("GET", _) if n.stats_retry.is_some() && (route == "/v1/me" || route.ends_with("/stats")) => {
+            n.reads += 1;
+            (429, json!({"error": {"message": "Stats are rate limited"}, "__retry_after": n.stats_retry}))
+        }
         ("GET", "/v1/me") => {
             n.reads += 1;
             if n.stats_down {
@@ -282,12 +293,13 @@ async fn serve(net: Shared) -> u16 {
                     lines.filter_map(|l| l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))).collect();
                 let header = |h: &str| headers.iter().find(|(k, _)| k == h).map(|(_, v)| v.clone());
                 let (status, reply) = answer(&mut net.lock().unwrap(), &method, &path, &header, body);
-                // A file is answered as its bytes: `{"__bytes": text, "__type": content type}`.
+                // A file is answered as its bytes: `{"__bytes": text, "__type": content type}`; `__retry_after` adds the header.
+                let retry = reply.get("__retry_after").and_then(Value::as_u64).map(|s| format!("retry-after: {s}\r\n")).unwrap_or_default();
                 let (kind, reply) = match reply.get("__bytes").and_then(Value::as_str) {
                     Some(b) => (reply["__type"].as_str().unwrap_or("application/octet-stream").to_string(), b.to_string()),
                     None => ("application/json".to_string(), reply.to_string()),
                 };
-                let out = format!("HTTP/1.1 {status} X\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
+                let out = format!("HTTP/1.1 {status} X\r\ncontent-type: {kind}\r\n{retry}content-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
                 let _ = s.write_all(out.as_bytes()).await;
             });
         }
@@ -1620,6 +1632,34 @@ async fn scenario() {
     let pic = t.get("SocialMediaAsset", uid(&made["media"][0]["asset"])).await;
     assert_eq!((pic["source"].as_str(), pic["source_id"].as_str()), (Some("Feed"), Some("https://blog.example/1.png")));
     assert!(t.get("SocialFeed", uid(&blog["id"])).await["last_error"].is_null());
+
+    // ───────────── (round three) a service's Retry-After: the post's job comes back then; the upkeep leaves it alone ─────────────
+    let slow = t.insert(&author, "SocialPost", tagged("Slowly", &[nw_key], "Slow")).await;
+    go(uid(&slow["id"])).await;
+    t.net.lock().unwrap().posts_retry = 1;
+    ferrum_app_social::maintenance_at(&t.k, due + Duration::hours(30)).await.unwrap();
+    t.k.run_jobs_once(1).await.unwrap();
+    let spub = t.rows("SocialPublication", json!({"post": uid(&slow["id"]).to_string()})).await.remove(0);
+    assert!(spub["failure"].as_str().unwrap().starts_with("Waiting to try again") && spub["failed_at"].is_null(), "{spub:?}");
+    let wait = t
+        .count(&format!(
+            "select extract(epoch from run_at - now())::bigint from job where tenant_id = $1 and dedupe_key = 'publish:{}'",
+            spub["id"].as_str().unwrap()
+        ))
+        .await;
+    assert!((100..=121).contains(&wait), "put back for the 120 seconds the service said: {wait}");
+    t.upkeep(due + Duration::hours(30)).await;
+    assert_eq!(t.get("SocialPost", uid(&slow["id"])).await["status"], "Published");
+    let reads = t.net.lock().unwrap().reads;
+    t.net.lock().unwrap().stats_retry = Some(2);
+    let later_day = due + Duration::days(9);
+    ferrum_app_social::maintenance_at(&t.k, later_day).await.unwrap();
+    let asked = t.net.lock().unwrap().reads - reads;
+    ferrum_app_social::maintenance_at(&t.k, later_day).await.unwrap();
+    assert_eq!(t.net.lock().unwrap().reads - reads, asked, "nothing asked again while the service said to wait");
+    assert!(asked <= 8 && t.get("SocialAccount", nw_key).await["metrics_error"].is_null(), "once a connection, and no error on the account: {asked}");
+    t.net.lock().unwrap().stats_retry = None;
+    tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
 
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();

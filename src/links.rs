@@ -209,8 +209,12 @@ pub(crate) async fn clicks(k: &Kernel, tenant: Uuid, now: DateTime<Utc>) -> Resu
         }
         let mut total = 0i64;
         for (long, short) in p.get("short_links").and_then(Value::as_object).into_iter().flatten() {
-            let got = outside::call(k, &ctx, &conn, "link_clicks", json!({"id": short["id"], "url": short["url"], "long": long}), None, None).await;
-            total += got.ok().and_then(|g| g["clicks"].as_i64()).unwrap_or(0);
+            match outside::call(k, &ctx, &conn, "link_clicks", json!({"id": short["id"], "url": short["url"], "long": long}), None, None).await {
+                Ok(g) => total += g["clicks"].as_i64().unwrap_or(0),
+                // Asked to wait: read another time, the clicks kept as they were.
+                Err(e) if outside::later(&e) => return Ok(()),
+                Err(_) => {}
+            }
         }
         let mut tx = k.db.tenant_tx(tenant).await?;
         k.set_values_tx(

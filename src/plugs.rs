@@ -110,6 +110,8 @@ async fn act(k: &Kernel, ctx: &Ctx, plug: &Doc, p: &Doc, account: Uuid, action: 
     let conn = reach(&mut tx, ctx.tenant, s(&a, "connection")).await?;
     let (state, note, made) = match conn.as_ref().filter(|c| c.enabled && c.has(&op)) {
         None => ("Skipped", Some(format!("{name}'s connection does not offer {op}")), None),
+        // A service that asked to wait is asked again when it said, at the upkeep after.
+        Some(conn) if crate::outside::waiting(ctx.tenant, conn.id).is_some() => return Ok(false),
         Some(conn) => {
             let text = match s(plug, "text") {
                 Some(t) => crate::library::fill_for(k, ctx, &mut tx, id(plug, "brand"), Some(account), t).await.unwrap_or_else(|_| t.to_string()),
@@ -125,7 +127,7 @@ async fn act(k: &Kernel, ctx: &Ctx, plug: &Doc, p: &Doc, account: Uuid, action: 
                 entity: Some("SocialPublication".into()),
                 record: Some(publication),
             };
-            match connections::call(k, &calling, Some(crate::APP), &call).await {
+            match crate::outside::heed(ctx.tenant, conn.id, connections::call(k, &calling, Some(crate::APP), &call).await) {
                 Ok(out) => ("Done", None, text_of(&out["id"])),
                 Err(ferrum_kernel::Error::Unavailable(_) | ferrum_kernel::Error::RetryAfter(..)) => return Ok(false),
                 Err(e) => ("Refused", Some(crate::said(e).to_string()), None),

@@ -198,9 +198,15 @@ pub(crate) async fn read(k: &Kernel, tenant: Uuid, now: DateTime<Utc>) -> Result
         }
         .await;
         let error = match got {
-            Ok(items) => take(k, &ctx, &mut tx, &feed, &items).await.err().map(|e| e.to_string()),
-            Err(e) => Some(e.to_string()),
+            Ok(items) => take(k, &ctx, &mut tx, &feed, &items).await.err(),
+            Err(e) => Some(e),
         };
+        // Asked to wait (the feed's host, or writing help): what was taken stays, the rest at the next upkeep after it.
+        if error.as_ref().is_some_and(outside::later) {
+            tx.commit().await?;
+            continue;
+        }
+        let error = error.map(|e| e.to_string());
         k.set_values_tx(&ctx, &mut tx, "SocialFeed", feed_id, obj(json!({"read_at": now.to_rfc3339(), "last_error": error}))).await?;
         tx.commit().await?;
     }
