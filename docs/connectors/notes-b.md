@@ -223,3 +223,32 @@ are `/api/v3`; edit the base).
 the bearer header (0.19 does; older versions read the cookie); `search` with a typed query; the 50000-character body.
 **Setup**: an account on the instance (a bot account is polite), its user name and password under the connection's
 secrets, the instance address in place of the placeholder (twice).
+
+## VK (`vk.json`)
+
+**Does**: VK ID OAuth 2 with PKCE (`id.vk.ru`, a public client: no client secret; scopes `vkid.personal_info wall photos
+video`; `keep: ["device_id"]`, a `refresh_vk` operation that sends the kept device id); the user is the account; wall
+posts with up to 10 attachments, a picture through `photos.getWallUploadServer`, the upload and `photos.saveWallPhoto`,
+a clip through `video.save` and its upload; the attachments named `photo<owner>_<id>`, `video<owner>_<id>`; a
+friends-only switch; follow-ups and the first comment as comments (`wall.createComment`); delete of a post or a comment
+(the comment first); views as impressions, likes + reposts + comments as engagements (`wall.getById`); the user's
+name, picture and followers; the documented 3 requests a second.
+**Never twice**: no idempotency header. After a lost answer the call reads the wall's ten newest posts (`wall.get`) for
+one with those words dated since the publication began. A lost answer on a comment or an upload step fails the call.
+**Cannot, today**: **connect.** VK ID wants the callback's `device_id` (and `state`) in the code exchange, and in every
+refresh; the platform's exchange sends neither and its `refresh` operation is not given `auth.*`. The description
+is written for what the brief said (the device id in the token answer, `keep`) but I believe VK gives it only in the
+redirect's query. *Needed from the platform*: (1) extra parameters of the redirect (`device_id`, `ext_id`) added to the
+token request and kept with the tokens (e.g. `provider.callback_params`); (2) the kept fields (`auth.*`) available to the
+`refresh` and `after` operations (they are `bare` now, so `{{ auth.device_id }}` is undefined and the refresh fails
+with "a template failed"). The fake in the test takes the code without a device id and gives tokens that outlast the test, so the
+exchange with a device id and the refresh are **not proved**. Also: say why VK refused in VK's words (VK answers 200 with `error`; the
+description makes the missing id fail the call: *needed from the platform*, a refusal marker for a 2xx answer, as for Slack);
+`publish_media` is given `kind` as the post's kind, not the medium's (the description reads `content_type`; *needed from
+Social*: a separate name for the medium's kind, e.g. `media_kind`); posting as a community (a community's own token and
+`owner_id` `-<group>`: a second account kind); stories, polls, albums; a post's address on a custom domain.
+**Unverified**: the hosts (VK moved from vk.com to vk.ru; the upload servers' hosts vary and each must be in
+`allowed_hosts`: the list has the ones I know); `v=5.251` (Postiz's); the bearer header on API methods (VK documents it;
+Postiz puts the token in the query); the 16384-character message limit; that scopes are passed space-separated.
+**Setup**: a VK ID application (id.vk.ru/business) with the redirect `{PUBLIC_URL}/api/connections/callback`; its id as
+`client_id` in the description (twice: `provider` and `refresh_vk`).
