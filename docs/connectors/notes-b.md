@@ -306,3 +306,21 @@ stored file (the `publish_media` step is a read of the account that returns the 
 expression. The 202's `Location` is read as the platform stores it.
 **Setup**: an application at dribbble.com/account/applications/new with the callback
 `{PUBLIC_URL}/api/connections/callback`; its id in the description, its secret under `client_secret`.
+
+## Whop (`whop.json`)
+
+**Does**: OAuth 2 with PKCE (a public client: no secret); the user is the account (`/oauth/userinfo`); company and forum are
+required settings (the forum's choices depend on the company picked); a forum post in markdown with an optional title and
+up to 10 files: a file record, the bytes `PUT` to the address the record gives (no credentials), then the file's status
+read every 2 seconds until `ready` (a `wait` step, failing on `failed`), and the post names the files; follow-ups and the
+first comment as replies (`parent_id`); delete; the post's address.
+**Never twice**: no idempotency header. After a lost answer the call reads the forum's ten newest posts for one with those
+words created since the publication began.
+**Cannot**: numbers (none known); mentions; edit; the file's own `upload_headers` (the record may name headers the `PUT`
+must carry; header names cannot come from an answer: *needed from the platform*, headers from a list; Postiz sends them);
+a file above 25 MB; follow-ups with files.
+**Unverified**: nearly everything, from Postiz's code and my memory of Whop's v1 API: the token address taking a form
+(Postiz sends JSON); `error.message` as the error text; `created_at` and `content` on a forum post; `DELETE
+/forum_posts/{id}`; the scopes; that the `PUT` needs nothing but the signed address.
+**Setup**: a Whop app (whop.com/dashboard/developer) with the redirect `{PUBLIC_URL}/api/connections/callback`;
+its client id in the description; connect as a member of the company who may post in the forum.
