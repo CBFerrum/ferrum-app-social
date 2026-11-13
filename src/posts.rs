@@ -495,7 +495,7 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     let op = if n == 0 || as_ == FollowAs::Thread { "publish" } else { "reply" };
     let root = sent.first().map(|s| s["id"].clone()).unwrap_or(Value::Null);
     let before = sent.last().cloned().unwrap_or(Value::Null);
-    let common = json!({"kind": kind, "settings": settings, "account_id": s(&account, "provider_account"), "handle": s(&account, "handle"), "item": n, "items": v.items.len()});
+    let common = json!({"kind": kind, "settings": settings, "account_id": crate::picker::network_id(&account), "handle": s(&account, "handle"), "item": n, "items": v.items.len()});
     let call = |operation: &str, inputs: Value, key: String| Call {
         connection: conn.id.to_string(),
         operation: r.op(operation).into(),

@@ -26,6 +26,7 @@ mod inbox;
 mod insights;
 mod library;
 mod metrics;
+mod picker;
 mod posts;
 mod review;
 mod rules;
