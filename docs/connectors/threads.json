@@ -1,0 +1,551 @@
+{
+ "base": "https://graph.threads.net",
+ "auth": {
+  "type": "oauth",
+  "owner": "workspace",
+  "provider": {
+   "authorize_url": "https://threads.net/oauth/authorize",
+   "token_url": "https://graph.threads.net/oauth/access_token",
+   "scopes": [
+    "threads_basic",
+    "threads_content_publish",
+    "threads_manage_replies",
+    "threads_read_replies",
+    "threads_manage_insights",
+    "threads_manage_mentions"
+   ],
+   "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+   "client_secret": "client_secret",
+   "client_auth": "body",
+   "after": [
+    "exchange"
+   ],
+   "refresh": "renew",
+   "keep": [
+    "user_id"
+   ]
+  }
+ },
+ "apps": [
+  "social"
+ ],
+ "limit": {
+  "concurrent": 20
+ },
+ "meta": {
+  "capabilities": {
+   "name": "Threads",
+   "max_text": 500,
+   "images": true,
+   "max_media": 20,
+   "first_comment": true
+  },
+  "social": {
+   "name": "Threads",
+   "text": {
+    "max": 500,
+    "count": "characters",
+    "format": "plain"
+   },
+   "media": {
+    "kinds": [
+     "image",
+     "video"
+    ],
+    "max": 20,
+    "alt": false,
+    "image": {
+     "types": [
+      "image/jpeg",
+      "image/png"
+     ],
+     "max_bytes": 8388608,
+     "max_width": 1440
+    },
+    "video": {
+     "types": [
+      "video/mp4",
+      "video/quicktime"
+     ],
+     "max_bytes": 1073741824,
+     "max_seconds": 300
+    }
+   },
+   "kinds": [
+    {
+     "name": "post",
+     "label": "Post"
+    }
+   ],
+   "follow_ups": {
+    "as": "thread",
+    "media": true,
+    "max": 20
+   },
+   "settings": [
+    {
+     "key": "reply_control",
+     "label": "Who can reply",
+     "type": "select",
+     "default": "everyone",
+     "options": [
+      {
+       "value": "everyone",
+       "label": "Everyone"
+      },
+      {
+       "value": "accounts_you_follow",
+       "label": "Accounts you follow"
+      },
+      {
+       "value": "mentioned_only",
+       "label": "Mentioned only"
+      }
+     ]
+    },
+    {
+     "key": "topic",
+     "label": "Topic",
+     "type": "text",
+     "max": 50
+    }
+   ],
+   "first_comment": true,
+   "link_preview": true
+  }
+ },
+ "operations": {
+  "exchange": {
+   "path": "/access_token",
+   "credentials": false,
+   "query": {
+    "grant_type": "th_exchange_token",
+    "client_secret": "{{ secret.client_secret }}",
+    "access_token": "{{ inputs.access_token }}"
+   },
+   "inputs": [
+    "access_token",
+    "refresh_token",
+    "client_id"
+   ],
+   "result": {
+    "access_token": "/access_token",
+    "expires_in": "/expires_in"
+   },
+   "error_at": "/error/message"
+  },
+  "renew": {
+   "path": "/refresh_access_token",
+   "credentials": false,
+   "query": {
+    "grant_type": "th_refresh_token",
+    "access_token": "{{ inputs.access_token }}"
+   },
+   "inputs": [
+    "access_token",
+    "refresh_token",
+    "client_id"
+   ],
+   "result": {
+    "access_token": "/access_token",
+    "expires_in": "/expires_in"
+   },
+   "error_at": "/error/message"
+  },
+  "create_container": {
+   "method": "POST",
+   "path": "/v1.0/me/threads",
+   "body": "{ \"media_type\": {{ inputs.media_type | json }}{% if inputs.image_url %}, \"image_url\": {{ inputs.image_url | json }}{% endif %}{% if inputs.video_url %}, \"video_url\": {{ inputs.video_url | json }}{% endif %}{% if inputs.carousel_item %}, \"is_carousel_item\": true{% endif %}{% if inputs.children %}, \"children\": {{ inputs.children | json }}{% endif %}{% if inputs.text %}, \"text\": {{ inputs.text | json }}{% endif %}{% if inputs.link %}, \"link_attachment\": {{ inputs.link | json }}{% endif %}{% if inputs.reply_to %}, \"reply_to_id\": {{ inputs.reply_to | json }}{% endif %}{% if inputs.topic %}, \"topic_tag\": {{ inputs.topic | json }}{% endif %}{% if inputs.who %}, \"reply_control\": {{ inputs.who | json }}{% endif %} }",
+   "inputs": [
+    "media_type",
+    "image_url",
+    "video_url",
+    "carousel_item",
+    "children",
+    "text",
+    "link",
+    "reply_to",
+    "topic",
+    "who"
+   ],
+   "result": {
+    "id": {
+     "at": "/id",
+     "required": true
+    }
+   },
+   "error_at": "/error/message",
+   "idempotency_header": "X-Ferrum-Upload-Key"
+  },
+  "container_status": {
+   "path": "/v1.0/{{ inputs.id }}",
+   "query": {
+    "fields": "status,error_message"
+   },
+   "inputs": [
+    "id"
+   ],
+   "result": {
+    "status": "/status",
+    "said": "/error_message"
+   },
+   "error_at": "/error/message"
+  },
+  "containers_status": {
+   "path": "/v1.0/",
+   "query": {
+    "ids": "{{ inputs.ids }}",
+    "fields": "status"
+   },
+   "inputs": [
+    "ids"
+   ],
+   "result": {
+    "pending": {
+     "expr": "size(answer.filter(k, answer[k].status != 'FINISHED'))"
+    },
+    "failed": {
+     "expr": "size(answer.filter(k, answer[k].status in ['ERROR', 'EXPIRED']))"
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "threads_publish": {
+   "method": "POST",
+   "path": "/v1.0/me/threads_publish",
+   "body": "{\"creation_id\": {{ inputs.id | json }}}",
+   "inputs": [
+    "id",
+    "text"
+   ],
+   "result": {
+    "id": {
+     "at": "/id",
+     "required": true
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "recent": {
+   "path": "/v1.0/me/threads",
+   "query": {
+    "fields": "id,text",
+    "limit": "10"
+   },
+   "inputs": [
+    "text"
+   ],
+   "result": {
+    "id": {
+     "expr": "inputs.text != '' && size(answer.data.filter(m, has(m.text) && m.text == inputs.text)) > 0 ? answer.data.filter(m, has(m.text) && m.text == inputs.text)[0].id : null"
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "permalink": {
+   "path": "/v1.0/{{ inputs.id }}",
+   "query": {
+    "fields": "permalink"
+   },
+   "inputs": [
+    "id"
+   ],
+   "result": {
+    "url": "/permalink"
+   },
+   "error_at": "/error/message"
+  },
+  "check": {
+   "path": "/v1.0/me",
+   "query": {
+    "fields": "id"
+   },
+   "result": {
+    "id": "/id"
+   },
+   "error_at": "/error/message"
+  },
+  "publish_media": {
+   "inputs": [
+    "file",
+    "url",
+    "content_type"
+   ],
+   "steps": [
+    {
+     "name": "check",
+     "operation": "check"
+    }
+   ],
+   "result": {
+    "id": {
+     "expr": "(inputs.content_type.startsWith('video/') ? 'video:' : 'image:') + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
+    }
+   }
+  },
+  "publish": {
+   "inputs": [
+    "text",
+    "link",
+    "text_with_link",
+    "media",
+    "reply_to",
+    "settings"
+   ],
+   "steps": [
+    {
+     "name": "children",
+     "operation": "create_container",
+     "when": "(inputs.media or []) | length > 1",
+     "for_each": "inputs.media",
+     "inputs": {
+      "media_type": "'VIDEO' if item is startingwith('video:') else 'IMAGE'",
+      "image_url": "item[6:] if item is startingwith('image:') else none",
+      "video_url": "item[6:] if item is startingwith('video:') else none",
+      "carousel_item": "true"
+     }
+    },
+    {
+     "name": "children_ready",
+     "operation": "containers_status",
+     "when": "(inputs.media or []) | length > 1",
+     "inputs": {
+      "ids": "steps.children | map(attribute='id') | join(',')"
+     },
+     "wait": {
+      "until": "result.pending == 0",
+      "fail_if": "result.failed > 0",
+      "every_secs": 5,
+      "within_secs": 900
+     }
+    },
+    {
+     "name": "carousel",
+     "operation": "create_container",
+     "when": "(inputs.media or []) | length > 1",
+     "inputs": {
+      "media_type": "'CAROUSEL'",
+      "children": "steps.children | map(attribute='id') | join(',')",
+      "text": "inputs.text if not inputs.media else inputs.text_with_link",
+      "reply_to": "inputs.reply_to",
+      "topic": "inputs.settings.topic",
+      "who": "inputs.settings.reply_control"
+     }
+    },
+    {
+     "name": "single",
+     "operation": "create_container",
+     "when": "not ((inputs.media or []) | length > 1)",
+     "inputs": {
+      "media_type": "'TEXT' if not inputs.media else ('VIDEO' if inputs.media[0] is startingwith('video:') else 'IMAGE')",
+      "image_url": "inputs.media[0][6:] if inputs.media and inputs.media[0] is startingwith('image:') else none",
+      "video_url": "inputs.media[0][6:] if inputs.media and inputs.media[0] is startingwith('video:') else none",
+      "text": "inputs.text if not inputs.media else inputs.text_with_link",
+      "link": "inputs.link if not inputs.media else none",
+      "reply_to": "inputs.reply_to",
+      "topic": "inputs.settings.topic",
+      "who": "inputs.settings.reply_control"
+     }
+    },
+    {
+     "name": "ready",
+     "operation": "container_status",
+     "inputs": {
+      "id": "(steps.carousel or steps.single).id"
+     },
+     "wait": {
+      "until": "result.status == 'FINISHED'",
+      "fail_if": "result.status in ['ERROR', 'EXPIRED']",
+      "every_secs": 3,
+      "within_secs": 900
+     }
+    },
+    {
+     "name": "post",
+     "operation": "threads_publish",
+     "inputs": {
+      "id": "(steps.carousel or steps.single).id",
+      "text": "inputs.text if not inputs.media else inputs.text_with_link"
+     },
+     "confirm": {
+      "operation": "recent",
+      "inputs": {
+       "text": "sent.text"
+      },
+      "proves": "result.id"
+     }
+    },
+    {
+     "name": "link",
+     "operation": "permalink",
+     "inputs": {
+      "id": "steps.post.id"
+     }
+    }
+   ],
+   "result": {
+    "id": "/post/id",
+    "url": "/link/url"
+   }
+  },
+  "reply": {
+   "inputs": [
+    "text",
+    "in_reply_to"
+   ],
+   "steps": [
+    {
+     "name": "single",
+     "operation": "create_container",
+     "inputs": {
+      "media_type": "'TEXT'",
+      "text": "inputs.text",
+      "reply_to": "inputs.in_reply_to"
+     }
+    },
+    {
+     "name": "ready",
+     "operation": "container_status",
+     "inputs": {
+      "id": "steps.single.id"
+     },
+     "wait": {
+      "until": "result.status == 'FINISHED'",
+      "fail_if": "result.status in ['ERROR', 'EXPIRED']",
+      "every_secs": 3,
+      "within_secs": 300
+     }
+    },
+    {
+     "name": "post",
+     "operation": "threads_publish",
+     "inputs": {
+      "id": "steps.single.id",
+      "text": "inputs.text"
+     },
+     "confirm": {
+      "operation": "recent",
+      "inputs": {
+       "text": "sent.text"
+      },
+      "proves": "result.id"
+     }
+    }
+   ],
+   "result": {
+    "id": "/post/id"
+   }
+  },
+  "delete": {
+   "method": "DELETE",
+   "path": "/v1.0/{{ inputs.id }}",
+   "inputs": [
+    "id"
+   ],
+   "error_at": "/error/message"
+  },
+  "repost": {
+   "method": "POST",
+   "path": "/v1.0/{{ inputs.id }}/repost",
+   "body": "{}",
+   "inputs": [
+    "id"
+   ],
+   "result": {
+    "id": "/id"
+   },
+   "error_at": "/error/message"
+  },
+  "metrics": {
+   "path": "/v1.0/{{ inputs.id }}/insights",
+   "query": {
+    "metric": "views,likes,replies,reposts,quotes,shares"
+   },
+   "inputs": [
+    "id"
+   ],
+   "result": {
+    "impressions": {
+     "expr": "answer.data.filter(m, m.name == 'views')[0].values[0].value"
+    },
+    "engagements": {
+     "expr": "answer.data.filter(m, m.name == 'likes')[0].values[0].value + answer.data.filter(m, m.name == 'replies')[0].values[0].value + answer.data.filter(m, m.name == 'reposts')[0].values[0].value + answer.data.filter(m, m.name == 'quotes')[0].values[0].value + answer.data.filter(m, m.name == 'shares')[0].values[0].value"
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "profile": {
+   "path": "/v1.0/me",
+   "query": {
+    "fields": "username,name,threads_profile_picture_url"
+   },
+   "result": {
+    "name": "/name",
+    "handle": "/username",
+    "picture": "/threads_profile_picture_url"
+   },
+   "error_at": "/error/message"
+  },
+  "followers": {
+   "path": "/v1.0/me/threads_insights",
+   "query": {
+    "metric": "followers_count"
+   },
+   "result": {
+    "count": "/data/0/total_value/value"
+   },
+   "error_at": "/error/message"
+  },
+  "account": {
+   "changes": false,
+   "steps": [
+    {
+     "name": "profile",
+     "operation": "profile"
+    },
+    {
+     "name": "followers",
+     "operation": "followers"
+    }
+   ],
+   "result": {
+    "name": "/profile/name",
+    "handle": "/profile/handle",
+    "picture": "/profile/picture",
+    "followers": "/followers/count"
+   }
+  },
+  "messages": {
+   "path": "/v1.0/me/mentions",
+   "query": {
+    "fields": "id,text,username,timestamp,replied_to",
+    "limit": "25"
+   },
+   "error_at": "/error/message"
+  }
+ },
+ "pulls": [
+  {
+   "name": "mentions",
+   "operation": "messages",
+   "every_minutes": 15,
+   "items_at": "/data",
+   "cursor": "time",
+   "max_pages": 1,
+   "map": {
+    "entity": "SocialMessage",
+    "outside": true,
+    "by": {
+     "external_id": "/id"
+    },
+    "set": {
+     "kind": "has(item.replied_to) ? 'Comment' : 'Mention'",
+     "author": "/username",
+     "text": "/text",
+     "post_external_id": "has(item.replied_to) ? item.replied_to.id : null",
+     "via_connection": "connection.id"
+    }
+   }
+  }
+ ]
+}

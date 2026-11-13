@@ -39,7 +39,7 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone"];
+const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -198,6 +198,7 @@ fn handler(net: &str) -> Option<Handler> {
         "li" | "liw" => fake_linkedin,
         "fb" | "fbv" | "fbr" => fake_facebook,
         "igf" | "igs" | "igt" | "igr" => fake_instagram,
+        "th" => fake_threads,
         _ => return None,
     })
 }
@@ -501,6 +502,7 @@ async fn scenario() {
     facebook(&t).await;
     instagram(&t).await;
     instagram_standalone(&t).await;
+    threads(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -1713,4 +1715,200 @@ async fn instagram_standalone(t: &T) {
     let a = t.call("instagram_standalone", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
     assert_eq!(a["followers"], 999);
     assert_eq!(t.net().last("igs", "GET", "/refresh_access_token").query.get("grant_type").map(String::as_str), Some("ig_refresh_token"));
+}
+
+// ───────────── Threads ─────────────
+
+fn fake_threads(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, m: &str, c: u32| status(code, json!({"error": {"message": m, "type": "THApiException", "code": c}}));
+    if r.path == "/oauth/access_token" {
+        let f = r.form();
+        if f.get("client_id").map(String::as_str) != Some("th-client")
+            || f.get("client_secret").map(String::as_str) != Some("th-secret")
+            || f.get("code").map(String::as_str) != Some("CODE-th")
+        {
+            return err(400, "Invalid OAuth code", 190);
+        }
+        let i = n.next();
+        n.list("th:short").push(json!(format!("THS-{i}")));
+        return ok(json!({"access_token": format!("THS-{i}"), "user_id": "T1"}));
+    }
+    if r.path == "/access_token" || r.path == "/refresh_access_token" {
+        let given = r.query.get("access_token").cloned().unwrap_or_default();
+        let fine = if r.path == "/access_token" {
+            r.query.get("grant_type").map(String::as_str) == Some("th_exchange_token")
+                && r.query.get("client_secret").map(String::as_str) == Some("th-secret")
+                && n.list("th:short").contains(&json!(given))
+        } else {
+            r.query.get("grant_type").map(String::as_str) == Some("th_refresh_token") && n.list("th:tokens").contains(&json!(given))
+        };
+        if !fine {
+            return err(400, "Invalid OAuth access token", 190);
+        }
+        let i = n.next();
+        n.tokens("th").push(json!(format!("THL-{i}")));
+        return ok(json!({"access_token": format!("THL-{i}"), "token_type": "bearer", "expires_in": 5183944}));
+    }
+    if !n.valid("th", r) {
+        return err(401, "Invalid OAuth access token.", 190);
+    }
+    let mut cs = n.get("th:containers");
+    if cs.is_null() {
+        cs = json!({});
+    }
+    let rest: Vec<&str> = r.path.trim_start_matches("/v1.0/").split('/').collect();
+    let st = |c: &Value| {
+        if c["published"] == true {
+            "PUBLISHED"
+        } else if c["polls"].as_u64() >= Some(1) {
+            "FINISHED"
+        } else {
+            "IN_PROGRESS"
+        }
+    };
+    match (r.method.as_str(), rest.as_slice()) {
+        ("POST", ["me", "threads"]) => {
+            let b = r.json();
+            let kind = b["media_type"].as_str().unwrap_or_default();
+            if b["text"].as_str().is_some_and(|t| t.chars().count() > 500) {
+                return err(400, "Param text must be at most 500 characters long.", 100);
+            }
+            let fine = match kind {
+                "TEXT" => b["text"].is_string(),
+                "IMAGE" => b["image_url"].is_string(),
+                "VIDEO" => b["video_url"].is_string(),
+                "CAROUSEL" => b["children"].as_str().is_some_and(|c| c.split(',').count() >= 2),
+                _ => false,
+            };
+            if !fine {
+                return err(400, "The media type and its parameters do not match", 100);
+            }
+            if let Some(to) = b["reply_to_id"].as_str()
+                && !n.list("th:posts").iter().any(|p| p["id"] == to)
+            {
+                return err(400, "The post you are replying to does not exist", 100);
+            }
+            let id = format!("TC{}", n.next());
+            cs[&id] = json!({"body": b, "polls": 0, "published": false});
+            n.set("th:containers", cs);
+            ok(json!({"id": id}))
+        }
+        ("GET", [""]) => {
+            let mut out = json!({});
+            for id in r.query.get("ids").map(|i| i.split(',').map(str::to_string).collect::<Vec<_>>()).unwrap_or_default() {
+                cs[&id]["polls"] = json!(cs[&id]["polls"].as_u64().unwrap_or(0) + 1);
+                out[&id] = json!({"id": id, "status": st(&cs[&id])});
+            }
+            n.set("th:containers", cs);
+            ok(out)
+        }
+        ("POST", ["me", "threads_publish"]) => {
+            let id = r.json()["creation_id"].as_str().unwrap_or_default().to_string();
+            if st(&cs[&id]) != "FINISHED" {
+                return err(400, "The media is not ready to be published", 24);
+            }
+            cs[&id]["published"] = json!(true);
+            let body = cs[&id]["body"].clone();
+            n.set("th:containers", cs);
+            let pid = format!("TP{}", n.next());
+            n.list("th:posts").insert(0, json!({"id": pid, "text": body["text"], "body": body}));
+            ok(json!({"id": pid}))
+        }
+        ("GET", ["me", "threads"]) => ok(json!({"data": n.list("th:posts").iter().map(|p| json!({"id": p["id"], "text": p["text"]})).collect::<Vec<_>>()})),
+        ("GET", ["me", "mentions"]) => ok(
+            json!({"data": [{"id": "TM1", "text": "@northwind hi", "username": "zoe"}, {"id": "TM2", "text": "nice", "username": "yan", "replied_to": {"id": "TP0"}}]}),
+        ),
+        ("GET", ["me", "threads_insights"]) => ok(json!({"data": [{"name": "followers_count", "total_value": {"value": 640}}]})),
+        ("GET", ["me"]) => ok(json!({"id": "T1", "username": "northwind", "name": "Northwind", "threads_profile_picture_url": "https://cdn.test/t.jpg"})),
+        ("GET", [id, "insights"]) => {
+            let _ = id;
+            let v = |name: &str, n: i64| json!({"name": name, "period": "lifetime", "values": [{"value": n}]});
+            ok(json!({"data": [v("views", 300), v("likes", 5), v("replies", 2), v("reposts", 1), v("quotes", 1), v("shares", 1)]}))
+        }
+        ("POST", [id, "repost"]) => {
+            n.list("th:reposts").push(json!(id));
+            ok(json!({"id": format!("R{id}")}))
+        }
+        ("DELETE", [id]) => {
+            let id = id.to_string();
+            n.list("th:posts").retain(|p| p["id"] != json!(id));
+            ok(json!({"success": true}))
+        }
+        ("GET", [id]) if id.starts_with("TC") => {
+            cs[*id]["polls"] = json!(cs[*id]["polls"].as_u64().unwrap_or(0) + 1);
+            let s = st(&cs[*id]);
+            n.set("th:containers", cs);
+            ok(json!({"id": id, "status": s}))
+        }
+        ("GET", [id]) => ok(json!({"id": id, "permalink": format!("https://www.threads.net/@northwind/post/{id}")})),
+        _ => err(404, "Unsupported request", 100),
+    }
+}
+
+async fn threads(t: &T) {
+    let conn = t.connect("threads", "th", &["graph.threads.net"], json!({"client_secret": "th-secret"}), |_| {}).await;
+    t.sign_in(conn, "CODE-th").await;
+    assert!(t.net().last("th", "GET", "/access_token").query.get("access_token").is_some_and(|a| a.starts_with("THS-")), "exchanged for a long-lived token");
+    let account = t.account("Northwind Threads", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "Threads");
+    let key = format!("publish:{}", Uuid::now_v7());
+    // Text with its link as an attachment, then a thread answering it.
+    let mut first_in = post_in("Open today", Some("https://northwind.test"), &[], &[]);
+    first_in["settings"] = json!({"reply_control": "everyone"});
+    let first = t.call("threads", "publish", first_in, Some(&key)).await.unwrap();
+    {
+        let mut n = t.net();
+        let b = n.list("th:posts")[0]["body"].clone();
+        assert_eq!(
+            (b["media_type"].as_str(), b["text"].as_str(), b["link_attachment"].as_str()),
+            (Some("TEXT"), Some("Open today"), Some("https://northwind.test"))
+        );
+    }
+    assert!(first["url"].as_str().unwrap().ends_with(first["id"].as_str().unwrap()));
+    let second = follow_in(post_in("Till six", None, &[], &[]), 1, 2, first["id"].as_str().unwrap(), &kept(0, &first));
+    t.call("threads", "publish", second, Some(&format!("{key}:1"))).await.unwrap();
+    assert_eq!(t.net().list("th:posts")[0]["body"]["reply_to_id"], first["id"], "each item answers the one before");
+    // A carousel of two pictures by their addresses (which Social does not give yet).
+    let mut ids = vec![];
+    for i in 0..2 {
+        let mut m = t.medium(&format!("t{i}.jpg"), "image/jpeg", b"JPEG", None, json!({}), None).await;
+        m["url"] = json!(format!("https://files.northwind.test/t{i}.jpg"));
+        ids.push(t.call("threads", "publish_media", m, Some(&format!("media:{key}:2:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
+    }
+    assert_eq!(ids[0], "image:https://files.northwind.test/t0.jpg");
+    t.call("threads", "publish", post_in("Two views", None, &[("t0.jpg", "image/jpeg", 4), ("t1.jpg", "image/jpeg", 4)], &ids), Some(&format!("{key}:2")))
+        .await
+        .unwrap();
+    assert_eq!(t.net().list("th:posts")[0]["body"]["media_type"], "CAROUSEL");
+    assert!(t.net().asked("th").iter().any(|a| a == "GET /v1.0/"), "the children waited for together");
+    // The first comment, a reply under the post.
+    t.call("threads", "reply", json!({"text": "Ask away", "in_reply_to": first["id"], "root": first["id"]}), Some(&format!("first_comment:{key}")))
+        .await
+        .unwrap();
+    assert_eq!(t.net().list("th:posts")[0]["body"]["reply_to_id"], first["id"]);
+    // A lost answer on publishing: found among the account's own posts by its text.
+    t.net().lose.insert("POST /th/v1.0/me/threads_publish".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("th:posts").len();
+    assert!(t.call("threads", "publish", post_in("Exactly one", None, &[], &[]), Some(&lost)).await.is_err());
+    let got = t.call("threads", "publish", post_in("Exactly one", None, &[], &[]), Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("th:posts").len(), before + 1);
+    assert_eq!(got["id"], t.net().list("th:posts")[0]["id"]);
+    // A refusal in Threads' words.
+    let e = t.call("threads", "publish", post_in(&"a".repeat(501), None, &[], &[]), Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(e.to_string().contains("at most 500 characters"), "{e}");
+    // Numbers, repost, delete, and the token renewed by th_refresh_token.
+    let m = t.call("threads", "metrics", json!({"id": first["id"], "account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!((m["impressions"].as_i64(), m["engagements"].as_i64()), (Some(300), Some(10)));
+    t.call("threads", "repost", json!({"id": first["id"]}), Some("repost:th")).await.unwrap();
+    t.call("threads", "delete", json!({"id": got["id"]}), Some(&format!("delete:{lost}"))).await.unwrap();
+    t.expire(conn).await;
+    let a = t.call("threads", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(640), Some("northwind")));
+    assert_eq!(t.net().last("th", "GET", "/refresh_access_token").query.get("grant_type").map(String::as_str), Some("th_refresh_token"));
+    // Mentions pulled: one answering a post is a comment on it.
+    t.pull(conn, "mentions").await;
+    let tm2 = t.messages(json!({"external_id": "TM2"})).await;
+    assert_eq!((tm2[0]["kind"].as_str(), tm2[0]["post_external_id"].as_str()), (Some("Comment"), Some("TP0")));
+    assert_eq!(t.messages(json!({"external_id": "TM1"})).await[0]["kind"], "Mention");
 }
