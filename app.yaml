@@ -28,7 +28,7 @@ contributes:
   shell.open:
     - {id: social, package: social, path: "social/e/{entity}/{id}", list: "social/e/{entity}"}
   shell.create:
-    - {id: post, label: Social Post, path: social/e/SocialPost/new, entity: SocialPost}
+    - {id: post, label: Social Post, path: social/compose, entity: SocialPost}
   # What the assistant should know in Social's pages, and what it suggests asking there.
   shell.assistant:
     - id: social
