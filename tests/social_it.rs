@@ -333,6 +333,8 @@ fn description(base: &str, auth: Value, ops: &[&str], inbound: bool) -> Value {
         "account": {"path": "/me", "query": {"for": "{{ inputs.account_id or '' }}"}, "inputs": ["account_id"], "result": {"followers": "/followers", "impressions": "/day/views", "reach": "/day/unique", "engagements": "/day/actions", "clicks": "/day/taps",
                                               "name": "/name", "handle": "/handle", "picture": "/avatar"}, "error_at": err},
         "accounts": {"path": "/pages", "error_at": err},
+        "repost": {"method": "POST", "path": "/posts/{{ inputs.id }}/repost", "body": "{}", "result": {"id": "/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["id"]},
+        "like": {"method": "POST", "path": "/posts/{{ inputs.id }}/like", "body": "{}", "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["id"]},
         "mentions": {"path": "/people", "query": {"q": "{{ inputs.q }}"}, "error_at": err, "inputs": ["q"]},
         "boards": {"path": "/boards", "query": {"for": "{{ inputs.account_id }}"}, "error_at": err, "inputs": ["account_id"]},
         "messages": {"path": "/inbox", "query": {"since": "{{ cursor or '' }}"}, "error_at": err},
@@ -478,7 +480,7 @@ async fn scenario() {
     let pia = t.user("pia@brands.test", &["Social Author"]).await;
 
     // ───────────── connections: the network is a description; no code of Social's knows it ─────────────
-    let everything = ["publish", "publish_media", "delete", "reply", "send_message", "metrics", "account", "messages"];
+    let everything = ["publish", "publish_media", "delete", "reply", "send_message", "metrics", "account", "messages", "repost", "like"];
     let key_auth = json!({"type": "header", "header": "x-api-key", "secret": "key"});
     let provider = |who: &str| {
         json!({"authorize_url": "https://login.chirp.test/authorize", "token_url": format!("{base}/oauth/token"), "revoke_url": format!("{base}/oauth/revoke"),
@@ -1495,6 +1497,47 @@ async fn scenario() {
     assert_eq!(uses.len(), 9, "every use kept: {}", uses.len());
     t.k.erase_personal_data(&t.admin, "writer@brands.test", "asked to be forgotten").await.unwrap();
     assert!(t.rows("SocialWritingUse", json!({"action": "write"})).await.iter().all(|u| u["prompt"].is_null() || u["prompt"] == ""), "prompts erased");
+
+    // ───────────── (round two) plugs: reposted once it does well; liked by other accounts, once each ─────────────
+    t.insert(
+        &manager,
+        "SocialPlug",
+        json!({"plug_name": "Boost", "brand": northwind.to_string(), "account": nw_key.to_string(), "trigger": "Number Reached",
+                                              "measure": "impressions", "threshold": 400, "within_hours": 72, "action": "Repost", "max_runs": 1}),
+    )
+    .await;
+    t.insert(
+        &manager,
+        "SocialPlug",
+        json!({"plug_name": "Cheer", "brand": northwind.to_string(), "account": nw_threads.to_string(), "trigger": "Time Passed",
+                                              "after_minutes": 0, "action": "Others Like", "max_runs": 50,
+                                              "targets": [{"account": nw_key.to_string()}, {"account": nw_words.to_string()}]}),
+    )
+    .await;
+    refused(t.k.insert(&author, "SocialPlug", obj(json!({"plug_name": "Mine", "brand": northwind.to_string()}))).await, "forbidden", "");
+    let threads_out = t
+        .rows("SocialPublication", json!({"account": nw_threads.to_string()}))
+        .await
+        .into_iter()
+        .filter(|p| p["external_id"].is_string() && p["deleted_at"].is_null())
+        .count();
+    for hour in [23, 24] {
+        t.upkeep(due + Duration::hours(hour)).await;
+    }
+    let runs = t.rows("SocialPlugRun", json!({})).await;
+    let count = |state: &str, acct: Uuid| runs.iter().filter(|r| r["state"] == state && r["account"] == json!(acct.to_string())).count();
+    assert_eq!(count("Done", nw_key) - threads_out, 1, "one repost by the Boost plug, at most once in all: {runs:?}");
+    assert_eq!(count("Skipped", nw_words), threads_out, "a connection without like: skipped, said");
+    {
+        let n = t.net.lock().unwrap();
+        assert_eq!(
+            n.calls.iter().filter(|c| c.0.ends_with("/like")).count(),
+            threads_out,
+            "each post liked once by the other account, though the upkeep ran twice"
+        );
+        assert_eq!(n.calls.iter().filter(|c| c.0.ends_with("/repost")).count(), 1);
+    }
+    assert!(runs.iter().any(|r| r["state"] == "Skipped" && r["note"].as_str().unwrap().contains("does not offer like")));
 
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();

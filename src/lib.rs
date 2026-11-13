@@ -35,6 +35,7 @@ mod media;
 mod metrics;
 mod outside;
 mod picker;
+mod plugs;
 mod posts;
 mod review;
 mod rules;
@@ -118,6 +119,7 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             tx.commit().await?;
             metrics::pull(k, tenant, now).await?;
             links::clicks(k, tenant, now).await?;
+            plugs::run(k, tenant, now).await?;
             Ok::<(), Error>(())
         };
         if let Err(e) = run.await {

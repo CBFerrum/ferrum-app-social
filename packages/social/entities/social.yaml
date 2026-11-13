@@ -520,3 +520,45 @@
     - {name: answer, type: text, read_only: true}
     - {name: connection, type: data, read_only: true}
   list: {columns: [action, post, by, created_at], sort: created_at desc}
+
+- name: SocialPlug
+  label: Plug
+  label_plural: Plugs
+  kind: master
+  module: social
+  title_field: plug_name
+  description: "What to do with a published post once it does well, or once a time has passed: repost it, comment under it, or have other accounts like, repost or comment on it. Once for each post and acting account, at most Max Runs times in all."
+  fields:
+    - {name: plug_name, type: data, required: true, unique: true, in_list: true}
+    - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, in_list: true, description: "Only this account's posts; empty: every account of the brand"}
+    - {name: trigger, type: select, options: [Number Reached, Time Passed], default: Number Reached, in_list: true}
+    - {name: measure, type: select, options: [impressions, engagements, clicks], default: engagements, label: Number}
+    - {name: threshold, type: int, min: 0, description: "The number it must reach"}
+    - {name: within_hours, type: int, default: 24, min: 1, label: Within (Hours), description: "Of going out; later it does nothing"}
+    - {name: after_minutes, type: int, default: 60, min: 0, label: After (Minutes), description: "For Time Passed: this long after it went out"}
+    - {name: action, type: select, options: [Repost, Comment, Others Like, Others Repost, Others Comment], default: Repost, in_list: true}
+    - {name: text, type: text, label: Comment, description: "For a comment: its words, with {{variables}}"}
+    - {name: targets, type: table, of: SocialTarget, label: Other Accounts, description: "Who likes, reposts or comments, for the Others actions"}
+    - {name: delay_minutes, type: int, default: 0, min: 0, label: Not Before (Minutes), description: "After the post went out"}
+    - {name: max_runs, type: int, default: 1, min: 1, label: Max Runs}
+    - {name: active, type: check, default: true, in_list: true}
+  list: {columns: [plug_name, brand, trigger, action, active], sort: plug_name asc}
+
+- name: SocialPlugRun
+  label: Plug Run
+  label_plural: Plug Runs
+  kind: master
+  module: social
+  title_field: run_key
+  description: "What a plug did with one publication as one account: done, refused by the network (its words), or skipped (the connection does not offer it)."
+  fields:
+    - {name: plug, type: link, to: SocialPlug, read_only: true, in_list: true, in_filter: true}
+    - {name: publication, type: link, to: SocialPublication, read_only: true, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, read_only: true, in_list: true}
+    - {name: run_key, type: data, read_only: true, unique: true, hidden: true}
+    - {name: state, type: select, options: [Done, Refused, Skipped], read_only: true, in_list: true, in_filter: true}
+    - {name: note, type: text, read_only: true}
+    - {name: external_id, type: data, read_only: true}
+    - {name: at, type: datetime, read_only: true, in_list: true}
+  list: {columns: [plug, publication, account, state, at], sort: at desc}
