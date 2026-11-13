@@ -13,6 +13,7 @@ export const routes: RouteObject[] = [
   { path: "calendar", lazy: () => import("./Calendar").then((m) => ({ Component: m.CalendarRoute })) },
   { path: "queue", lazy: () => import("./Queue").then((m) => ({ Component: m.QueueRoute })) },
   { path: "media", lazy: () => import("./Media").then((m) => ({ Component: m.MediaRoute })) },
+  { path: "inbox", lazy: () => import("./Inbox").then((m) => ({ Component: m.InboxRoute })) },
   { path: "e/SocialPost/:id", lazy: () => import("./Composer").then((m) => ({ Component: m.ComposerRoute })) },
   { path: "form/:entity/:id", lazy: page("FormView") },
   { path: "e/:entity", lazy: page("ListView") },

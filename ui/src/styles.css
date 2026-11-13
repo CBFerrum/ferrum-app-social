@@ -229,3 +229,55 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The inbox desk: conversations beside the thread (one under the other on a phone). */
+.inbox-desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+.inbox-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.inbox-row[aria-current] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.inbox-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.inbox-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox-ours {
+  background: var(--primary-soft);
+}
+@media (max-width: 720px) {
+  .inbox-desk {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
