@@ -40,7 +40,7 @@ fn uid(v: &Value) -> Uuid {
 
 /// The descriptions written here, each tested below.
 const NETWORKS: &[&str] =
-    &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube", "tiktok", "pinterest", "reddit"];
+    &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube", "tiktok", "pinterest", "reddit", "mastodon"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -204,6 +204,7 @@ fn handler(net: &str) -> Option<Handler> {
         "tt" | "ttu" => fake_tiktok,
         "pi" | "pis3" => fake_pinterest,
         "rd" | "rdw" | "rds3" => fake_reddit,
+        "ma" => fake_mastodon,
         _ => return None,
     })
 }
@@ -516,6 +517,7 @@ async fn scenario() {
     tiktok(&t).await;
     pinterest(&t).await;
     reddit(&t).await;
+    mastodon(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -2664,4 +2666,188 @@ async fn reddit(t: &T) {
     assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(77), Some("northwind_bakery")));
     t.call("reddit", "delete", json!({"id": selfp["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
     assert!(!t.net().list("rd:posts").iter().any(|p| p["name"] == selfp["id"]));
+}
+
+// ───────────── Mastodon (any server) ─────────────
+
+fn fake_mastodon(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, m: &str| status(code, json!({"error": m}));
+    match (r.method.as_str(), r.path.as_str()) {
+        ("POST", "/api/v1/apps") => {
+            let f = r.form();
+            if !f.get("redirect_uris").is_some_and(|u| u.ends_with("/api/connections/callback")) || f.get("scopes").map(String::as_str) != Some("read write") {
+                return err(422, "Validation failed: Redirect URI must be an absolute URI.");
+            }
+            n.list("ma:apps").push(json!(f.get("client_name")));
+            return ok(
+                json!({"id": "1", "name": f.get("client_name"), "client_id": "MA-CID", "client_secret": "MA-CS", "redirect_uri": f.get("redirect_uris")}),
+            );
+        }
+        ("POST", "/oauth/token") => {
+            let f = r.form();
+            // Doorkeeper takes the client in the body or as basic authentication.
+            let in_body = f.get("client_id").map(String::as_str) == Some("MA-CID") && f.get("client_secret").map(String::as_str) == Some("MA-CS");
+            if !(in_body || r.header("authorization") == Some(basic("MA-CID", "MA-CS").as_str())) || !f.contains_key("code_verifier") {
+                return status(401, json!({"error": "invalid_client", "error_description": "Client authentication failed"}));
+            }
+            n.tokens("ma").push(json!("MAT-1"));
+            return ok(json!({"access_token": "MAT-1", "token_type": "Bearer", "scope": "read write", "created_at": 1}));
+        }
+        _ => {}
+    }
+    if !n.valid("ma", r) {
+        return err(401, "The access token is invalid");
+    }
+    let seg: Vec<&str> = r.path.trim_start_matches("/api/").split('/').collect();
+    match (r.method.as_str(), seg.as_slice()) {
+        ("GET", ["v1", "accounts", "verify_credentials"]) => {
+            ok(json!({"id": "109", "acct": "north", "display_name": "Northwind", "avatar": "https://fedi.test/a.png", "followers_count": 321}))
+        }
+        ("POST", ["v2", "media"]) => {
+            let parts = r.parts();
+            let Some(file) = parts.get("file") else { return err(422, "Validation failed: File can't be blank") };
+            let id = format!("m{}", n.next());
+            let video = file.1.as_deref().is_some_and(|c| c.starts_with("video/"));
+            n.list("ma:media").push(json!({"id": id, "description": String::from_utf8_lossy(&parts.get("description").map(|d| d.2.clone()).unwrap_or_default()), "polls": 0, "video": video}));
+            if video { status(202, json!({"id": id, "url": null})) } else { ok(json!({"id": id, "url": format!("https://fedi.test/m/{id}")})) }
+        }
+        ("GET", ["v1", "media", id]) => {
+            let id = id.to_string();
+            let mut list = n.list("ma:media").clone();
+            let m = list.iter_mut().find(|m| m["id"] == json!(id)).unwrap();
+            m["polls"] = json!(m["polls"].as_u64().unwrap() + 1);
+            let done = m["polls"].as_u64() >= Some(2);
+            n.set("ma:media", Value::Array(list));
+            if done { ok(json!({"id": id, "url": format!("https://fedi.test/m/{id}")})) } else { status(206, json!({"id": id, "url": null})) }
+        }
+        ("POST", ["v1", "statuses"]) => {
+            let b = r.json();
+            let key = r.header("idempotency-key").unwrap_or_default().to_string();
+            if let Some(s) = n.list("ma:statuses").iter().find(|s| s["key"] == json!(key)).cloned() {
+                return ok(json!({"id": s["id"], "url": format!("https://fedi.test/@north/{}", s["id"].as_str().unwrap())}));
+            }
+            if b["status"].as_str().is_some_and(|t| t.chars().count() > 500) {
+                return err(422, "Validation failed: Text character limit of 500 exceeded");
+            }
+            if b["poll"].is_object() && b["media_ids"].is_array() {
+                return err(422, "Validation failed: Cannot attach files to a post that has a poll");
+            }
+            let id = format!("{}", 110_000 + n.next());
+            n.list("ma:statuses").push(json!({"id": id, "key": key, "body": b}));
+            ok(json!({"id": id, "url": format!("https://fedi.test/@north/{id}")}))
+        }
+        ("POST", ["v1", "statuses", id, what @ ("favourite" | "reblog")]) => {
+            n.list(&format!("ma:{what}")).push(json!(id));
+            ok(json!({"id": id}))
+        }
+        ("DELETE", ["v1", "statuses", id]) => {
+            let id = id.to_string();
+            n.list("ma:statuses").retain(|s| s["id"] != json!(id));
+            ok(json!({"id": id}))
+        }
+        ("GET", ["v1", "statuses", id]) => ok(json!({"id": id, "favourites_count": 5, "reblogs_count": 2, "replies_count": 1})),
+        ("GET", ["v2", "search"]) => ok(
+            json!({"accounts": [{"id": "7", "acct": format!("{}@fedi.test", r.query.get("q").cloned().unwrap_or_default()), "display_name": "Ana", "avatar": "https://fedi.test/ana.png"}],
+                                             "statuses": [], "hashtags": []}),
+        ),
+        ("GET", ["v1", "notifications"]) => {
+            if r.query.contains_key("min_id") {
+                return ok(json!([]));
+            }
+            let mention = |id: &str, acct: &str, visibility: &str, reply_to: Option<(&str, &str)>| {
+                json!({"id": id, "type": "mention", "account": {"id": format!("a-{acct}"), "acct": acct},
+                       "status": {"id": format!("s{id}"), "visibility": visibility, "content": format!("<p>Hi from {acct}</p>"),
+                                  "in_reply_to_id": reply_to.map(|r| r.0), "in_reply_to_account_id": reply_to.map(|r| r.1)}})
+            };
+            let page = json!([
+                mention("903", "cy", "direct", None),
+                mention("902", "bo", "public", Some(("110001", "109"))),
+                mention("901", "al", "public", Some(("999", "555")))
+            ]);
+            let base = n.base.clone();
+            Resp(
+                200,
+                vec![(
+                    "link".into(),
+                    format!("<{base}/ma/api/v1/notifications?max_id=901>; rel=\"next\", <{base}/ma/api/v1/notifications?min_id=903>; rel=\"prev\""),
+                )],
+                page.to_string().into_bytes(),
+            )
+        }
+        _ => err(404, "Record not found"),
+    }
+}
+
+async fn mastodon(t: &T) {
+    let conn = t.connect("mastodon", "ma", &["mastodon.example"], json!({}), |_| {}).await;
+    // The platform's client registered at this server by its own request, once; its token never expires.
+    let q = t.sign_in(conn, "CODE-ma").await;
+    assert_eq!(q["client_id"], "MA-CID");
+    assert_eq!(t.net().list("ma:apps").len(), 1);
+    let row = t.k.connection_defs(&t.admin).await.unwrap().into_iter().find(|c| c["name"] == "mastodon").unwrap();
+    assert!(row["account"]["expires_at"].is_null(), "never expires: {row}");
+    let account = t.account("Northwind Mastodon", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "Mastodon");
+    let found = t.action(account, "mentions", json!({"query": "ana"})).await.unwrap();
+    assert_eq!(found["mentions"][0]["text"], "@ana@fedi.test");
+    let key = format!("publish:{}", Uuid::now_v7());
+    // A post with its settings, then a thread answering it.
+    let mut v = post_in("Spring menu", Some("https://northwind.test"), &[], &[]);
+    v["settings"] = json!({"visibility": "unlisted", "sensitive": false, "spoiler": "Food", "language": "en"});
+    let first = t.call("mastodon", "publish", v, Some(&key)).await.unwrap();
+    {
+        let mut n = t.net();
+        let b = n.list("ma:statuses")[0]["body"].clone();
+        assert_eq!((b["visibility"].as_str(), b["spoiler_text"].as_str(), b["language"].as_str()), (Some("unlisted"), Some("Food"), Some("en")));
+        assert_eq!(n.list("ma:statuses")[0]["key"], json!(key), "under its key, which Mastodon honours");
+    }
+    let mut second = follow_in(post_in("Then summer", None, &[], &[]), 1, 2, first["id"].as_str().unwrap(), &kept(0, &first));
+    second["settings"] = json!({"visibility": "unlisted"});
+    t.call("mastodon", "publish", second, Some(&format!("{key}:1"))).await.unwrap();
+    assert_eq!(t.net().list("ma:statuses")[1]["body"]["in_reply_to_id"], first["id"]);
+    // A poll.
+    let mut poll = post_in("Which bread?", None, &[], &[]);
+    poll["settings"] = json!({"poll_options": ["Rye", "Spelt"], "poll_expires_in": "3600", "poll_multiple": true});
+    t.call("mastodon", "publish", poll, Some(&format!("{key}:poll"))).await.unwrap();
+    assert_eq!(t.net().list("ma:statuses").last().unwrap()["body"]["poll"], json!({"options": ["Rye", "Spelt"], "expires_in": 3600, "multiple": true}));
+    // A video, processed before it is used.
+    let m = t.medium("clip.mp4", "video/mp4", b"VIDEO", None, json!({}), None).await;
+    let id = t.call("mastodon", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    assert!(
+        t.net().asked("ma").iter().filter(|a| a.starts_with("GET /api/v1/media/")).count() >= 2,
+        "waited for while processing: {:?}",
+        t.net().get("ma:media")
+    );
+    assert_eq!(t.net().list("ma:media")[0]["description"], "What it shows");
+    t.call("mastodon", "publish", post_in("Watch", None, &[("clip.mp4", "video/mp4", 5)], &[id]), Some(&format!("{key}:v"))).await.unwrap();
+    // A lost answer: sent again under the same key, which Mastodon answers with the status it made.
+    t.net().lose.insert("POST /ma/api/v1/statuses".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("ma:statuses").len();
+    assert!(t.call("mastodon", "publish", post_in("Once", None, &[], &[]), Some(&lost)).await.is_err());
+    let got = t.call("mastodon", "publish", post_in("Once", None, &[], &[]), Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("ma:statuses").len(), before + 1);
+    assert_eq!(got["id"], t.net().list("ma:statuses").last().unwrap()["id"]);
+    // A refusal in the server's words.
+    let e = t.call("mastodon", "publish", post_in(&"x".repeat(501), None, &[], &[]), Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(e.to_string().contains("character limit of 500"), "{e}");
+    // Mentions: a reply to the account's own status is a comment, one to someone else's a mention, a private one direct.
+    t.pull(conn, "mentions").await;
+    let kinds: BTreeMap<String, String> = t
+        .messages(json!({}))
+        .await
+        .iter()
+        .filter(|m| ["s901", "s902", "s903"].contains(&m["external_id"].as_str().unwrap_or_default()))
+        .map(|m| (m["external_id"].as_str().unwrap().to_string(), m["kind"].as_str().unwrap().to_string()))
+        .collect();
+    assert_eq!(kinds, BTreeMap::from([("s901".into(), "Mention".into()), ("s902".into(), "Comment".into()), ("s903".into(), "Direct".into())]));
+    // Favourite, boost, numbers, the account, delete.
+    t.call("mastodon", "like", json!({"id": first["id"]}), Some("like:ma")).await.unwrap();
+    t.call("mastodon", "repost", json!({"id": first["id"]}), Some("repost:ma")).await.unwrap();
+    let m = t.call("mastodon", "metrics", json!({"id": first["id"], "account_id": null, "handle": "north"}), None).await.unwrap();
+    assert_eq!(m["engagements"], 8);
+    let a = t.call("mastodon", "account", json!({"account_id": null, "handle": "north"}), None).await.unwrap();
+    assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(321), Some("north")));
+    t.call("mastodon", "delete", json!({"id": first["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
+    assert!(!t.net().list("ma:statuses").iter().any(|s| s["id"] == first["id"]));
 }
