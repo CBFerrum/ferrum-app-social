@@ -1606,7 +1606,7 @@ fn fake_instagram(n: &mut Net, r: &Req) -> Resp {
     }
 }
 
-/// What Social would give `publish_media` with the public address it does not give yet (see notes-a.md).
+/// What Social would give `publish_media` with the public address it does not give yet (see docs/connectors/README.md).
 async fn ig_medium(t: &T, name: &str, ct: &str, bytes: &[u8], kind: &str, account: Option<&str>) -> Value {
     let mut m = t.medium(name, ct, bytes, Some(kind), json!({}), account).await;
     m["url"] = json!(format!("https://files.northwind.test/{name}"));

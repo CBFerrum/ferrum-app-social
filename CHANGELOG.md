@@ -63,6 +63,16 @@ uploads its own media (no `publish_media` needed; media come as stored files), a
 previous item's whole results. The account's own posts can be read back as publications without a post, their numbers
 read per item; a mention answering one of the brand's posts is a comment. A notice opt-out is its person's.
 
+**Round four.** Thirty-three networks are described (docs/connectors/README.md, one table each: what it can, cannot yet
+and why, what to set up, what is unverified) and every description ships with the package (written by
+scripts/ship_connections.py, kept the same by a test), offered turned off. Tested against fakes of the networks'
+documented APIs, never against the real networks. The inputs contract grows as the networks asked: a title of the post
+and of each account's version (no network asks it as a setting); `account_id` on every reply; the medium's own kind
+kept in `publish_media` beside `post_kind`; a `url` for a stored file (null until the platform gives public addresses,
+and a plain refusal for media a network takes only by address); `delete` given the account, kind, answers and every
+item, and a first comment's id kept and deleted with the post; reads decided by an operation's `changes`; a kind chosen
+from the media. Every inbox mapping writes as the system. The seeded network profiles are their descriptions' rules.
+
 **Upgrading from 0.6.13 or 0.7.0.** No step for an administrator. Posts, approvals and publications read and send as
 before (an approval given before keeps holding: its fingerprint is unchanged for a post with only 0.7.0's content); a
 publication under way keeps its key. The review policy applies at once; a workspace where nobody holds Social Approver
