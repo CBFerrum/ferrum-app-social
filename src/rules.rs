@@ -248,11 +248,6 @@ pub struct TitleRule {
     pub max: Option<usize>,
 }
 
-/// (round four) Whether this server gives a stored file a short-lived public address (`url`). It does not yet: it
-/// switches on with the platform's public file addresses, and then a network that takes media by address is no longer
-/// refused here.
-pub const PUBLIC_MEDIA_ADDRESSES: bool = false;
-
 impl Rules {
     /// `meta.social` as written, named `fallback` when it names nothing.
     pub fn parse(v: &Value, fallback: &str) -> Result<Rules, String> {
@@ -371,6 +366,9 @@ pub struct Copy {
     pub items: Vec<Item>,
     pub first_comment: Option<String>,
     pub settings: Map<String, Value>,
+    /// (round five) This server has no public address (`PUBLIC_URL`), so a network that pulls media by address cannot
+    /// be given any.
+    pub no_public_address: bool,
 }
 
 /// Bytes in plain words.
@@ -495,8 +493,13 @@ pub fn problems(r: &Rules, copy: &Copy) -> Vec<String> {
             out.push(format!("{name} takes titles of at most {max} characters, and this one is {n}"));
         }
     }
-    if !PUBLIC_MEDIA_ADDRESSES && copy.items.iter().flat_map(|i| &i.media).any(|m| media.by_address.contains(&m.kind)) {
-        out.push(format!("{name} takes {} only by a public address, which this server cannot give a stored file yet", plural(&media.by_address[0])));
+    // (round five) The description makes the address (`public_files`); only a server with none refuses, in the
+    // platform's words.
+    if copy.no_public_address && copy.items.iter().flat_map(|i| &i.media).any(|m| media.by_address.contains(&m.kind)) {
+        out.push(format!(
+            "{name} takes {} only by a public address: this server has no public address (PUBLIC_URL), and a service cannot pull a file from localhost: an operator sets one",
+            plural(&media.by_address[0])
+        ));
     }
     for (i, item) in copy.items.iter().enumerate() {
         let after = i > 0;
@@ -813,7 +816,9 @@ mod tests {
         let long = Copy { title: Some("t".repeat(101)), ..post("Desc", video.clone()) };
         assert!(says(&problems(&yt, &long), "titles of at most 100 characters, and this one is 101"));
         let ig = network("instagram");
-        assert!(says(&problems(&ig, &post("Hi", vec![pic("image", "image/jpeg", 1)])), "takes pictures only by a public address"));
+        assert!(problems(&ig, &post("Hi", vec![pic("image", "image/jpeg", 1)])).is_empty(), "a server with a public address makes one");
+        let local = Copy { no_public_address: true, ..post("Hi", vec![pic("image", "image/jpeg", 1)]) };
+        assert!(says(&problems(&ig, &local), "takes pictures only by a public address: this server has no public address (PUBLIC_URL)"));
     }
 
     #[test]

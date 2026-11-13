@@ -100,7 +100,7 @@ pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc
     if !strict {
         return Ok(rules::structural(&r, &v.copy()).into_iter().next().map(|why| ("targets".into(), format!("for {name}: {why}"))));
     }
-    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy())).next() {
+    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy_on(k))).next() {
         return Ok(Some(("text".into(), format!("for {name}: {why}"))));
     }
     Ok(conn_misses(tx, ctx, a, &r, &v, &name).await?.map(|why| (if why.contains("pictures") { "image" } else { "targets" }.into(), why)))
@@ -276,7 +276,7 @@ pub(crate) async fn copies_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> 
             Err(e) => (Version::default(), vec![e.to_string()]),
         };
         problems.extend(v.problems.iter().cloned());
-        problems.extend(rules::problems(&r, &v.copy()));
+        problems.extend(rules::problems(&r, &v.copy_on(k)));
         let kind = r.kind(v.kind_on(&r).as_deref()).ok().flatten();
         let (text, _, follow, _) = r.effective(kind);
         let title = v.title.clone();
@@ -574,8 +574,6 @@ async fn media_inputs(k: &Kernel, ctx: &Ctx, conn: &Reach, op: &str, r: &Rules, 
             inputs[k2] = v.clone();
         }
     }
-    // Its public address, where this server can give one (see rules::PUBLIC_MEDIA_ADDRESSES): none yet.
-    inputs["url"] = Value::Null;
     let declared = conn.inputs(op);
     if declared.is_empty() || declared.iter().any(|d| d == "data") {
         let (_, _, bytes) = k.read_file(&elevated(ctx), m.file).await?;
@@ -605,7 +603,7 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     // What its network takes may have been changed since the post was approved: looked at again.
     let r = rules_of(k, &ctx, &mut tx, &account).await?.ok_or_else(|| Error::invalid(format!("{name} has no network profile")))?;
     let v = content::version(k, &ctx, &mut tx, &post, &account).await?;
-    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy())).next() {
+    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy_on(k))).next() {
         return Err(Error::invalid(format!("for {name}: {why}")));
     }
     let kind = r.kind(v.kind_on(&r).as_deref()).ok().flatten().map(|k| k.name.clone());
@@ -633,7 +631,13 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
         }
     }
     let as_ = follow(&r, &v);
-    let op = if n == 0 || as_ == FollowAs::Thread { "publish" } else { "reply" };
+    // (round five) An item with media goes through `publish_with_media` where the description has it: the operation
+    // that makes the media's public addresses (a text post has no file to make one from).
+    let op = match (n == 0 || as_ == FollowAs::Thread, item.media.is_empty()) {
+        (true, false) if conn.has(r.op("publish_with_media")) => "publish_with_media",
+        (true, _) => "publish",
+        _ => "reply",
+    };
     let root = sent.first().map(|s| s["id"].clone()).unwrap_or(Value::Null);
     let before = sent.last().cloned().unwrap_or(Value::Null);
     let common = json!({"kind": kind, "title": v.title, "settings": settings, "account_id": crate::picker::network_id(&account), "handle": s(&account, "handle"), "item": n, "items": v.items.len()});
@@ -675,10 +679,7 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
         .map(|(i, m)| {
             json!({"id": media.get(i), "file": m.file.to_string(), "name": m.name, "kind": m.kind, "alt": if r.media.alt { m.alt.clone() } else { None },
                    "content_type": m.content_type, "size": m.bytes, "width": m.width, "height": m.height, "seconds": m.seconds,
-                   "thumbnail": if r.media.thumbnail { m.thumbnail.map(|t| t.to_string()) } else { None },
-                   // ponytail: no short-lived public address for a stored file yet (the platform has none an app can make);
-                   // `url` is filled when it does (rules::PUBLIC_MEDIA_ADDRESSES).
-                   "url": Value::Null, "public_url": Value::Null})
+                   "thumbnail": if r.media.thumbnail { m.thumbnail.map(|t| t.to_string()) } else { None }})
         })
         .collect();
     let mut inputs = json!({"text": item.text, "link": link, "text_with_link": link.map_or_else(|| item.text.clone(), |l| format!("{} {l}", item.text)),

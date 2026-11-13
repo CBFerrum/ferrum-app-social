@@ -290,7 +290,7 @@
     },
     "publish_media": {
       "inputs": [
-        "url"
+        "file"
       ],
       "steps": [
         {
@@ -300,7 +300,7 @@
       ],
       "result": {
         "id": {
-          "expr": "has(inputs.url) && inputs.url != null ? inputs.url : ''"
+          "expr": "string(inputs.file)"
         }
       }
     },
@@ -308,7 +308,6 @@
       "inputs": [
         "account_id",
         "text_with_link",
-        "media",
         "kind",
         "settings"
       ],
@@ -329,7 +328,7 @@
             "coupon": "inputs.settings.coupon",
             "redeem_url": "inputs.settings.redeem_url",
             "terms": "inputs.settings.terms",
-            "photo": "inputs.media[0] if inputs.media else none"
+            "photo": "none"
           },
           "confirm": {
             "operation": "recent",
@@ -344,6 +343,55 @@
       "result": {
         "id": "/post/id",
         "url": "/post/url"
+      }
+    },
+    "publish_with_media": {
+      "inputs": [
+        "account_id",
+        "text_with_link",
+        "media",
+        "kind",
+        "settings",
+        "media_items"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "location": "inputs.account_id",
+            "text": "inputs.text_with_link",
+            "kind": "inputs.kind",
+            "language": "inputs.settings.language",
+            "cta": "inputs.settings.cta",
+            "cta_url": "inputs.settings.cta_url",
+            "event_title": "inputs.settings.event_title",
+            "event_start": "inputs.settings.event_start",
+            "event_end": "inputs.settings.event_end",
+            "coupon": "inputs.settings.coupon",
+            "redeem_url": "inputs.settings.redeem_url",
+            "terms": "inputs.settings.terms",
+            "photo": "public_files.photo"
+          },
+          "confirm": {
+            "operation": "recent",
+            "inputs": {
+              "location": "inputs.account_id",
+              "text": "sent.text"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": "/post/url"
+      },
+      "public_files": {
+        "photo": {
+          "file": "{{ inputs.media_items[0].file }}",
+          "minutes": 120
+        }
       }
     },
     "delete": {

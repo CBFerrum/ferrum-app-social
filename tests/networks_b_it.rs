@@ -22,6 +22,8 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
+mod common;
+
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nCAT-PICTURE";
 const MP4: &[u8] = b"\x00\x00\x00\x18ftypmp42VIDEO-BYTES";
 
@@ -242,6 +244,8 @@ async fn fake(mut handler: impl FnMut(&Req) -> Resp + Send + 'static) -> Fake {
                 let (method, target) = (first.next().unwrap_or_default().to_string(), first.next().unwrap_or("/").to_string());
                 let headers: HashMap<String, String> =
                     lines.filter_map(|l| l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))).collect();
+                // (round five) What a network pulls by address, it pulls before it answers.
+                common::pull_all(&format!("{target} {}", String::from_utf8_lossy(&body))).await;
                 let req = Req { method, target, headers, body };
                 log.lock().unwrap().push(req.clone());
                 let answer = (handler.lock().unwrap())(&req);
@@ -487,11 +491,14 @@ async fn scenario() {
     let settings = KernelSettings {
         secret_key: Some(SecretKey::new([7u8; 32])),
         connection_hosts: vec!["127.0.0.1".into()],
-        public_url: Some("https://ferrum.example.test".into()),
+        public_url: Some(common::start().await),
         ..Default::default()
     };
     let k = Kernel::boot(db, Catalog::from_packages(packages).unwrap(), hooks, settings, None).await.expect("boot");
-    k.set_file_store(Arc::new(MemFiles::default()));
+    let store: Arc<MemFiles> = Arc::default();
+    k.set_file_store(store.clone());
+    let _ = common::FILES.set(store);
+    let _ = common::KERNEL.set(k.clone());
     ferrum_domain::maintenance(&k).await.expect("partitions");
     let tenant = k
         .create_tenant(NewTenant {
@@ -2808,8 +2815,12 @@ async fn tiktok_business(t: &T) {
             ("POST", p @ ("/business/video/publish/" | "/business/photo/publish/")) => {
                 let b = r.json();
                 assert_eq!(b["business_id"], "BIZ1");
-                if p.contains("video") && b["video_url"].is_null() {
-                    return fail(40002, "video_url: A video address is needed");
+                // (round five) TikTok pulls the video and each photo from its address.
+                if p.contains("video") && b["video_url"].as_str().and_then(common::pulled).is_none() {
+                    return fail(40002, "video_url: the video could not be pulled from its address");
+                }
+                if p.contains("photo") && b["photo_images"].as_array().is_none_or(|l| l.iter().any(|u| u.as_str().and_then(common::pulled).is_none())) {
+                    return fail(40002, "photo_images: a photo could not be pulled from its address");
                 }
                 published.push(json!({"via": p, "body": b}));
                 ok(json!({"code": 0, "message": "OK", "data": {"share_id": format!("share-{}", published.len())}}))
@@ -2846,10 +2857,10 @@ async fn tiktok_business(t: &T) {
     assert!(refreshes.lock().unwrap().len() >= 2, "renewed: {:?}", refreshes.lock().unwrap());
     assert_eq!(refreshes.lock().unwrap()[1]["refresh_token"], "RT-1", "the rotated refresh token");
     let rules = t.rules(me).await;
-    assert_eq!((rules["name"].as_str(), rules["kinds"][1]["media"]["max"].as_u64()), (Some("TikTok Business"), Some(35)));
+    assert_eq!((rules["name"].as_str(), rules["kinds"][1]["media"]["max"].as_u64()), (Some("TikTok Business"), Some(10)));
 
-    // The publish call with the addresses TikTok pulls from. Social does not give them yet (see the notes), so this is
-    // the platform's own call with the input the description reads: `media_items[].url`.
+    // The publish call as Social makes it: the stored files in `media_items`, whose addresses the description makes
+    // (round five) and TikTok pulls.
     let call = |op: &str, inputs: Value, key: &str| {
         let (k, admin, conn) = (t.k.clone(), t.admin.clone(), conn);
         let (op, key) = (op.to_string(), key.to_string());
@@ -2866,7 +2877,7 @@ async fn tiktok_business(t: &T) {
     let video = call(
         "publish",
         json!({"kind": "video", "settings": {"disable_comment": true, "disable_duet": false, "disable_stitch": false, "brand_organic": true, "branded_content": false}, "text_with_link": "Spring is here",
-               "media_items": [{"id": "f1", "kind": "video", "url": "https://media.northwind.example/spring.mp4"}]}),
+               "media_items": [{"id": "f1", "kind": "video", "file": t.mp4["id"]}]}),
         "tt-video",
     )
     .await
@@ -2875,7 +2886,7 @@ async fn tiktok_business(t: &T) {
     {
         let p = published.lock().unwrap()[0].clone();
         assert_eq!(p["via"], "/business/video/publish/");
-        assert_eq!(p["body"]["video_url"], "https://media.northwind.example/spring.mp4");
+        assert_eq!(p["body"]["video_url"].as_str().and_then(common::pulled).as_deref(), Some(MP4), "the video pulled from its address");
         assert_eq!(
             (
                 p["body"]["post_info"]["caption"].as_str(),
@@ -2889,31 +2900,38 @@ async fn tiktok_business(t: &T) {
     let photos = call(
         "publish",
         json!({"kind": "photo", "title": "Gallery", "settings": {"privacy": "SELF_ONLY"}, "text_with_link": "Two views",
-               "media_items": [{"id": "f1", "kind": "image", "url": "https://media.northwind.example/a.jpg"}, {"id": "f2", "kind": "image", "url": "https://media.northwind.example/b.jpg"}]}),
+               "media_items": [{"id": "f1", "kind": "image", "file": t.png["id"]}, {"id": "f2", "kind": "image", "file": t.png["id"]}]}),
         "tt-photos",
     )
     .await
     .unwrap();
     assert_eq!(photos["id"], "7300000001");
     let p = published.lock().unwrap()[1].clone();
-    assert_eq!(p["body"]["photo_images"], json!(["https://media.northwind.example/a.jpg", "https://media.northwind.example/b.jpg"]));
+    let pulled: Vec<Option<Vec<u8>>> = p["body"]["photo_images"].as_array().unwrap().iter().map(|u| u.as_str().and_then(common::pulled)).collect();
+    assert_eq!(pulled, vec![Some(PNG.to_vec()), Some(PNG.to_vec())], "each photo by an address of its own");
+    assert_ne!(p["body"]["photo_images"][0], p["body"]["photo_images"][1]);
     assert_eq!(
         (p["body"]["post_info"]["title"].as_str(), p["body"]["post_info"]["privacy_level"].as_str(), p["body"]["post_info"]["caption"].as_str()),
         (Some("Gallery"), Some("SELF_ONLY"), Some("Two views"))
     );
     // The same call again under the same key: nothing is sent again.
-    let again = call("publish", json!({"kind": "video", "settings": {}, "text_with_link": "Spring is here", "media_items": [{"id": "f1", "kind": "video", "url": "https://media.northwind.example/spring.mp4"}]}), "tt-video").await;
+    let again = call(
+        "publish",
+        json!({"kind": "video", "settings": {}, "text_with_link": "Spring is here", "media_items": [{"id": "f1", "kind": "video", "file": t.mp4["id"]}]}),
+        "tt-video",
+    )
+    .await;
     let _ = again;
     assert_eq!(published.lock().unwrap().len(), 2);
     // Numbers of a video, by its public id.
     let n = call("metrics", json!({"id": "7300000001"}), "tt-n").await.unwrap();
     assert_eq!((n["impressions"].as_i64(), n["engagements"].as_i64()), (Some(640), Some(15)));
 
-    // (round four) Through Social, today: a stored video has no public address yet, so Social refuses it plainly before
-    // anything is sent (it goes once the platform gives stored files their addresses).
-    let e = t.refused("A clip", vec![target_with(me, "video", json!({}))], json!({"media": [json!({"item": 1, "file": t.mp4["url"]})]})).await;
-    assert!(e.contains("only by a public address"), "{e}");
-    assert_eq!(published.lock().unwrap().len(), 2);
+    // (round five) Through Social: a stored video leaves Draft and goes, by the address the description makes.
+    let clip = t.post("A clip", vec![target_with(me, "video", json!({}))], json!({"media": [json!({"item": 1, "file": t.mp4["url"]})]})).await;
+    t.out(clip, me).await;
+    let p = published.lock().unwrap()[2].clone();
+    assert_eq!((p["via"].as_str(), p["body"]["video_url"].as_str().and_then(common::pulled).as_deref()), (Some("/business/video/publish/"), Some(MP4)));
 }
 
 // ───────────── Farcaster (Neynar) ─────────────

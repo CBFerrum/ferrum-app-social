@@ -68,7 +68,7 @@
             ],
             "required": true,
             "min": 1,
-            "max": 35,
+            "max": 10,
             "image": {
               "types": [
                 "image/jpeg",
@@ -369,7 +369,7 @@
           "operation": "video_publish",
           "when": "inputs.kind != 'photo'",
           "inputs": {
-            "video_url": "inputs.media_items[0].url if inputs.media_items else none",
+            "video_url": "public_files.p0",
             "caption": "inputs.text_with_link",
             "disable_comment": "inputs.settings.disable_comment",
             "disable_duet": "inputs.settings.disable_duet",
@@ -383,7 +383,7 @@
           "operation": "photo_publish",
           "when": "inputs.kind == 'photo'",
           "inputs": {
-            "photo_urls": "inputs.media_items | map(attribute='url') | list",
+            "photo_urls": "[public_files.p0, public_files.p1, public_files.p2, public_files.p3, public_files.p4, public_files.p5, public_files.p6, public_files.p7, public_files.p8, public_files.p9][:inputs.media_items | length]",
             "caption": "inputs.text_with_link",
             "title": "inputs.title",
             "privacy": "inputs.settings.privacy",
@@ -410,6 +410,48 @@
         "id": {
           "expr": "answer.status.status == 'PUBLISH_COMPLETE' && answer.status.post_id != '' ? answer.status.post_id : null",
           "required": true
+        }
+      },
+      "public_files": {
+        "p0": {
+          "file": "{{ (inputs.media_items[0] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p1": {
+          "file": "{{ (inputs.media_items[1] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p2": {
+          "file": "{{ (inputs.media_items[2] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p3": {
+          "file": "{{ (inputs.media_items[3] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p4": {
+          "file": "{{ (inputs.media_items[4] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p5": {
+          "file": "{{ (inputs.media_items[5] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p6": {
+          "file": "{{ (inputs.media_items[6] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p7": {
+          "file": "{{ (inputs.media_items[7] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p8": {
+          "file": "{{ (inputs.media_items[8] or inputs.media_items[0]).file }}",
+          "minutes": 180
+        },
+        "p9": {
+          "file": "{{ (inputs.media_items[9] or inputs.media_items[0]).file }}",
+          "minutes": 180
         }
       }
     }

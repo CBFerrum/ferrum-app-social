@@ -272,7 +272,6 @@
     "publish_media": {
       "inputs": [
         "file",
-        "url",
         "content_type"
       ],
       "steps": [
@@ -283,7 +282,7 @@
       ],
       "result": {
         "id": {
-          "expr": "(inputs.content_type.startsWith('video/') ? 'video:' : 'image:') + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
+          "expr": "(inputs.content_type.startsWith('video/') ? 'video:' : 'image:') + string(inputs.file)"
         }
       }
     },
@@ -292,20 +291,83 @@
         "text",
         "link",
         "text_with_link",
-        "media",
         "reply_to",
         "settings"
+      ],
+      "steps": [
+        {
+          "name": "single",
+          "operation": "create_container",
+          "inputs": {
+            "media_type": "'TEXT'",
+            "text": "inputs.text",
+            "link": "inputs.link",
+            "reply_to": "inputs.reply_to",
+            "topic": "inputs.settings.topic",
+            "who": "inputs.settings.reply_control"
+          }
+        },
+        {
+          "name": "ready",
+          "operation": "container_status",
+          "inputs": {
+            "id": "steps.single.id"
+          },
+          "wait": {
+            "until": "result.status == 'FINISHED'",
+            "fail_if": "result.status in ['ERROR', 'EXPIRED']",
+            "every_secs": 3,
+            "within_secs": 900
+          }
+        },
+        {
+          "name": "post",
+          "operation": "threads_publish",
+          "inputs": {
+            "id": "steps.single.id",
+            "text": "inputs.text"
+          },
+          "confirm": {
+            "operation": "recent",
+            "inputs": {
+              "text": "sent.text"
+            },
+            "proves": "result.id"
+          }
+        },
+        {
+          "name": "link",
+          "operation": "permalink",
+          "inputs": {
+            "id": "steps.post.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": "/link/url"
+      }
+    },
+    "publish_with_media": {
+      "inputs": [
+        "text",
+        "link",
+        "text_with_link",
+        "media",
+        "reply_to",
+        "settings",
+        "media_items"
       ],
       "steps": [
         {
           "name": "children",
           "operation": "create_container",
           "when": "(inputs.media or []) | length > 1",
-          "for_each": "inputs.media",
+          "for_each": "inputs.media_items",
           "inputs": {
-            "media_type": "'VIDEO' if item is startingwith('video:') else 'IMAGE'",
-            "image_url": "item[6:] if item is startingwith('image:') else none",
-            "video_url": "item[6:] if item is startingwith('video:') else none",
+            "media_type": "'VIDEO' if item.id is startingwith('video:') else 'IMAGE'",
+            "image_url": "public_files['p' ~ index] if item.id is startingwith('image:') else none",
+            "video_url": "public_files['p' ~ index] if item.id is startingwith('video:') else none",
             "carousel_item": "true"
           }
         },
@@ -342,8 +404,8 @@
           "when": "not ((inputs.media or []) | length > 1)",
           "inputs": {
             "media_type": "'TEXT' if not inputs.media else ('VIDEO' if inputs.media[0] is startingwith('video:') else 'IMAGE')",
-            "image_url": "inputs.media[0][6:] if inputs.media and inputs.media[0] is startingwith('image:') else none",
-            "video_url": "inputs.media[0][6:] if inputs.media and inputs.media[0] is startingwith('video:') else none",
+            "image_url": "public_files.p0 if inputs.media[0] is startingwith('image:') else none",
+            "video_url": "public_files.p0 if inputs.media[0] is startingwith('video:') else none",
             "text": "inputs.text if not inputs.media else inputs.text_with_link",
             "link": "inputs.link if not inputs.media else none",
             "reply_to": "inputs.reply_to",
@@ -390,6 +452,88 @@
       "result": {
         "id": "/post/id",
         "url": "/link/url"
+      },
+      "public_files": {
+        "p0": {
+          "file": "{{ (inputs.media_items[0] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p1": {
+          "file": "{{ (inputs.media_items[1] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p2": {
+          "file": "{{ (inputs.media_items[2] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p3": {
+          "file": "{{ (inputs.media_items[3] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p4": {
+          "file": "{{ (inputs.media_items[4] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p5": {
+          "file": "{{ (inputs.media_items[5] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p6": {
+          "file": "{{ (inputs.media_items[6] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p7": {
+          "file": "{{ (inputs.media_items[7] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p8": {
+          "file": "{{ (inputs.media_items[8] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p9": {
+          "file": "{{ (inputs.media_items[9] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p10": {
+          "file": "{{ (inputs.media_items[10] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p11": {
+          "file": "{{ (inputs.media_items[11] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p12": {
+          "file": "{{ (inputs.media_items[12] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p13": {
+          "file": "{{ (inputs.media_items[13] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p14": {
+          "file": "{{ (inputs.media_items[14] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p15": {
+          "file": "{{ (inputs.media_items[15] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p16": {
+          "file": "{{ (inputs.media_items[16] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p17": {
+          "file": "{{ (inputs.media_items[17] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p18": {
+          "file": "{{ (inputs.media_items[18] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p19": {
+          "file": "{{ (inputs.media_items[19] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        }
       }
     },
     "reply": {
