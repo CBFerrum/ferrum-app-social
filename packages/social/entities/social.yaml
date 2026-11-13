@@ -9,6 +9,8 @@
     - {name: brand_name, type: data, required: true, unique: true, in_list: true}
     - {name: description, type: text}
     - {name: voice, type: text, description: "(round two) How the brand speaks, for writing help: who it talks to, its tone, words it uses and avoids"}
+    - {name: report_to, type: email, label: Weekly Report To, description: "(round two) Who gets the brand's numbers each Monday as a document; empty: nobody (the automation social_weekly_report sends it)"}
+    - {name: numbers, type: json, read_only: true, no_copy: true, label: Last Seven Days, description: "(round two) Its posts' numbers over the last seven days against the seven before, and its top post: kept by the upkeep each day"}
   actions:
     - {name: write_new, label: Write a Post, permission: read, params: [{name: prompt, type: text, label: What About, required: true}]}
     - {name: media_search, label: Find Pictures, permission: read, read_only: true, params: [{name: query, type: data, label: Look For, required: true}, {name: source, type: data, label: Source}, {name: page, type: int, label: Page}]}

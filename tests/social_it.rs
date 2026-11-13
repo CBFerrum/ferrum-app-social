@@ -1750,8 +1750,34 @@ async fn scenario() {
     assert_eq!(by_day.len(), 2);
     assert!(by_day.last().unwrap()["impressions"].as_i64().unwrap() >= 500, "{by_day:?}");
     assert!(!run("social_best_times", each_day).await.is_empty());
-    let by_tag = run("social_by_tag", span).await;
+    let by_tag = run("social_by_tag", span.clone()).await;
     assert!(by_tag.iter().any(|r| r["tag"] == "launch" && r["publications"] == 3 && r["engagements"].as_i64().unwrap() >= 6), "{by_tag:?}");
+    // (round two) By network, by kind, against the period before, followers by day, top posts; the brand's week.
+    let by_network = run("social_by_network", span.clone()).await;
+    assert!(by_network.iter().any(|r| r["network"] == "Chirp" && r["publications"].as_i64().unwrap() > 3), "{by_network:?}");
+    let by_kind = run("social_by_kind", span.clone()).await;
+    assert!(by_kind.iter().any(|r| r["kind"] == "post"), "{by_kind:?}");
+    let compare = run("social_period_compare", span.clone()).await;
+    let pubs = compare.iter().find(|r| r["measure"] == "publications").unwrap();
+    assert!(pubs["this_period"].as_i64().unwrap() > 0 && pubs["period_before"] == 0 && pubs["change_pct"].is_null(), "{compare:?}");
+    let followers = run("social_followers_by_day", span.clone()).await;
+    assert!(followers.iter().any(|r| r["account"] == "Northwind Chirp" && r["followers"] == 1200), "{followers:?}");
+    let mut top = span.clone();
+    top["by"] = json!("impressions");
+    top["limit"] = json!("2");
+    let top = run("social_top_posts", top).await;
+    assert_eq!(top.len(), 2);
+    assert!(top[0]["impressions"].as_i64() >= top[1]["impressions"].as_i64());
+    let week = t.get("SocialBrand", northwind).await["numbers"].clone();
+    assert!(week["publications"].as_i64().unwrap() + week["before"]["publications"].as_i64().unwrap() > 0, "the upkeep's clock runs days ahead here: {week}");
+    let doc = t.k.generate_document(&t.admin, &serde_json::from_value(json!({"template": "social.brand_report", "record": northwind})).unwrap()).await.unwrap();
+    let html = String::from_utf8(t.k.read_file(&t.admin, doc.file).await.unwrap().2).unwrap_or_default();
+    assert!(doc.size > 0 && (html.is_empty() || html.contains("Posts out")), "the shipped template renders the brand's week");
+    assert_eq!(
+        t.count("select count(*) from automation where tenant_id = $1 and name = 'social_weekly_report'").await,
+        1,
+        "the schedule ships as configuration"
+    );
 
     // ───────────── who may do what ─────────────
     refused(t.act(&author, "SocialAccount", nw_key, "check", json!({})).await, "forbidden", "");
