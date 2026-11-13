@@ -1,0 +1,283 @@
+{
+  "base": "https://gql.hashnode.com",
+  "auth": {
+    "type": "header",
+    "header": "authorization",
+    "secret": "access_token"
+  },
+  "apps": [
+    "social"
+  ],
+  "timeout_ms": 30000,
+  "limit": {
+    "per": 500,
+    "every": 60,
+    "concurrent": 3
+  },
+  "meta": {
+    "carries": {
+      "network": "Hashnode",
+      "provider": "hashnode"
+    },
+    "social": {
+      "name": "Hashnode",
+      "text": {
+        "format": "markdown",
+        "min": 1
+      },
+      "media": {
+        "kinds": []
+      },
+      "kinds": [
+        {
+          "name": "article",
+          "label": "Article"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "publication",
+          "label": "Publication",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "publications",
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true,
+          "max": 250
+        },
+        {
+          "key": "subtitle",
+          "label": "Subtitle",
+          "type": "text",
+          "max": 250
+        },
+        {
+          "key": "tags",
+          "label": "Tags",
+          "type": "text",
+          "help": "Tag names separated by commas (up to five)"
+        },
+        {
+          "key": "cover",
+          "label": "Cover picture address",
+          "type": "text",
+          "help": "A web address of a picture"
+        },
+        {
+          "key": "canonical",
+          "label": "Original address",
+          "type": "text"
+        },
+        {
+          "key": "slug",
+          "label": "Address name",
+          "type": "text"
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "method": "POST",
+      "path": "/",
+      "body": "{\"query\": \"query { me { id username name profilePicture } }\", \"variables\": {}}",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "people": {
+          "expr": "[{'id': answer.data.me.id, 'name': answer.data.me.name, 'handle': answer.data.me.username, 'picture': answer.data.me.profilePicture}]"
+        }
+      },
+      "changes": false
+    },
+    "me_query": {
+      "method": "POST",
+      "path": "/",
+      "body": "{\"query\": \"query { me { name username profilePicture } }\", \"variables\": {}}",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "name": "/data/me/name",
+        "handle": "/data/me/username",
+        "picture": "/data/me/profilePicture"
+      },
+      "changes": false
+    },
+    "publications": {
+      "method": "POST",
+      "path": "/",
+      "body": "{\"query\": \"query { me { publications(first: 50) { edges { node { id title } } } } }\", \"variables\": {}}",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "items": {
+          "expr": "answer.data.me.publications.edges.map(e, {'id': e.node.id, 'name': e.node.title})"
+        }
+      },
+      "changes": false
+    },
+    "create_post": {
+      "method": "POST",
+      "path": "/",
+      "body": "{\"query\": \"mutation PublishPost($input: PublishPostInput!) { publishPost(input: $input) { post { id url } } }\", \"variables\": {\"input\": {\"title\": {{ inputs.title | json }}, \"publicationId\": {{ inputs.publication | json }}, \"contentMarkdown\": {{ inputs.content | json }}, \"tags\": [{% for t in inputs.tags_list %}{% if not loop.first %}, {% endif %}{\"slug\": {{ t | lower | replace(\" \", \"-\") | json }}, \"name\": {{ t | json }}}{% endfor %}]{% if inputs.subtitle %}, \"subtitle\": {{ inputs.subtitle | json }}{% endif %}{% if inputs.canonical %}, \"originalArticleURL\": {{ inputs.canonical | json }}{% endif %}{% if inputs.cover %}, \"coverImageOptions\": {\"coverImageURL\": {{ inputs.cover | json }}}{% endif %}{% if inputs.slug %}, \"slug\": {{ inputs.slug | json }}{% endif %}}}}",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "id": {
+          "expr": "has(answer.errors) ? null : answer.data.publishPost.post.id",
+          "required": true
+        },
+        "url": {
+          "expr": "has(answer.errors) ? null : answer.data.publishPost.post.url"
+        }
+      },
+      "inputs": [
+        "title",
+        "publication",
+        "content",
+        "tags_list",
+        "subtitle",
+        "canonical",
+        "cover",
+        "slug"
+      ]
+    },
+    "recent_posts": {
+      "method": "POST",
+      "path": "/",
+      "body": "{\"query\": \"query Recent($id: ObjectId!) { publication(id: $id) { posts(first: 10) { edges { node { id url title publishedAt } } } } }\", \"variables\": {\"id\": {{ inputs.publication | json }}}}",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "id": {
+          "expr": "has(answer.errors) ? '' : answer.data.publication.posts.edges.filter(e, e.node.title == inputs.title && e.node.publishedAt >= inputs.after.substring(0, 19)).map(e, e.node.id).join('')"
+        },
+        "url": {
+          "expr": "has(answer.errors) ? '' : answer.data.publication.posts.edges.filter(e, e.node.title == inputs.title && e.node.publishedAt >= inputs.after.substring(0, 19)).map(e, e.node.url).join('')"
+        }
+      },
+      "changes": false,
+      "inputs": [
+        "publication",
+        "title",
+        "after"
+      ]
+    },
+    "delete": {
+      "method": "POST",
+      "path": "/",
+      "body": "{\"query\": \"mutation RemovePost($input: RemovePostInput!) { removePost(input: $input) { post { id } } }\", \"variables\": {\"input\": {\"id\": {{ inputs.id | json }}}}}",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "id": {
+          "expr": "has(answer.errors) ? null : answer.data.removePost.post.id",
+          "required": true
+        }
+      },
+      "inputs": [
+        "id"
+      ]
+    },
+    "account": {
+      "changes": false,
+      "steps": [
+        {
+          "name": "me",
+          "operation": "me_query"
+        }
+      ],
+      "result": {
+        "name": "/me/name",
+        "handle": "/me/handle",
+        "picture": "/me/picture"
+      }
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text_with_link",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "title": "inputs.settings.title",
+            "publication": "inputs.settings.publication",
+            "content": "inputs.text_with_link",
+            "tags_list": "(inputs.settings.tags or '') | split(',') | map('trim') | reject('equalto', '') | list",
+            "subtitle": "inputs.settings.subtitle",
+            "canonical": "inputs.settings.canonical",
+            "cover": "inputs.settings.cover",
+            "slug": "inputs.settings.slug"
+          },
+          "confirm": {
+            "operation": "recent_posts",
+            "inputs": {
+              "publication": "inputs.settings.publication",
+              "title": "sent.title",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": "/post/url"
+      }
+    }
+  }
+}

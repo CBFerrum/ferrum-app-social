@@ -1,0 +1,291 @@
+{
+  "base": "https://api.dribbble.com/v2",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://dribbble.com/oauth/authorize",
+      "token_url": "https://dribbble.com/oauth/token",
+      "scopes": [
+        "public",
+        "upload"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body",
+      "never_expires": true
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.dribbble.com"
+  ],
+  "timeout_ms": 60000,
+  "limit": {
+    "per": 60,
+    "every": 60,
+    "concurrent": 2
+  },
+  "meta": {
+    "carries": {
+      "network": "Dribbble",
+      "provider": "dribbble"
+    },
+    "social": {
+      "name": "Dribbble",
+      "text": {
+        "format": "html"
+      },
+      "media": {
+        "kinds": [
+          "image"
+        ],
+        "required": true,
+        "min": 1,
+        "max": 1,
+        "image": {
+          "max_bytes": 8388608,
+          "types": [
+            "image/png",
+            "image/jpeg",
+            "image/gif"
+          ],
+          "min_width": 400,
+          "min_height": 300
+        }
+      },
+      "kinds": [
+        {
+          "name": "shot",
+          "label": "Shot"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true,
+          "max": 255
+        },
+        {
+          "key": "team",
+          "label": "Post as team",
+          "type": "select",
+          "choices": {
+            "operation": "teams",
+            "items_at": "/teams",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/user",
+      "result": {
+        "people": {
+          "expr": "[{'id': string(answer.id), 'name': answer.name, 'handle': answer.login, 'picture': has(answer.avatar_url) ? answer.avatar_url : null}]"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/user",
+      "result": {
+        "name": "/name",
+        "handle": "/login",
+        "picture": "/avatar_url",
+        "followers": "/followers_count"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "teams": {
+      "path": "/user",
+      "result": {
+        "teams": {
+          "expr": "has(answer.teams) ? answer.teams.map(t, {'id': string(t.id), 'name': t.name}) : []"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "create_shot": {
+      "method": "POST",
+      "path": "/shots",
+      "form": {
+        "title": "{{ inputs.title }}",
+        "description": "{{ inputs.description }}",
+        "team_id": "{{ inputs.team }}",
+        "image": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 8388608
+        }
+      },
+      "result": {
+        "id": {
+          "expr": "headers.location.substring(headers.location.lastIndexOf('/') + 1)",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "title",
+        "description",
+        "team",
+        "file"
+      ]
+    },
+    "my_shots": {
+      "path": "/user/shots",
+      "query": {
+        "per_page": "15"
+      },
+      "result": {
+        "id": {
+          "expr": "answer.filter(s, s.title == inputs.title && s.published_at >= inputs.after.substring(0, 19)).map(s, string(s.id)).join('')"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "title",
+        "after"
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/shots/{{ inputs.id }}",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "metrics": {
+      "path": "/shots/{{ inputs.id }}",
+      "result": {
+        "impressions": "/views_count",
+        "engagements": {
+          "expr": "answer.likes_count + answer.comments_count"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file"
+      ],
+      "changes": false,
+      "steps": [
+        {
+          "name": "me",
+          "operation": "account"
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "inputs.file"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text",
+        "media",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "shot",
+          "operation": "create_shot",
+          "inputs": {
+            "title": "inputs.settings.title",
+            "description": "inputs.text",
+            "team": "inputs.settings.team or ''",
+            "file": "inputs.media[0]"
+          },
+          "confirm": {
+            "operation": "my_shots",
+            "inputs": {
+              "title": "sent.title",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/shot/id",
+        "url": {
+          "expr": "'https://dribbble.com/shots/' + answer.shot.id"
+        }
+      }
+    }
+  }
+}
