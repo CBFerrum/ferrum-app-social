@@ -1,0 +1,557 @@
+{
+ "base": "https://www.googleapis.com",
+ "auth": {
+  "type": "oauth",
+  "owner": "workspace",
+  "provider": {
+   "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+   "token_url": "https://oauth2.googleapis.com/token",
+   "revoke_url": "https://oauth2.googleapis.com/revoke",
+   "scopes": [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/youtube.readonly"
+   ],
+   "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+   "client_secret": "client_secret",
+   "client_auth": "body",
+   "params": {
+    "access_type": "offline",
+    "prompt": "consent"
+   },
+   "after": [
+    "channel"
+   ],
+   "keep": [
+    "channel_id"
+   ]
+  }
+ },
+ "apps": [
+  "social"
+ ],
+ "limit": {
+  "concurrent": 4
+ },
+ "meta": {
+  "capabilities": {
+   "name": "YouTube",
+   "max_text": 5000,
+   "images": false,
+   "videos": true,
+   "media_required": true,
+   "first_comment": true
+  },
+  "social": {
+   "name": "YouTube",
+   "text": {
+    "max": 5000,
+    "count": "characters",
+    "format": "plain"
+   },
+   "media": {
+    "kinds": [
+     "video"
+    ],
+    "required": true,
+    "max": 1,
+    "video": {
+     "types": [
+      "video/mp4",
+      "video/quicktime",
+      "video/webm"
+     ],
+     "max_bytes": 26214400
+    },
+    "alt": false,
+    "thumbnail": true
+   },
+   "kinds": [
+    {
+     "name": "video",
+     "label": "Video"
+    },
+    {
+     "name": "short",
+     "label": "Short",
+     "media": {
+      "kinds": [
+       "video"
+      ],
+      "required": true,
+      "max": 1,
+      "video": {
+       "max_seconds": 180
+      },
+      "alt": false,
+      "thumbnail": true
+     }
+    }
+   ],
+   "follow_ups": {
+    "as": "none"
+   },
+   "settings": [
+    {
+     "key": "title",
+     "label": "Title",
+     "type": "text",
+     "required": true,
+     "min": 2,
+     "max": 100
+    },
+    {
+     "key": "type",
+     "label": "Visibility",
+     "type": "select",
+     "required": true,
+     "options": [
+      {
+       "value": "public",
+       "label": "Public"
+      },
+      {
+       "value": "private",
+       "label": "Private"
+      },
+      {
+       "value": "unlisted",
+       "label": "Unlisted"
+      }
+     ],
+     "default": "private"
+    },
+    {
+     "key": "tags",
+     "label": "Tags",
+     "type": "multi",
+     "max": 15
+    },
+    {
+     "key": "category",
+     "label": "Category",
+     "type": "select",
+     "choices": {
+      "operation": "categories",
+      "items_at": "/items",
+      "value_at": "/id",
+      "label_at": "/snippet/title",
+      "inputs": {}
+     }
+    },
+    {
+     "key": "made_for_kids",
+     "label": "Made for children",
+     "type": "bool",
+     "default": false
+    }
+   ],
+   "accounts": {
+    "operation": "accounts",
+    "items_at": "/items",
+    "value_at": "/id",
+    "label_at": "/snippet/title",
+    "handle_at": "/snippet/customUrl",
+    "picture_at": "/snippet/thumbnails/default/url"
+   },
+   "first_comment": true,
+   "link_preview": false,
+   "scheduling": true
+  }
+ },
+ "operations": {
+  "channel": {
+   "path": "/youtube/v3/channels",
+   "query": {
+    "part": "id",
+    "mine": "true"
+   },
+   "credentials": false,
+   "headers": {
+    "authorization": "Bearer {{ inputs.access_token }}"
+   },
+   "inputs": [
+    "access_token",
+    "refresh_token",
+    "client_id"
+   ],
+   "result": {
+    "channel_id": "/items/0/id"
+   },
+   "error_at": "/error/message"
+  },
+  "accounts": {
+   "path": "/youtube/v3/channels",
+   "query": {
+    "part": "snippet",
+    "mine": "true"
+   },
+   "error_at": "/error/message"
+  },
+  "categories": {
+   "path": "/youtube/v3/videoCategories",
+   "query": {
+    "part": "snippet",
+    "regionCode": "{{ inputs.region or 'US' }}"
+   },
+   "inputs": [
+    "region"
+   ],
+   "error_at": "/error/message"
+  },
+  "check": {
+   "path": "/youtube/v3/channels",
+   "query": {
+    "part": "id",
+    "mine": "true"
+   },
+   "result": {
+    "id": "/items/0/id"
+   },
+   "error_at": "/error/message"
+  },
+  "start_upload": {
+   "method": "POST",
+   "path": "/upload/youtube/v3/videos",
+   "query": {
+    "uploadType": "resumable",
+    "part": "snippet,status"
+   },
+   "headers": {
+    "x-upload-content-type": "{{ inputs.content_type }}",
+    "x-upload-content-length": "{{ inputs.size }}"
+   },
+   "body": "{\"snippet\": {\"title\": {{ inputs.title | json }}, \"description\": {{ inputs.description | json }}{% if inputs.tags %}, \"tags\": {{ inputs.tags | json }}{% endif %}{% if inputs.category %}, \"categoryId\": {{ inputs.category | json }}{% endif %}}, \"status\": {\"privacyStatus\": {{ (inputs.privacy or \"private\") | json }}, \"selfDeclaredMadeForKids\": {{ (inputs.kids or false) | json }}}}",
+   "inputs": [
+    "title",
+    "description",
+    "tags",
+    "category",
+    "privacy",
+    "kids",
+    "content_type",
+    "size"
+   ],
+   "result": {
+    "url": {
+     "header": "location",
+     "required": true
+    }
+   },
+   "error_at": "/error/message",
+   "idempotency_header": "X-Ferrum-Upload-Key"
+  },
+  "put_chunk": {
+   "method": "PUT",
+   "url": "{{ inputs.url }}",
+   "headers": {
+    "content-range": "{{ inputs.range }}"
+   },
+   "body": {
+    "file": "{{ inputs.file }}"
+   },
+   "success": [
+    308
+   ],
+   "inputs": [
+    "url",
+    "range",
+    "file"
+   ],
+   "result": {
+    "id": "/id"
+   },
+   "error_at": "/error/message"
+  },
+  "probe": {
+   "method": "PUT",
+   "url": "{{ inputs.url }}",
+   "headers": {
+    "content-range": "bytes */{{ inputs.total }}"
+   },
+   "changes": false,
+   "success": [
+    308
+   ],
+   "inputs": [
+    "url",
+    "total"
+   ],
+   "result": {
+    "offset": {
+     "header": "range"
+    },
+    "id": "/id"
+   },
+   "error_at": "/error/message"
+  },
+  "set_thumbnail": {
+   "method": "POST",
+   "path": "/upload/youtube/v3/thumbnails/set",
+   "query": {
+    "videoId": "{{ inputs.id }}"
+   },
+   "body": {
+    "file": "{{ inputs.file }}"
+   },
+   "inputs": [
+    "id",
+    "file"
+   ],
+   "error_at": "/error/message",
+   "idempotency_header": "X-Ferrum-Upload-Key"
+  },
+  "publish_media": {
+   "inputs": [
+    "file",
+    "thumbnail"
+   ],
+   "steps": [
+    {
+     "name": "check",
+     "operation": "check"
+    }
+   ],
+   "result": {
+    "id": {
+     "expr": "'file:' + string(inputs.file) + (has(inputs.thumbnail) && inputs.thumbnail != null ? '|' + string(inputs.thumbnail) : '')"
+    }
+   }
+  },
+  "publish": {
+   "inputs": [
+    "text_with_link",
+    "media",
+    "media_items",
+    "kind",
+    "settings"
+   ],
+   "steps": [
+    {
+     "name": "start",
+     "operation": "start_upload",
+     "inputs": {
+      "title": "inputs.settings.title",
+      "description": "inputs.text_with_link",
+      "tags": "inputs.settings.tags",
+      "category": "inputs.settings.category",
+      "privacy": "inputs.settings.type",
+      "kids": "inputs.settings.made_for_kids or false",
+      "content_type": "inputs.media_items[0].content_type",
+      "size": "inputs.media_items[0].size"
+     }
+    },
+    {
+     "name": "upload",
+     "operation": "put_chunk",
+     "chunks": {
+      "file": "(inputs.media[0][5:] | split('|') | list)[0]",
+      "bytes": 8388608,
+      "offset_from": {
+       "operation": "probe",
+       "inputs": {
+        "url": "steps.start.url",
+        "total": "chunk.total"
+       }
+      }
+     },
+     "inputs": {
+      "url": "steps.start.url",
+      "file": "(inputs.media[0][5:] | split('|') | list)[0]",
+      "range": "'bytes ' ~ chunk.offset ~ '-' ~ chunk.end ~ '/' ~ chunk.total"
+     }
+    },
+    {
+     "name": "thumbnail",
+     "operation": "set_thumbnail",
+     "when": "'|' in inputs.media[0]",
+     "inputs": {
+      "id": "steps.upload.id",
+      "file": "(inputs.media[0] | split('|') | list)[1]"
+     }
+    }
+   ],
+   "result": {
+    "id": {
+     "at": "/upload/id",
+     "required": true
+    },
+    "url": {
+     "expr": "(inputs.kind == 'short' ? 'https://www.youtube.com/shorts/' : 'https://www.youtube.com/watch?v=') + answer.upload.id"
+    }
+   }
+  },
+  "new_thread": {
+   "method": "POST",
+   "path": "/youtube/v3/commentThreads",
+   "query": {
+    "part": "snippet"
+   },
+   "body": "{\"snippet\": {\"videoId\": {{ inputs.id | json }}, \"topLevelComment\": {\"snippet\": {\"textOriginal\": {{ inputs.text | json }}}}}}",
+   "inputs": [
+    "id",
+    "text"
+   ],
+   "result": {
+    "id": {
+     "at": "/id",
+     "required": true
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "answer_comment": {
+   "method": "POST",
+   "path": "/youtube/v3/comments",
+   "query": {
+    "part": "snippet"
+   },
+   "body": "{\"snippet\": {\"parentId\": {{ inputs.id | json }}, \"textOriginal\": {{ inputs.text | json }}}}",
+   "inputs": [
+    "id",
+    "text"
+   ],
+   "result": {
+    "id": {
+     "at": "/id",
+     "required": true
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "reply": {
+   "inputs": [
+    "text",
+    "in_reply_to",
+    "root"
+   ],
+   "steps": [
+    {
+     "name": "thread",
+     "operation": "new_thread",
+     "when": "inputs.in_reply_to == inputs.root or inputs.in_reply_to | length == 11",
+     "inputs": {
+      "id": "inputs.in_reply_to",
+      "text": "inputs.text"
+     }
+    },
+    {
+     "name": "answer",
+     "operation": "answer_comment",
+     "when": "not (inputs.in_reply_to == inputs.root or inputs.in_reply_to | length == 11)",
+     "inputs": {
+      "id": "inputs.in_reply_to",
+      "text": "inputs.text"
+     }
+    }
+   ],
+   "result": {
+    "id": {
+     "expr": "answer.thread != null ? answer.thread.id : answer.answer.id"
+    }
+   }
+  },
+  "delete": {
+   "method": "DELETE",
+   "path": "/youtube/v3/videos",
+   "query": {
+    "id": "{{ inputs.id }}"
+   },
+   "inputs": [
+    "id"
+   ],
+   "error_at": "/error/message"
+  },
+  "like": {
+   "method": "POST",
+   "path": "/youtube/v3/videos/rate",
+   "query": {
+    "id": "{{ inputs.id }}",
+    "rating": "like"
+   },
+   "body": "{}",
+   "inputs": [
+    "id"
+   ],
+   "error_at": "/error/message"
+  },
+  "metrics": {
+   "path": "/youtube/v3/videos",
+   "query": {
+    "part": "statistics",
+    "id": "{{ inputs.id }}"
+   },
+   "inputs": [
+    "id"
+   ],
+   "result": {
+    "impressions": {
+     "expr": "int(answer.items[0].statistics.viewCount)"
+    },
+    "engagements": {
+     "expr": "int(answer.items[0].statistics.likeCount) + int(answer.items[0].statistics.commentCount)"
+    }
+   },
+   "error_at": "/error/message"
+  },
+  "account": {
+   "path": "/youtube/v3/channels",
+   "query": {
+    "part": "snippet,statistics",
+    "mine": "true"
+   },
+   "result": {
+    "followers": {
+     "expr": "int(answer.items[0].statistics.subscriberCount)"
+    },
+    "name": "/items/0/snippet/title",
+    "handle": "/items/0/snippet/customUrl",
+    "picture": "/items/0/snippet/thumbnails/default/url"
+   },
+   "error_at": "/error/message"
+  },
+  "messages": {
+   "path": "/youtube/v3/commentThreads",
+   "query": {
+    "part": "snippet",
+    "allThreadsRelatedToChannelId": "{{ inputs.channel }}",
+    "order": "time",
+    "maxResults": "50"
+   },
+   "inputs": [
+    "channel",
+    "cursor"
+   ],
+   "error_at": "/error/message"
+  }
+ },
+ "pulls": [
+  {
+   "name": "comments",
+   "operation": "messages",
+   "every_minutes": 30,
+   "items_at": "/items",
+   "cursor": "time",
+   "max_pages": 1,
+   "inputs": {
+    "channel": "auth.channel_id"
+   },
+   "map": {
+    "entity": "SocialMessage",
+    "outside": true,
+    "by": {
+     "external_id": "/id"
+    },
+    "set": {
+     "kind": "'Comment'",
+     "author": "/snippet/topLevelComment/snippet/authorDisplayName",
+     "author_id": "/snippet/topLevelComment/snippet/authorChannelId/value",
+     "text": "/snippet/topLevelComment/snippet/textOriginal",
+     "post_external_id": "/snippet/videoId",
+     "thread": "/id",
+     "via_connection": "connection.id"
+    }
+   }
+  }
+ ]
+}
