@@ -12,8 +12,11 @@ modules:
     # (round five) The app's own pages are the module's first rows (app.yaml shell.menu): Compose and Calendar
     # (posts), Posting times, Accounts, Media, Inbox (messages), Numbers, Library (templates, sets, snippets,
     # signatures, variables, link templates, saved replies), Automation (feeds and plugs) and Notices (opt-outs).
-    # The generic rows those pages replace are gone; what no page shows stays here.
-    items: [SocialBrand, SocialProfile, SocialReview, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialDigestRun, SocialWritingPreset, SocialWritingUse, SocialSettings]
+    # The generic rows those pages replace are gone. After them, only what a person opens by hand and no page shows:
+    # Brands, Network Profiles, Writing Presets (a manager's own instructions for writing help) and Social Settings.
+    # Reviews, publications, insights, metrics, replies, digest runs and writing-help uses are records the pages
+    # link to and search finds, not menu rows.
+    items: [SocialBrand, SocialProfile, SocialWritingPreset, SocialSettings]
 
 roles:
   - name: Social Writing Help
