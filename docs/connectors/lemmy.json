@@ -1,0 +1,477 @@
+{
+  "base": "https://lemmy.example/api/v3",
+  "auth": {
+    "type": "session",
+    "login": "create_session",
+    "token_at": "/jwt",
+    "header": "authorization",
+    "prefix": "Bearer "
+  },
+  "apps": [
+    "social"
+  ],
+  "timeout_ms": 30000,
+  "meta": {
+    "carries": {
+      "network": "Lemmy",
+      "provider": "lemmy",
+      "server": "instance",
+      "placeholder": "https://lemmy.example"
+    },
+    "social": {
+      "name": "Lemmy",
+      "text": {
+        "max": 50000,
+        "format": "markdown"
+      },
+      "media": {
+        "kinds": [
+          "image"
+        ],
+        "max": 1,
+        "alt": true,
+        "alt_max": 1500,
+        "image": {
+          "max_bytes": 10485760
+        }
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Post"
+        }
+      ],
+      "follow_ups": {
+        "as": "comment",
+        "media": false,
+        "max": 20,
+        "text": {
+          "max": 10000,
+          "format": "markdown"
+        }
+      },
+      "first_comment": true,
+      "link_preview": true,
+      "settings": [
+        {
+          "key": "community",
+          "label": "Community",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "communities",
+            "inputs": {
+              "query": "query"
+            },
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true,
+          "max": 200
+        },
+        {
+          "key": "nsfw",
+          "label": "Not safe for work",
+          "type": "bool",
+          "default": false
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "create_session": {
+      "method": "POST",
+      "path": "/user/login",
+      "changes": false,
+      "body": "{\"username_or_email\": {{ secret.username | json }}, \"password\": {{ secret.password | json }}}",
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/site",
+      "result": {
+        "name": {
+          "expr": "has(answer.my_user.local_user_view.person.display_name) && answer.my_user.local_user_view.person.display_name != null ? answer.my_user.local_user_view.person.display_name : answer.my_user.local_user_view.person.name"
+        },
+        "handle": "/my_user/local_user_view/person/name",
+        "picture": "/my_user/local_user_view/person/avatar"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "accounts": {
+      "path": "/site",
+      "result": {
+        "people": {
+          "expr": "[{'id': string(answer.my_user.local_user_view.person.id), 'name': answer.my_user.local_user_view.person.name, 'handle': answer.my_user.local_user_view.person.name, 'picture': has(answer.my_user.local_user_view.person.avatar) ? answer.my_user.local_user_view.person.avatar : null}]"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "community_list": {
+      "path": "/community/list",
+      "query": {
+        "type_": "All",
+        "sort": "TopMonth",
+        "limit": "30"
+      },
+      "result": {
+        "items": {
+          "expr": "answer.communities.map(c, {'id': string(c.community.id), 'name': c.community.title})"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "community_search": {
+      "path": "/search",
+      "query": {
+        "q": "{{ inputs.query }}",
+        "type_": "Communities",
+        "sort": "TopAll",
+        "limit": "30"
+      },
+      "result": {
+        "items": {
+          "expr": "answer.communities.map(c, {'id': string(c.community.id), 'name': c.community.title})"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "query"
+      ]
+    },
+    "upload": {
+      "method": "POST",
+      "url": "https://lemmy.example/pictrs/image",
+      "form": {
+        "images[]": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 10485760
+        }
+      },
+      "result": {
+        "name": {
+          "at": "/files/0/file",
+          "required": true
+        }
+      },
+      "error_at": "/msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "file"
+      ]
+    },
+    "create_post": {
+      "method": "POST",
+      "path": "/post",
+      "body": "{\"name\": {{ inputs.title | json }}, \"community_id\": {{ inputs.community | int | json }}, \"body\": {{ inputs.body | json }}, \"nsfw\": {{ (inputs.nsfw or false) | json }}{% if inputs.url %}, \"url\": {{ inputs.url | json }}{% endif %}{% if inputs.thumbnail %}, \"custom_thumbnail\": {{ inputs.thumbnail | json }}{% endif %}{% if inputs.alt %}, \"alt_text\": {{ inputs.alt | json }}{% endif %}}",
+      "result": {
+        "id": {
+          "expr": "string(answer.post_view.post.id)",
+          "required": true
+        },
+        "url": "/post_view/post/ap_id"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "title",
+        "community",
+        "body",
+        "nsfw",
+        "url",
+        "thumbnail",
+        "alt"
+      ]
+    },
+    "recent_posts": {
+      "path": "/post/list",
+      "query": {
+        "community_id": "{{ inputs.community }}",
+        "sort": "New",
+        "limit": "10"
+      },
+      "result": {
+        "id": {
+          "expr": "answer.posts.filter(p, p.post.name == inputs.title && p.post.published >= inputs.after.substring(0, 19)).map(p, string(p.post.id)).join('')"
+        },
+        "url": {
+          "expr": "answer.posts.filter(p, p.post.name == inputs.title && p.post.published >= inputs.after.substring(0, 19)).map(p, p.post.ap_id).join('')"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "community",
+        "title",
+        "after"
+      ]
+    },
+    "create_comment": {
+      "method": "POST",
+      "path": "/comment",
+      "body": "{\"content\": {{ inputs.content | json }}, \"post_id\": {{ inputs.post | int | json }}}",
+      "result": {
+        "id": {
+          "expr": "string(answer.comment_view.comment.id)",
+          "required": true
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "content",
+        "post"
+      ]
+    },
+    "recent_comments": {
+      "path": "/comment/list",
+      "query": {
+        "post_id": "{{ inputs.post }}",
+        "sort": "New",
+        "limit": "10",
+        "type_": "All"
+      },
+      "result": {
+        "id": {
+          "expr": "answer.comments.filter(c, c.comment.content == inputs.content && c.comment.published >= inputs.after.substring(0, 19)).map(c, string(c.comment.id)).join('')"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "post",
+        "content",
+        "after"
+      ]
+    },
+    "delete": {
+      "method": "POST",
+      "path": "/{{ 'comment' if inputs.follow_up == 'comment' else 'post' }}/delete",
+      "body": "{% if inputs.follow_up == \"comment\" %}{\"comment_id\": {{ inputs.id | int | json }}, \"deleted\": true}{% else %}{\"post_id\": {{ inputs.id | int | json }}, \"deleted\": true}{% endif %}",
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id",
+        "follow_up"
+      ]
+    },
+    "metrics": {
+      "path": "/post",
+      "query": {
+        "id": "{{ inputs.id }}"
+      },
+      "result": {
+        "engagements": {
+          "expr": "answer.post_view.counts.upvotes + answer.post_view.counts.downvotes + answer.post_view.counts.comments"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "communities": {
+      "changes": false,
+      "inputs": [
+        "query"
+      ],
+      "steps": [
+        {
+          "name": "list",
+          "operation": "community_list",
+          "when": "not inputs.query"
+        },
+        {
+          "name": "search",
+          "operation": "community_search",
+          "when": "inputs.query",
+          "inputs": {
+            "query": "inputs.query"
+          }
+        }
+      ],
+      "result": {
+        "items": {
+          "expr": "answer.search != null ? answer.search.items : answer.list.items"
+        }
+      }
+    },
+    "publish_media": {
+      "inputs": [
+        "file"
+      ],
+      "steps": [
+        {
+          "name": "image",
+          "operation": "upload",
+          "inputs": {
+            "file": "inputs.file"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "concat('https://lemmy.example/pictrs/image/', answer.image.name)"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text",
+        "link",
+        "media",
+        "media_items",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "title": "inputs.settings.title",
+            "community": "inputs.settings.community",
+            "body": "inputs.text",
+            "nsfw": "inputs.settings.nsfw",
+            "url": "inputs.link if inputs.link else (inputs.media[0] if inputs.media else none)",
+            "thumbnail": "inputs.media[0] if (inputs.media and inputs.link) else none",
+            "alt": "inputs.media_items[0].alt if inputs.media else none"
+          },
+          "confirm": {
+            "operation": "recent_posts",
+            "inputs": {
+              "community": "sent.community",
+              "title": "sent.title",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": "/post/url"
+      }
+    },
+    "reply": {
+      "inputs": [
+        "text",
+        "in_reply_to",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "comment",
+          "operation": "create_comment",
+          "inputs": {
+            "content": "inputs.text",
+            "post": "inputs.in_reply_to"
+          },
+          "confirm": {
+            "operation": "recent_comments",
+            "inputs": {
+              "post": "sent.post",
+              "content": "sent.content",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/comment/id"
+      }
+    }
+  }
+}

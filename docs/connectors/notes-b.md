@@ -201,3 +201,25 @@ the body; the error text pointer (`/errors/0/detail`; an answer without it shows
 publication's moment against a post's epoch `timestamp`.
 **Setup**: a Tumblr app (tumblr.com/oauth/apps) with the redirect `{PUBLIC_URL}/api/connections/callback`; the consumer
 key as `client_id` in the description and the consumer secret under `client_secret`.
+
+## Lemmy (`lemmy.json`)
+
+**Does**: a session from the account's user name and password (secrets `username` and `password`; `/user/login`, a jwt
+as a bearer, signed in again by the platform when it is refused); the instance address is the placeholder in `base` and
+`publish_media` (two places); the user is the account; the community is a required setting (the month's top communities
+as choices, or a search when something is typed); a post with title, markdown body, not-safe-for-work switch, a link
+(`url`), a picture uploaded to the instance's pictrs and used as the link's thumbnail (`custom_thumbnail`), or as the
+post itself when there is no link, the picture's description (`alt_text`); follow-ups and the first comment as comments
+(`/comment`); delete of a post or a comment (`/post/delete`, `/comment/delete`, the comment first); numbers (upvotes,
+downvotes and comments of the post); the user's name and picture.
+**Never twice**: no idempotency header. After a lost answer the call reads the community's ten newest posts (or the post's
+newest comments) for one with that title (content) published since the publication began and takes it as the answer.
+A lost answer on the picture's upload fails the call instead of uploading twice.
+**Cannot**: say more than Lemmy's error code (`language_not_allowed`, `rate_limit_error`: the API gives codes, not
+sentences); a language, a nested comment; edit; the instance's rate limits (set per instance: none is described);
+mentions of users or communities; followers (a Lemmy user has none in the API); a v4 (Lemmy 1.0) instance (the paths
+are `/api/v3`; edit the base).
+**Unverified**: that `custom_thumbnail` and `alt_text` exist on the instance's version (0.19 and later); that pictrs takes
+the bearer header (0.19 does; older versions read the cookie); `search` with a typed query; the 50000-character body.
+**Setup**: an account on the instance (a bot account is polite), its user name and password under the connection's
+secrets, the instance address in place of the placeholder (twice).
