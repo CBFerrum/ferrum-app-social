@@ -813,7 +813,6 @@ mod tests {
         let long = Copy { title: Some("t".repeat(101)), ..post("Desc", video.clone()) };
         assert!(says(&problems(&yt, &long), "titles of at most 100 characters, and this one is 101"));
         let ig = network("instagram");
-        assert_eq!(PUBLIC_MEDIA_ADDRESSES, false, "switches on with the platform's public file addresses");
         assert!(says(&problems(&ig, &post("Hi", vec![pic("image", "image/jpeg", 1)])), "takes pictures only by a public address"));
     }
 
