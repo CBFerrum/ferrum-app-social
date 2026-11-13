@@ -158,6 +158,16 @@ export function ComposerRoute() {
   });
   const rules: Record<string, Rules> = {};
   chosen.forEach((a, i) => { rules[a] = rulesQ[i]?.data ?? NO_RULES; });
+  // A kind the person picked that the account's rules no longer have (the account or its network changed) is let go: the server chooses again.
+  const kindsKey = chosen.map((a, i) => `${a}:${rulesQ[i]?.data?.kinds.map((k) => k.name).join(",") ?? "?"}`).join("|");
+  useEffect(() => {
+    setDraft((d) => {
+      if (!d) return d;
+      const stale = d.targets.some((tg, i) => tg.kind && rulesQ[chosen.indexOf(tg.account)]?.data && rulesQ[chosen.indexOf(tg.account)].data!.kinds.length > 0 && !rulesQ[chosen.indexOf(tg.account)].data!.kinds.some((k) => k.name === tg.kind) && i >= 0);
+      return stale ? { ...d, targets: d.targets.map((tg) => { const r = rulesQ[chosen.indexOf(tg.account)]?.data; return tg.kind && r && r.kinds.length > 0 && !r.kinds.some((k) => k.name === tg.kind) ? { ...tg, kind: "" } : tg; }) } : d;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kindsKey]);
   const status = text(post.data?.status) || "Draft";
   const locked = (postId ? !canWrite : !canCreate) || LOCKED.includes(status);
   const dirty = !!draft && snap(draft, brand) !== baseline;
@@ -293,6 +303,11 @@ export function ComposerRoute() {
   const names = [...new Set((lib?.variables ?? []).map((v) => text(v.variable_name)).filter(Boolean))];
   const wantsComment = chosen.some((a) => effective(rules[a], draft.targets.find((x) => x.account === a)?.kind || null).firstComment);
   const waitNote = text(post.data?.waiting_for);
+  // A title the network(s) of this tab take; the media the server refuses for want of a public address, with its account.
+  const titled = (here ? [here] : chosen).filter((a) => rules[a].title);
+  const titleRule = titled.length ? { required: titled.some((a) => rules[a].title!.required), max: Math.min(...titled.map((a) => rules[a].title!.max ?? Infinity)) === Infinity ? null : Math.min(...titled.map((a) => rules[a].title!.max ?? Infinity)) } : null;
+  const titleNote = !here && titled.length && titled.length < chosen.length ? t("Taken by {names}.", { names: titled.map((a) => isolate(text(accountRow(a).account_name))).join(", ") }) : undefined;
+  const mediaNotes = (here ? [here] : chosen).flatMap((a) => (copies.find((c) => c.account === a)?.problems ?? []).filter((p) => /public address/i.test(p)).map((why) => ({ account: a, why })));
 
   const applySet = async (setId: string) => {
     const s = await record("SocialSet", setId);
@@ -362,7 +377,7 @@ export function ComposerRoute() {
           <StatusBadge value={status} tones={POST_TONES} label={statusWord(status)} />
           {text(post.data?.scheduled_at) && <span className="muted">{when(post.data?.scheduled_at)}</span>}
           {waitNote && <Alert tone="warning">{t("Waiting: {why}", { why: isolate(waitNote) })}</Alert>}
-          {status === "Failed" && <Alert tone="error">{isolate(text(post.data?.failure))}</Alert>}
+          {(status === "Failed" || text(post.data?.failure)) && <Alert tone={text(post.data?.failure).startsWith("Waiting to try again") ? "warning" : "error"}>{isolate(text(post.data?.failure))}</Alert>}
           {draft.repeatEvery && post.data?.repeat_index != null && <Badge>{t("Repeat {n}", { n: String(post.data.repeat_index) })}</Badge>}
           {text(post.data?.repeat_note) && <span className="muted">{isolate(text(post.data?.repeat_note))}</span>}
           {text(post.data?.repeat_of) && <Link to={`/compose/${text(post.data?.repeat_of)}`}>{t("The first of the repeats")}</Link>}
@@ -429,6 +444,9 @@ export function ComposerRoute() {
                       snippets={snippets}
                       variables={names}
                       locked={locked}
+                      titleRule={titleRule}
+                      titleNote={titleNote}
+                      mediaNotes={mediaNotes}
                       brand={brand}
                       mentionAccount={here ? (rules[here].mentions ? here : null) : (chosen.find((a) => rules[a].mentions) ?? null)}
                     />
@@ -449,7 +467,7 @@ export function ComposerRoute() {
               return (
                 <details key={a} className="card card-body" open>
                   <summary>{t("What {name} asks", { name: isolate(text(accountRow(a).account_name)) })}</summary>
-                  <AccountOptions account={a} rules={r} kind={target.kind} answers={target.settings} locked={locked}
+                  <AccountOptions account={a} rules={r} kind={target.kind} chosen={copies.find((c) => c.account === a)?.kind} answers={target.settings} locked={locked}
                     onKind={(kind) => set((d) => ({ ...d, targets: d.targets.map((x) => (x.account === a ? { ...x, kind } : x)) }))}
                     onAnswers={(settings) => set((d) => ({ ...d, targets: d.targets.map((x) => (x.account === a ? { ...x, settings } : x)) }))} />
                 </details>
@@ -483,12 +501,12 @@ export function ComposerRoute() {
             {!locked && (
               <Writing postId={postId} brandId={brand} draft={draft} accounts={all} dirty={dirty} onSave={() => void onSave()}
                 take={{
-                  words: (words, account) => set((d) => { const x = account ? customise(d, account) : d; return account ? { ...x, versions: { ...x.versions, [account]: { items: x.versions[account].items.map((it, n) => (n ? it : { ...it, text: words })) } } } : { ...x, original: { items: x.original.items.map((it, n) => (n ? it : { ...it, text: words })) } }; }),
-                  versions: (list: Adapted[]) => set((d) => list.reduce((acc, v) => { const x = customise(acc, v.account); return { ...x, versions: { ...x.versions, [v.account]: { items: x.versions[v.account].items.map((it, n) => (n ? it : { ...it, text: v.text })) } } }; }, d)),
-                  thread: (parts) => set((d) => ({ ...d, original: { items: parts.map((p, n) => (n === 0 ? { ...d.original.items[0], text: p } : { ...blankItem(), text: p })) } })),
-                  hashtags: (tags, account) => set((d) => { const x = account ? customise(d, account) : d; const c = contentFor(x, account); const first = { ...c.items[0], text: `${c.items[0].text.trimEnd()}\n\n${tags.join(" ")}`.trim() }; const items = [first, ...c.items.slice(1)]; return account ? { ...x, versions: { ...x.versions, [account]: { items } } } : { ...x, original: { items } }; }),
-                  alt: (key, alt) => set((d) => { const f = (c: { items: typeof d.original.items }) => ({ items: c.items.map((it) => ({ ...it, media: it.media.map((m) => (m.key === key ? { ...m, alt } : m)) })) }); return { ...d, original: f(d.original), versions: Object.fromEntries(Object.entries(d.versions).map(([a, c]) => [a, f(c)])) }; }),
-                  picture: async (assetId) => { const a = await record("SocialMediaAsset", assetId); set((d) => ({ ...d, original: { items: d.original.items.map((it, n) => (n ? it : { ...it, media: [...it.media, mediumOfAsset(a)] })) } })); },
+                  words: (words, account) => set((d) => { const x = account ? customise(d, account) : d; return account ? { ...x, versions: { ...x.versions, [account]: { ...x.versions[account], items: x.versions[account].items.map((it, n) => (n ? it : { ...it, text: words })) } } } : { ...x, original: { ...x.original, items: x.original.items.map((it, n) => (n ? it : { ...it, text: words })) } }; }),
+                  versions: (list: Adapted[]) => set((d) => list.reduce((acc, v) => { const x = customise(acc, v.account); return { ...x, versions: { ...x.versions, [v.account]: { ...x.versions[v.account], items: x.versions[v.account].items.map((it, n) => (n ? it : { ...it, text: v.text })) } } }; }, d)),
+                  thread: (parts) => set((d) => ({ ...d, original: { ...d.original, items: parts.map((p, n) => (n === 0 ? { ...d.original.items[0], text: p } : { ...blankItem(), text: p })) } })),
+                  hashtags: (tags, account) => set((d) => { const x = account ? customise(d, account) : d; const c = contentFor(x, account); const first = { ...c.items[0], text: `${c.items[0].text.trimEnd()}\n\n${tags.join(" ")}`.trim() }; const items = [first, ...c.items.slice(1)]; return account ? { ...x, versions: { ...x.versions, [account]: { ...c, items } } } : { ...x, original: { ...c, items } }; }),
+                  alt: (key, alt) => set((d) => { const f = (c: typeof d.original) => ({ ...c, items: c.items.map((it) => ({ ...it, media: it.media.map((m) => (m.key === key ? { ...m, alt } : m)) })) }); return { ...d, original: f(d.original), versions: Object.fromEntries(Object.entries(d.versions).map(([a, c]) => [a, f(c)])) }; }),
+                  picture: async (assetId) => { const a = await record("SocialMediaAsset", assetId); set((d) => ({ ...d, original: { ...d.original, items: d.original.items.map((it, n) => (n ? it : { ...it, media: [...it.media, mediumOfAsset(a)] })) } })); },
                 }} />
             )}
             {calc.isError && <Alert tone="error">{refusal(calc.error)}</Alert>}

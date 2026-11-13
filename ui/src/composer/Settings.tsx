@@ -115,14 +115,16 @@ export function SettingField({ account, s, value, answers, onChange, error }: { 
 }
 
 /** The kind chooser and the settings that apply, for one account. */
-export function AccountOptions({ account, rules, kind, answers, onKind, onAnswers, locked }: { account: string; rules: Rules; kind: string; answers: Record<string, unknown>; onKind: (k: string) => void; onAnswers: (a: Record<string, unknown>) => void; locked?: boolean }) {
-  const current = kind || rules.kinds[0]?.name || null;
+export function AccountOptions({ account, rules, kind, chosen, answers, onKind, onAnswers, locked }: { account: string; rules: Rules; kind: string; /** The kind the server chose when none is picked. */ chosen?: string | null; answers: Record<string, unknown>; onKind: (k: string) => void; onAnswers: (a: Record<string, unknown>) => void; locked?: boolean }) {
+  const current = kind || chosen || rules.kinds[0]?.name || null;
+  const chosenKind = rules.kinds.find((k) => k.name === (chosen || rules.kinds[0]?.name));
   const shown = asked(rules, current, answers);
   return (
     <fieldset className="stack" disabled={locked}>
       {rules.kinds.length > 1 && (
         <Field label={t("Kind of post")} htmlFor={`kind-${account}`}>
-          <select id={`kind-${account}`} className="select" value={current ?? ""} onChange={(e) => onKind(e.target.value)}>
+          <select id={`kind-${account}`} className="select" value={kind} onChange={(e) => onKind(e.target.value)}>
+            <option value="">{chosenKind ? t("Chosen for you: {kind}", { kind: isolate(kindLabel(chosenKind)) }) : t("Chosen for you")}</option>
             {rules.kinds.map((k) => (
               <option key={k.name} value={k.name}>
                 {isolate(kindLabel(k))}

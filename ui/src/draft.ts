@@ -35,6 +35,8 @@ export interface ItemState {
 export interface Content {
   /** The first is the post itself; the rest are its follow-ups, in order. */
   items: ItemState[];
+  /** The public title (an article, a video, a pin, an e-mail's subject) for networks whose rules take one. */
+  title?: string;
 }
 export interface TargetState {
   account: string;
@@ -91,7 +93,7 @@ export function guessKind(type: string | undefined, file: string): string {
 }
 export const kindOfMedium = (m: MediaState) => (m.kind.trim() ? m.kind.trim().toLowerCase() : guessKind(m.type, m.file));
 
-const clone = (c: Content): Content => ({ items: c.items.map((i) => ({ ...i, key: keyed(), media: i.media.map((m) => ({ ...m, key: keyed() })) })) });
+const clone = (c: Content): Content => ({ title: c.title, items: c.items.map((i) => ({ ...i, key: keyed(), media: i.media.map((m) => ({ ...m, key: keyed() })) })) });
 
 /** The account gets a version of its own: a copy of the original to change. */
 export const customise = (d: Draft, account: string): Draft => (d.versions[account] ? d : { ...d, versions: { ...d.versions, [account]: clone(d.original) } });
@@ -120,7 +122,7 @@ function mediaOf(r: Row): MediaState {
 }
 
 /** The content one account (or the original, `account` empty) has: its words, then its follow-ups, with the media lines laid on the items they name. */
-function contentOf(row: Row, account: string, words: { text: string; link: string }): Content {
+function contentOf(row: Row, account: string, words: { text: string; link: string; title?: string }): Content {
   const items: ItemState[] = [{ key: keyed(), text: words.text, link: words.link, delay: 0, media: [] }];
   for (const r of lines(row.items).filter((l) => accountOf(l) === account)) items.push({ key: keyed(), text: str(r.text), link: str(r.link), delay: num(r.delay_minutes) ?? 0, media: [] });
   // 0.7.0's one picture is the original's first medium.
@@ -130,7 +132,7 @@ function contentOf(row: Row, account: string, words: { text: string; link: strin
     while (items.length < n) items.push(blankItem());
     items[n - 1].media.push(mediaOf(r));
   }
-  return { items };
+  return { items, title: words.title || undefined };
 }
 
 /** The record as a draft. */
@@ -138,7 +140,7 @@ export function fromRecord(row: Row): Draft {
   const targets = lines(row.targets);
   const d = emptyDraft();
   d.headline = str(row.headline);
-  d.original = contentOf(row, "", { text: str(row.text), link: str(row.link) });
+  d.original = contentOf(row, "", { text: str(row.text), link: str(row.link), title: str(row.title) });
   d.firstComment = str(row.first_comment);
   d.addSignature = row.add_signature === true;
   d.signature = str(row.signature);
@@ -151,7 +153,7 @@ export function fromRecord(row: Row): Draft {
     const account = accountOf(t);
     if (!account) continue;
     d.targets.push({ account, kind: str(t.kind), settings: t.settings && typeof t.settings === "object" && !Array.isArray(t.settings) ? { ...(t.settings as Record<string, unknown>) } : {} });
-    if (str(t.text).trim()) d.versions[account] = contentOf(row, account, { text: str(t.text), link: str(t.link) });
+    if (str(t.text).trim()) d.versions[account] = contentOf(row, account, { text: str(t.text), link: str(t.link), title: str(t.title) });
   }
   return d;
 }
@@ -190,11 +192,13 @@ export function toRecord(d: Draft, brand: string | null, rules: Record<string, R
       settings: r ? answers(r, effective(r, tg.kind).kind?.name ?? null, tg.settings) : tg.settings,
       text: own ? own.items[0].text : "",
       link: own ? own.items[0].link || null : null,
+      title: own?.title?.trim() ? own.title : null,
     };
   });
   const every = num(d.repeatEvery);
   return {
     headline: d.headline.trim(),
+    title: d.original.title?.trim() ? d.original.title : null,
     brand,
     text: d.original.items[0].text,
     link: d.original.items[0].link.trim() || null,

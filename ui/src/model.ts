@@ -39,6 +39,8 @@ export interface MediaRule {
   alt_required: boolean;
   alt_max?: number | null;
   thumbnail: boolean;
+  /** Kinds of medium the network fetches from a public address rather than taking their bytes. */
+  by_address?: string[];
 }
 export interface FollowRule {
   as: "thread" | "comment" | "none";
@@ -81,6 +83,10 @@ export interface Rules {
   first_comment: boolean;
   link_preview: boolean;
   scheduling: boolean;
+  /** A public title the network takes: needed, how long. */
+  title?: { required: boolean; max?: number | null } | null;
+  /** The kind a post is when none is picked, by its first medium (`none` without media). */
+  kind_by_media?: Record<string, string>;
 }
 
 /** What nothing says: a plain text of any length, no media (rules.rs `Rules::default`). */
