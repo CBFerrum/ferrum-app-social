@@ -39,7 +39,7 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page"];
+const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -196,6 +196,7 @@ fn handler(net: &str) -> Option<Handler> {
     Some(match net {
         "x" => fake_x,
         "li" | "liw" => fake_linkedin,
+        "fb" | "fbv" | "fbr" => fake_facebook,
         _ => return None,
     })
 }
@@ -496,6 +497,31 @@ async fn scenario() {
     x(&t).await;
     linkedin(&t).await;
     linkedin_page(&t).await;
+    facebook(&t).await;
+}
+
+/// The tables of the workspace's database any of `secrets` rests in, as text.
+async fn rests(k: &Kernel, secrets: &[&str]) -> Vec<String> {
+    let like: Vec<String> = secrets.iter().map(|s| format!("%{s}%")).collect();
+    let mut tx = k.db.pool.begin().await.unwrap();
+    sqlx::query("select set_config('ferrum.system', 'on', true)").execute(&mut *tx).await.unwrap();
+    let tables: Vec<String> =
+        sqlx::query_scalar("select table_name::text from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by 1")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+    let mut out = Vec::new();
+    for table in tables {
+        let hits: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("select count(*) from \"{table}\" x where x::text ilike any($1)")))
+            .bind(&like)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        if hits > 0 {
+            out.push(format!("{table}: {hits}"));
+        }
+    }
+    out
 }
 
 /// A path's segment as it was meant, percent-decoded.
@@ -1093,4 +1119,295 @@ async fn linkedin_page(t: &T) {
     assert_eq!(t.net().last("liw", "POST", "/oauth/v2/accessToken").form()["grant_type"], "refresh_token");
     let a = t.call("linkedin_page", "account", json!({"account_id": "777", "handle": "northwind"}), None).await.unwrap();
     assert_eq!((a["followers"].as_i64(), a["name"].as_str()), (Some(1234), Some("Northwind Ltd")));
+}
+
+// ───────────── Facebook Page ─────────────
+
+const PAGE_TOKEN: &str = "PAGE-TOKEN-Qq7";
+
+fn fake_facebook(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, m: &str, c: u32| status(code, json!({"error": {"message": m, "type": "OAuthException", "code": c}}));
+    let base = n.base.clone();
+    let seg: Vec<&str> = r.path.trim_start_matches('/').split('/').collect();
+    if seg.get(1) == Some(&"oauth") {
+        if r.query.get("grant_type").map(String::as_str) == Some("fb_exchange_token") {
+            if r.query.get("client_secret").map(String::as_str) != Some("fb-secret") || !n.list("fb:user").contains(&json!(r.query.get("fb_exchange_token"))) {
+                return err(400, "Error validating access token", 190);
+            }
+            let long = format!("LONG-{}", n.next());
+            n.list("fb:user").push(json!(long));
+            return ok(json!({"access_token": long, "token_type": "bearer", "expires_in": 5183944}));
+        }
+        let f = r.form();
+        if f.get("client_id").map(String::as_str) != Some("fb-client")
+            || f.get("client_secret").map(String::as_str) != Some("fb-secret")
+            || f.get("code").map(String::as_str) != Some("CODE-fb")
+        {
+            return err(400, "Invalid verification code format.", 100);
+        }
+        let short = format!("SHORT-{}", n.next());
+        n.list("fb:user").push(json!(short));
+        return ok(json!({"access_token": short, "token_type": "bearer", "expires_in": 3600}));
+    }
+    let token = r.bearer().or_else(|| r.header("authorization").and_then(|a| a.strip_prefix("OAuth ")).map(str::to_string)).unwrap_or_default();
+    let user = n.list("fb:user").contains(&json!(token));
+    let page = token == PAGE_TOKEN;
+    let rest: Vec<&str> = seg[1..].to_vec();
+    if rest.first() == Some(&"me") {
+        if !user {
+            return err(401, "Invalid OAuth access token.", 190);
+        }
+        return ok(
+            json!({"data": [{"id": "P1", "name": "Northwind Cafe", "username": "northwindcafe", "access_token": PAGE_TOKEN, "tasks": ["CREATE_CONTENT"],
+                                    "picture": {"data": {"url": "https://scontent.test/p1.jpg"}}}]}),
+        );
+    }
+    if !page {
+        return err(403, "(#200) This endpoint requires the page's own access token", 200);
+    }
+    if seg[0] == "video-upload" {
+        let vid = seg.last().unwrap().to_string();
+        if r.header("offset") != Some("0") || r.header("file_size").map(str::to_string) != Some(r.body.len().to_string()) {
+            return err(400, "offset and file_size headers are required", 100);
+        }
+        let mut v = n.get("fb:videos");
+        v[&vid]["bytes"] = json!(r.body.len());
+        n.set("fb:videos", v);
+        return ok(json!({"success": true}));
+    }
+    match (r.method.as_str(), rest.as_slice()) {
+        ("POST", ["P1", "photos"]) => {
+            let parts = r.parts();
+            if parts.get("published").map(|p| p.2.as_slice()) != Some(b"false".as_slice()) || !parts.contains_key("source") {
+                return err(400, "(#100) source and published are required", 100);
+            }
+            let id = format!("PH{}", n.next());
+            n.list("fb:photos").push(json!({"id": id, "bytes": parts["source"].2.len(), "temporary": String::from_utf8_lossy(&parts["temporary"].2)}));
+            ok(json!({"id": id}))
+        }
+        ("POST", ["P1", edge @ ("video_reels" | "video_stories")]) => {
+            let b = r.json();
+            match b["upload_phase"].as_str() {
+                Some("start") => {
+                    let vid = format!("V{}", n.next());
+                    let mut v = n.get("fb:videos");
+                    if v.is_null() {
+                        v = json!({});
+                    }
+                    v[&vid] = json!({"edge": edge, "bytes": 0, "polls": 0, "published": false});
+                    n.set("fb:videos", v);
+                    ok(json!({"video_id": vid, "upload_url": format!("{base}/fbr/video-upload/v25.0/{vid}")}))
+                }
+                Some("finish") => {
+                    let vid = b["video_id"].as_str().unwrap_or_default().to_string();
+                    let mut v = n.get("fb:videos");
+                    if v[&vid]["bytes"] == 0 {
+                        return err(400, "The video has not been uploaded", 6000);
+                    }
+                    v[&vid]["published"] = json!(true);
+                    v[&vid]["description"] = b["description"].clone();
+                    n.set("fb:videos", v);
+                    if *edge == "video_stories" { ok(json!({"success": true, "post_id": format!("S{vid}")})) } else { ok(json!({"success": true})) }
+                }
+                _ => err(400, "upload_phase is start or finish", 100),
+            }
+        }
+        ("POST", ["P1", "feed"]) => {
+            let b = r.json();
+            for m in b["attached_media"].as_array().into_iter().flatten() {
+                if !n.list("fb:photos").iter().any(|p| p["id"] == m["media_fbid"]) {
+                    return err(400, "(#100) Invalid attached_media", 100);
+                }
+            }
+            if n.list("fb:posts").iter().any(|p| p["message"] == b["message"]) {
+                return err(400, "(#506) Duplicate status message", 506);
+            }
+            let id = format!("P1_{}", n.next());
+            n.list("fb:posts").push(json!({"id": id, "message": b["message"], "link": b["link"], "attached_media": b["attached_media"]}));
+            ok(json!({"id": id}))
+        }
+        ("GET", ["P1", "feed"]) => {
+            let mut all = n.list("fb:posts").clone();
+            all.reverse();
+            ok(json!({"data": all}))
+        }
+        ("POST", ["P1", "videos"]) if seg[0] == "v25.0" => {
+            let parts = r.parts();
+            let id = format!("VID{}", n.next());
+            n.list("fb:posts").push(json!({"id": id, "message": String::from_utf8_lossy(&parts["description"].2), "video_bytes": parts["source"].2.len()}));
+            ok(json!({"id": id}))
+        }
+        ("POST", ["P1", "photo_stories"]) => {
+            let photo = r.json()["photo_id"].clone();
+            if !n.list("fb:photos").iter().any(|p| p["id"] == photo && p["temporary"] == "true") {
+                return err(400, "(#100) A story's photo is uploaded as temporary", 100);
+            }
+            let id = format!("ST{}", n.next());
+            n.list("fb:stories").push(json!({"id": id, "photo": photo}));
+            ok(json!({"success": true, "post_id": id}))
+        }
+        ("POST", [id, "comments"]) => {
+            let cid = format!("{id}_c{}", n.next());
+            n.list("fb:comments").push(json!({"id": cid, "on": id, "message": r.json()["message"]}));
+            ok(json!({"id": cid}))
+        }
+        ("DELETE", [id]) => {
+            let id = id.to_string();
+            n.list("fb:posts").retain(|p| p["id"] != json!(id));
+            ok(json!({"success": true}))
+        }
+        ("GET", [id, "insights"]) => {
+            let _ = id;
+            ok(json!({"data": [{"name": "post_media_view", "values": [{"value": 800}]}, {"name": "post_total_media_view_unique", "values": [{"value": 600}]},
+                               {"name": "post_clicks", "values": [{"value": 30}]}]}))
+        }
+        ("GET", ["P1"]) => ok(
+            json!({"id": "P1", "name": "Northwind Cafe", "username": "northwindcafe", "followers_count": 4321, "picture": {"data": {"url": "https://scontent.test/p1.jpg"}}}),
+        ),
+        ("GET", [id]) if r.query.get("fields").is_some_and(|f| f == "status") => {
+            let mut v = n.get("fb:videos");
+            let m = &mut v[*id];
+            if m.is_null() {
+                return err(404, "Unsupported get request", 100);
+            }
+            m["polls"] = json!(m["polls"].as_u64().unwrap_or(0) + 1);
+            let uploaded = if m["bytes"] != 0 && m["polls"].as_u64() >= Some(2) { "complete" } else { "in_progress" };
+            let publishing = if m["published"] == true { "complete" } else { "not_started" };
+            let out = json!({"status": {"video_status": "upload_complete", "uploading_phase": {"status": uploaded}, "processing_phase": {"status": "not_started"},
+                                        "publishing_phase": {"status": publishing}}});
+            n.set("fb:videos", v);
+            ok(out)
+        }
+        ("GET", [_id]) => ok(
+            json!({"reactions": {"data": [], "summary": {"total_count": 12}}, "comments": {"data": [], "summary": {"total_count": 4}}, "shares": {"count": 2}}),
+        ),
+        _ => err(404, "Unknown path components", 2500),
+    }
+}
+
+async fn facebook(t: &T) {
+    let conn = t
+        .connect("facebook", "fb", &["graph.facebook.com", "graph-video.facebook.com", "rupload.facebook.com"], json!({"client_secret": "fb-secret"}), |d| {
+            let text = d.to_string().replace(
+                &format!("{}/fb/v25.0/{{{{ inputs.account_id }}}}/videos", t.base),
+                &format!("{}/fbv/v25.0/{{{{ inputs.account_id }}}}/videos", t.base),
+            );
+            *d = serde_json::from_str(&text).unwrap();
+        })
+        .await;
+    // The code exchanged, the short token exchanged for a long one, and the pages' own tokens kept sealed with it.
+    t.sign_in(conn, "CODE-fb").await;
+    assert!(t.net().last("fb", "GET", "/v25.0/me/accounts").bearer().is_some_and(|b| b.starts_with("LONG-")), "the pages read with the long-lived token");
+    assert!(rests(&t.k, &[PAGE_TOKEN]).await.is_empty(), "a page's token rests nowhere in the clear: {:?}", rests(&t.k, &[PAGE_TOKEN]).await);
+    let account = t.account("Northwind Cafe", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "Facebook");
+    let reach = t.action(account, "reachable", json!({})).await.unwrap();
+    assert_eq!(reach["accounts"][0]["id"], "P1");
+    t.action(account, "choose", json!({"picked": ["P1"]})).await.unwrap();
+    let on = |mut v: Value, kind: &str| {
+        v["account_id"] = json!("P1");
+        v["kind"] = json!(kind);
+        v
+    };
+    // Text with its link as the link's card.
+    let key = format!("publish:{}", Uuid::now_v7());
+    let first = t.call("facebook", "publish", on(post_in("Fresh bread today", Some("https://northwind.test"), &[], &[]), "post"), Some(&key)).await.unwrap();
+    assert_eq!(t.net().list("fb:posts")[0]["link"], "https://northwind.test");
+    assert_eq!(first["url"], format!("https://www.facebook.com/{}", first["id"].as_str().unwrap()));
+    assert!(t.net().last("fb", "POST", "/v25.0/P1/feed").bearer().as_deref() == Some(PAGE_TOKEN), "as the page, with its own token");
+    // Two photos, uploaded unpublished, then attached to one post.
+    let mut ids = vec![];
+    for i in 0..2 {
+        let m = t.medium(&format!("p{i}.jpg"), "image/jpeg", b"JPEG-DATA", Some("post"), json!({}), Some("P1")).await;
+        ids.push(t.call("facebook", "publish_media", m, Some(&format!("media:{key}:1:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
+    }
+    t.call(
+        "facebook",
+        "publish",
+        on(post_in("Two loaves", None, &[("p0.jpg", "image/jpeg", 9), ("p1.jpg", "image/jpeg", 9)], &ids), "post"),
+        Some(&format!("{key}:1")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(t.net().list("fb:posts").last().unwrap()["attached_media"].as_array().unwrap().len(), 2);
+    // A reel: started, its bytes sent to the upload host, waited for, then finished with its description.
+    let video = vec![b'v'; 3000];
+    let m = t.medium("reel.mp4", "video/mp4", &video, Some("reel"), json!({}), Some("P1")).await;
+    let reel = t.call("facebook", "publish_media", m, Some(&format!("media:{key}:2:0"))).await.unwrap();
+    let r = t
+        .call(
+            "facebook",
+            "publish",
+            on(post_in("Watch us bake", None, &[("reel.mp4", "video/mp4", 3000)], &[reel["id"].as_str().unwrap().to_string()]), "reel"),
+            Some(&format!("{key}:2")),
+        )
+        .await
+        .unwrap();
+    {
+        let n = t.net();
+        let v = &n.get("fb:videos")[r["id"].as_str().unwrap()];
+        assert_eq!((v["bytes"].as_u64(), v["published"].as_bool(), v["description"].as_str()), (Some(3000), Some(true), Some("Watch us bake")));
+        assert_eq!(
+            n.last("fbr", "POST", &format!("/video-upload/v25.0/{}", r["id"].as_str().unwrap())).header("authorization"),
+            Some(format!("OAuth {PAGE_TOKEN}").as_str())
+        );
+    }
+    assert!(r["url"].as_str().unwrap().contains("/reel/"));
+    // A story of a photo.
+    let m = t.medium("s.jpg", "image/jpeg", b"JPEG-STORY", Some("story"), json!({}), Some("P1")).await;
+    let s = t.call("facebook", "publish_media", m, Some(&format!("media:{key}:3:0"))).await.unwrap();
+    t.call(
+        "facebook",
+        "publish",
+        on(post_in("", None, &[("s.jpg", "image/jpeg", 10)], &[s["id"].as_str().unwrap().to_string()]), "story"),
+        Some(&format!("{key}:3")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(t.net().list("fb:stories").len(), 1);
+    // A video post: its bytes sent with its description to the video host.
+    let m = t.medium("long.mp4", "video/mp4", &video, Some("post"), json!({}), Some("P1")).await;
+    let v = t.call("facebook", "publish_media", m, Some(&format!("media:{key}:4:0"))).await.unwrap();
+    assert!(v["id"].as_str().unwrap().starts_with("file:"));
+    t.call(
+        "facebook",
+        "publish",
+        on(post_in("The long one", None, &[("long.mp4", "video/mp4", 3000)], &[v["id"].as_str().unwrap().to_string()]), "post"),
+        Some(&format!("{key}:4")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(t.net().list("fb:posts").last().unwrap()["video_bytes"], 3000);
+    // The first comment, as the page.
+    let mut c = json!({"text": "Open till six", "in_reply_to": first["id"], "root": first["id"]});
+    c["account_id"] = json!("P1");
+    t.call("facebook", "reply", c, Some(&format!("first_comment:{key}"))).await.unwrap();
+    assert_eq!(t.net().list("fb:comments")[0]["on"], first["id"]);
+    // A lost answer: read back among the page's posts, not posted again.
+    t.net().lose.insert("POST /fb/v25.0/P1/feed".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("fb:posts").len();
+    assert!(t.call("facebook", "publish", on(post_in("Just once", None, &[], &[]), "post"), Some(&lost)).await.is_err());
+    let again = t.call("facebook", "publish", on(post_in("Just once", None, &[], &[]), "post"), Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("fb:posts").len(), before + 1);
+    assert_eq!(again["id"], t.net().list("fb:posts").last().unwrap()["id"]);
+    // A refusal in Facebook's words.
+    let e = t.call("facebook", "publish", on(post_in("Just once", None, &[], &[]), "post"), Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(e.to_string().contains("Duplicate status message"), "{e}");
+    // The long-lived token renewed by exchanging it again, when the user's own token is next used (the picker); the
+    // pages' tokens kept.
+    t.expire(conn).await;
+    t.action(account, "reachable", json!({})).await.unwrap();
+    let m = t.call("facebook", "metrics", json!({"id": first["id"], "account_id": "P1", "handle": null}), None).await.unwrap();
+    assert_eq!(
+        (m["impressions"].as_i64(), m["reach"].as_i64(), m["clicks"].as_i64(), m["engagements"].as_i64()),
+        (Some(800), Some(600), Some(30), Some(18)),
+        "{m}"
+    );
+    assert!(t.net().last("fb", "GET", "/v25.0/oauth/access_token").query.get("fb_exchange_token").is_some_and(|t| t.starts_with("LONG-")));
+    let a = t.call("facebook", "account", json!({"account_id": "P1", "handle": null}), None).await.unwrap();
+    assert_eq!(a["followers"], 4321);
+    t.call("facebook", "delete", json!({"id": first["id"], "account_id": "P1"}), Some(&format!("delete:{key}"))).await.unwrap();
+    assert!(!t.net().list("fb:posts").iter().any(|p| p["id"] == first["id"]));
+    assert!(rests(&t.k, &[PAGE_TOKEN]).await.is_empty(), "{:?}", rests(&t.k, &[PAGE_TOKEN]).await);
 }
