@@ -421,6 +421,7 @@ export function ComposerRoute() {
                       snippets={snippets}
                       variables={names}
                       locked={locked}
+                      mentionAccount={here ? (rules[here].mentions ? here : null) : (chosen.find((a) => rules[a].mentions) ?? null)}
                     />
                     {wantsComment && (
                       <Field label={t("First comment")} htmlFor="post-first-comment" hint={t("Added under the post right after it goes out, where the network takes one.")}>
