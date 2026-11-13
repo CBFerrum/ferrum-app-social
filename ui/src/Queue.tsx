@@ -10,7 +10,7 @@ import { bootstrap, formatMoment, isolate, refusal, t } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, confirmDialog, Field, ListSkeleton, PageHead, PageStack, StatePanel, StatusBadge, toast } from "@ferrum/kit";
 import { type PostingTime, slotsOn, type Slot } from "./days";
 import { change, make, POST_TONES, remove, type Row, rows, run, statusWord, text } from "./data";
-import { Await, Face, firstOf, Nav, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
+import { Await, Face, firstOf, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
 
 const WEEKDAYS = ["Every Day", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -186,7 +186,6 @@ export function QueueRoute() {
 
   return (
     <PageStack>
-      <Nav />
       <PageHead title={t("Posting times")} description={t("When a brand's posts may go out, and what is in the next places.")} actions={<ButtonLink to="/compose" variant="primary" icon="plus">{t("New post")}</ButtonLink>} />
       <Await q={firstOf(accounts, brands, times)} skeleton={<ListSkeleton rows={5} />}>
         {() =>

@@ -11,7 +11,7 @@ import { type Row, text } from "./data";
 import { before, changeText, lastDays, mergeTop, nativeByAccount, toCsv, type TopRow } from "./period";
 import { Line } from "./PostNumbers";
 import { Link } from "react-router";
-import { Await, Nav, useAccounts, useBrands } from "./ui";
+import { Await, useAccounts, useBrands } from "./ui";
 import { rows } from "./data";
 
 interface Report {
@@ -192,7 +192,6 @@ export function NumbersRoute() {
   };
   return (
     <PageStack>
-      <Nav />
       <PageHead title={t("Numbers")} description={t("What your posts did, against the period before.")} actions={brand ? <a className="btn btn-default btn-md" href={`/api/v1/SocialBrand/${brand}/print?template=social.brand_report`} target="_blank" rel="noreferrer noopener">{t("The brand's week as a document")}</a> : undefined} />
       <div className="row">
         <div className="segmented" role="group" aria-label={t("Period")}>

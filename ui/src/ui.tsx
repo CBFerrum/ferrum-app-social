@@ -3,38 +3,12 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useLocation } from "react-router";
-import { initials, isolate, t } from "@ferrum/client";
-import { ButtonLink, FormSkeleton, LoadFailed } from "@ferrum/kit";
+import { initials, isolate } from "@ferrum/client";
+import { FormSkeleton, LoadFailed } from "@ferrum/kit";
 import { can, useMetaIndex, type PermKeyLike } from "./rights";
 import { type Row, rows, text } from "./data";
 
 export { can, type PermKeyLike };
-
-/** The screens of the app, one press apart on every page. */
-export function Nav() {
-  const here = useLocation().pathname;
-  const items: [string, string, string][] = [
-    ["/", t("Home"), "home"],
-    ["/calendar", t("Calendar"), "calendar"],
-    ["/queue", t("Posting times"), "timeline"],
-    ["/accounts", t("Accounts"), "apps"],
-    ["/media", t("Media"), "file"],
-    ["/inbox", t("Inbox"), "mail"],
-    ["/numbers", t("Numbers"), "chart"],
-    ["/library", t("Library"), "doc"],
-    ["/automation", t("Feeds and plugs"), "refresh"],
-  ];
-  return (
-    <nav className="row" aria-label={t("Social")}>
-      {items.map(([to, label, icon]) => (
-        <ButtonLink key={to} to={to} size="sm" icon={icon} variant={(to === "/" ? here === "/" : here.startsWith(to)) ? "default" : "ghost"}>
-          {label}
-        </ButtonLink>
-      ))}
-    </nav>
-  );
-}
 
 /** Whether the person may do `key` to `entity`: true until the metadata is in (the server decides; this keeps buttons it would refuse from being offered). */
 export function useAllowed(entity: string, key: PermKeyLike): boolean {

@@ -11,7 +11,7 @@ import { Alert, Badge, Button, EmptyState, Field, ListSkeleton, PageHead, PageSt
 import { useMe } from "@ferrum/records";
 import { type Filter, change, record, type Row, rows, run, text } from "./data";
 import { mentionToken } from "./composer/Items";
-import { Await, brandName, Face, firstOf, Nav, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
+import { Await, brandName, Face, firstOf, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
 
 const STATUSES = ["New", "Assigned", "Answered", "Closed"];
 const KINDS = ["Comment", "Mention", "Direct"];
@@ -245,7 +245,6 @@ export function InboxRoute() {
   const accountOf = (m: Row) => accounts.data?.find((a) => a.id === m.account);
   return (
     <PageStack>
-      <Nav />
       <PageHead title={t("Inbox")} description={t("Comments, mentions and direct messages to your accounts. j and k move, r replies, e closes.")} />
       <div className="row">
         <Field label={t("Brand")} htmlFor="in-brand"><select id="in-brand" className="select" value={f.brand} onChange={(e) => put({ brand: e.target.value, account: "" })}><option value="">{t("All brands")}</option>{(brands.data ?? []).map((b) => <option key={b.id} value={b.id}>{isolate(text(b.brand_name))}</option>)}</select></Field>

@@ -13,7 +13,7 @@ import { Alert, Badge, Button, ButtonLink, Dialog, Field, ListSkeleton, PageHead
 import { addDays, arrowDay, byDay, dayOf, daysOf, moveToDay, type PostingTime, rangeOf, shift, type Slot, slotsOn, timeOf, type View } from "./days";
 import { type Filter, POST_TONES, record, type Row, rows, run, statusWord, text } from "./data";
 import { PostNumbers } from "./PostNumbers";
-import { Await, brandName, Face, firstOf, Nav, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
+import { Await, brandName, Face, firstOf, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
 
 const FIELDS = "headline,status,scheduled_at,brand,targets,repeat_every,repeat_unit,repeat_until,repeat_count,repeat_index,repeat_of,waiting_for,failure";
 const MOVABLE = ["Draft", "Rejected", "In Review", "Approved"];
@@ -363,7 +363,6 @@ export function CalendarRoute() {
 
   return (
     <PageStack>
-      <Nav />
       <PageHead
         title={t("Calendar")}
         description={t("Posts by the day and time they go out, on the workspace's clock.")}

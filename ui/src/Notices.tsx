@@ -7,7 +7,7 @@ import { isolate, refusal, t } from "@ferrum/client";
 import { Alert, ListSkeleton, PageHead, PageStack } from "@ferrum/kit";
 import { useMe } from "@ferrum/records";
 import { make, remove, type Row, rows, text } from "./data";
-import { Await, Nav } from "./ui";
+import { Await } from "./ui";
 
 export const NOTICES = ["went_out", "failed", "review", "reconnect", "repeat_stopped", "digest"] as const;
 
@@ -50,7 +50,6 @@ export function NoticesRoute() {
   };
   return (
     <PageStack>
-      <Nav />
       <PageHead title={t("Notices")} description={t("Which notices of Social reach you.")} />
       {refused && <Alert tone="error">{isolate(refused)}</Alert>}
       <Await q={out} skeleton={<ListSkeleton rows={4} />}>

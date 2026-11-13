@@ -8,7 +8,7 @@ import { Link } from "react-router";
 import { isolate, refusal, t } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, confirmDialog, ListSkeleton, PageHead, PageStack, StatePanel, TabPanel, Tabs } from "@ferrum/kit";
 import { remove, type Row, rows, text } from "./data";
-import { Await, brandName, Nav, useAccounts, useAllowed, useBrands } from "./ui";
+import { Await, brandName, useAccounts, useAllowed, useBrands } from "./ui";
 
 interface Kind {
   id: string;
@@ -98,7 +98,6 @@ export function LibraryRoute() {
   const k = KINDS.find((x) => x.id === tab) ?? KINDS[0];
   return (
     <PageStack>
-      <Nav />
       <PageHead title={t("Library")} description={t("What posts are made from: templates and sets, snippets, signatures, variables, link templates and saved replies.")} />
       <Tabs id="library" tabs={KINDS.map((x) => ({ id: x.id, label: x.label() }))} value={tab} onChange={setTab} />
       <TabPanel id="library" tab={tab}>
