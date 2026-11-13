@@ -156,3 +156,26 @@ organisations of the articles already written, as Postiz does); edit; numbers (p
 unpublishes with an API key for the author's own article; `published_timestamp` as the field to read back by; the
 128-character title limit; a tag outside the list is refused (the choices only offer the list).
 **Setup**: an API key (Settings, Extensions) under `api_key`.
+
+## Hashnode (`hashnode.json`)
+
+**Does**: GraphQL at `gql.hashnode.com` with a personal access token (the `Authorization` header, no prefix); the token's
+user is the account; a markdown article with publication (required, choices from `me.publications`), title, subtitle,
+tags (comma-separated names, sent as `{slug, name}`), cover picture by address, original address, address name;
+the article's address; delete (`removePost`).
+**Never twice**: no idempotency header. After a lost answer the call reads the publication's ten latest posts for the
+same title published since the publication's `created_at` and takes that post as the answer; if it is not there the call
+fails instead of sending again.
+**Cannot**: say why Hashnode refused in its words. GraphQL answers 200 with `errors`; the platform reads `error_at` only
+on a failing status, so the description makes the missing id fail the call (`required`: "the answer has no id"). *Needed
+from the platform*: an expression that marks a 2xx answer as a refusal and a pointer for its text (the same need as
+Slack's `ok: false`). Upload a cover (an address only; *needed from Social*: a public address for a stored file); choose
+tags from Hashnode's own list (a text setting; the tag's slug is the lower-cased name, so a tag Hashnode knows under
+another slug is created or refused); series, scheduling, newsletter switch, co-authors, drafts; numbers; follow-ups.
+`check` works only because `account` is a one-step operation without a method: Social reads an account's name through
+an operation that is a GET, and a GraphQL query is a POST (*needed from Social*: ask the operation's `changes`, not its
+method, whether it reads).
+**Unverified**: all of it against the live API (the mutation and field names are from Hashnode's public schema as I know
+it; Postiz still calls the old `gql-beta` address); the mutation limit of 500 a minute that `limit` sets; that unknown
+tag slugs are accepted; the 250-character title limit.
+**Setup**: a personal access token (hashnode.com/settings/developer) under `access_token`.
