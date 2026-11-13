@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { copyOf, customise, dropVersion, fromRecord, guessKind, missingVariable, removeAccount, toRecord } from "./draft";
+import { customise, dropVersion, fromRecord, guessKind, removeAccount, toRecord } from "./draft";
 import type { Row } from "./data";
 
 // The record's shape is docs/interface-notes.md section 2 (the full example there).
@@ -99,19 +99,8 @@ describe("a record as a draft and back", () => {
   });
 });
 
-describe("what an account will get", () => {
-  it("its version, else the original, with the signature once and the variables filled", () => {
-    const d = fromRecord(record);
-    const x = copyOf(d, "x", "-- Ann", { who: "Ann" });
-    expect(x.items.map((i) => i.text)).toEqual(["Spring is here\n\n-- Ann", "Two of three", "Three of three"]);
-    const pins = copyOf(d, "pins", null, {});
-    expect(pins.items.map((i) => i.text)).toEqual(["Spring, pinned", "pins' own follow-up"]);
-    expect(pins.kind).toBe("pin");
-    d.original.items[0].text = "Hi {{who}}";
-    expect(missingVariable(d, "x", {})).toBe("who");
-    expect(missingVariable(d, "x", { who: "A" })).toBeNull();
-  });
-  it("a medium's kind is the stored one, else the file's", () => {
+describe("a medium", () => {
+  it("is of the stored kind, else the file's", () => {
     expect(guessKind("image/png", "/files/a")).toBe("image");
     expect(guessKind(undefined, "/files/a.mp4")).toBe("video");
     expect(guessKind("application/pdf", "/files/a")).toBe("document");

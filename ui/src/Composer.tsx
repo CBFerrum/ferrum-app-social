@@ -5,13 +5,13 @@
 // with changes, and a refused save shows the server's words. No network is named here; every limit, kind and question is
 // drawn from the rules the server gives for an account (model.ts).
 
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { api, docPath, formatMoment, isolate, refusal, t } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, confirmDialog, Dialog, Field, FormSkeleton, Menu, MenuItem, PageHead, PageSplit, PageStack, StatusBadge, TabPanel, Tabs, toast, useDebounced, useUnsavedGuard } from "@ferrum/kit";
 import { change, make, POST_TONES, type Row, remove, rows, run, statusWord, text, record } from "./data";
-import { contentFor, copyOf, customise, type Draft, dropVersion, emptyDraft, fromRecord, removeAccount, toRecord, missingVariable } from "./draft";
+import { contentFor, customise, type Draft, dropVersion, emptyDraft, fromRecord, removeAccount, toRecord } from "./draft";
 import { AccountOptions } from "./composer/Settings";
 import { Items, type Insertable } from "./composer/Items";
 import { Pick } from "./composer/Pick";
@@ -33,29 +33,6 @@ function useLibrary() {
       return { signatures, variables, snippets, templates, sets };
     },
   });
-}
-
-/** The value each variable has for an account: the account's, else its brand's, else the workspace's. */
-export function variablesFor(variables: Row[], brand: string, account: string): Record<string, string> {
-  const rank = new Map<string, number>();
-  const out: Record<string, string> = {};
-  for (const v of variables) {
-    const r = text(v.account) === account && account ? 3 : !text(v.account) && text(v.brand) === brand && brand ? 2 : !text(v.account) && !text(v.brand) ? 1 : 0;
-    const name = text(v.variable_name);
-    if (r && name && (rank.get(name) ?? 0) < r) {
-      rank.set(name, r);
-      out[name] = text(v.value);
-    }
-  }
-  return out;
-}
-
-/** The signature a post adds for an account: the one it names, else the account's default, the brand's, the workspace's. */
-export function signatureFor(signatures: Row[], named: string, brand: string, account: string): string | null {
-  if (named) return text(signatures.find((s) => s.id === named)?.text) || null;
-  const defaults = signatures.filter((s) => s.is_default === true);
-  const pick = defaults.find((s) => text(s.account) === account && account) ?? defaults.find((s) => !text(s.account) && text(s.brand) === brand && brand) ?? defaults.find((s) => !text(s.account) && !text(s.brand));
-  return pick ? text(pick.text) || null : null;
 }
 
 const snap = (d: Draft, brand: string | null) => JSON.stringify([toRecord(d, brand), d.tags]);
@@ -178,15 +155,22 @@ export function ComposerRoute() {
   const locked = (postId ? !canWrite : !canCreate) || LOCKED.includes(status);
   const dirty = !!draft && snap(draft, brand) !== baseline;
   const { allowLeave, dialog: guard } = useUnsavedGuard(dirty);
-  const slow = useDebounced(draft, 150);
 
   const lib = library.data;
-  const copiesQ = useQuery({
-    queryKey: ["social", "copies", postId, post.data?.version],
-    queryFn: () => run<{ copies: ServerCopy[] }>("SocialPost", postId!, "copies").then((r) => r.copies),
-    enabled: !!postId && !!post.data && !dirty,
+  // What the server counts and checks for the post as it stands now, saved or not (nothing is written): asked after a pause, the
+  // answer to a newer body replacing an older (the query is keyed by the body), the last one kept and dimmed meanwhile.
+  const live = draft && chosen.length ? JSON.stringify({ ...toRecord(draft, brand, rules), want_checks: true }) : "";
+  const body = useDebounced(live, 400);
+  const calc = useQuery<ServerCopy[]>({
+    queryKey: ["social", "calc", body],
+    queryFn: ({ signal }) => api.post<{ checks: { copies: ServerCopy[] } }>(docPath("SocialPost", "_calc"), JSON.parse(body), { signal }).then((r) => r.checks.copies),
+    enabled: !!body,
+    placeholderData: keepPreviousData,
     retry: false,
+    staleTime: Infinity,
   });
+  const dimmed = live !== body || calc.isFetching;
+  const copies = calc.data ?? [];
 
   const set = (patch: Partial<Draft> | ((d: Draft) => Draft)) => setDraft((d) => (d ? (typeof patch === "function" ? patch(d) : { ...d, ...patch }) : d));
   const toggle = (account: string) => {
@@ -288,7 +272,6 @@ export function ComposerRoute() {
 
   const sigs = lib?.signatures ?? [];
   const accountRow = (a: string) => all.find((x) => x.id === a)!;
-  const previewDraft = slow ?? draft;
   const versions = chosen.filter((a) => draft.versions[a]);
   const loose = chosen.filter((a) => !draft.versions[a]);
   const tabs = [{ id: "original", label: t("Original") }, ...versions.map((a) => ({ id: `acc-${a}`, label: isolate(text(accountRow(a).account_name)) }))];
@@ -301,7 +284,6 @@ export function ComposerRoute() {
   const snippets: Insertable[] = (lib?.snippets ?? []).filter((s) => !text(s.brand) || text(s.brand) === brand).map((s) => ({ label: text(s.snippet_name), text: text(s.text) }));
   const names = [...new Set((lib?.variables ?? []).map((v) => text(v.variable_name)).filter(Boolean))];
   const wantsComment = chosen.some((a) => effective(rules[a], draft.targets.find((x) => x.account === a)?.kind || null).firstComment);
-  const missing = chosen.map((a) => missingVariable(draft, a, variablesFor(lib?.variables ?? [], brand ?? "", a)) && { a, name: missingVariable(draft, a, variablesFor(lib?.variables ?? [], brand ?? "", a)) }).filter(Boolean) as { a: string; name: string | null }[];
   const waitNote = text(post.data?.waiting_for);
 
   const applySet = async (setId: string) => {
@@ -380,7 +362,6 @@ export function ComposerRoute() {
       )}
       {locked && <Alert tone="info">{LOCKED.includes(status) ? t("A post stays as it went out. Duplicate it to change it.") : t("You may only read this post.")}</Alert>}
       {status === "Approved" && editable && <Alert tone="info">{t("A change to an approved post needs approval again.")}</Alert>}
-      {missing.length > 0 && <Alert tone="warning">{missing.map((m) => t("No variable is called {name} for {account}", { name: isolate(String(m.name)), account: isolate(text(accountRow(m.a).account_name)) })).join(". ")}</Alert>}
       <PageSplit
         main={
           <div className="stack">
@@ -435,7 +416,7 @@ export function ComposerRoute() {
                       onChange={(c) => set((d) => (here ? { ...d, versions: { ...d.versions, [here]: c } } : { ...d, original: c }))}
                       followLabel={common && common !== "none" ? followWord(common) : ""}
                       followNone={common === "none"}
-                      text={hereEff?.text ?? null}
+                      counts={here ? (copies.find((c) => c.account === here)?.items ?? null) : null}
                       media={hereEff?.media ?? null}
                       snippets={snippets}
                       variables={names}
@@ -489,14 +470,10 @@ export function ComposerRoute() {
           <div className="stack">
             <h2 className="section-title">{t("Preview")}</h2>
             {chosen.length === 0 && <p className="muted">{t("Choose an account to see how the post looks there.")}</p>}
-            {chosen.map((a) => {
-              const brandId = brand ?? "";
-              const vars = variablesFor(lib?.variables ?? [], brandId, a);
-              const copy = copyOf(previewDraft, a, signatureFor(sigs, previewDraft.signature, brandId, a), vars);
-              return (
-                <Preview key={a} account={accountRow(a)} rules={rules[a]} copy={copy} media={contentFor(previewDraft, a).items.map((i) => i.media)} server={copiesQ.data?.find((c) => c.account === a)} />
-              );
-            })}
+            {calc.isError && <Alert tone="error">{refusal(calc.error)}</Alert>}
+            {chosen.map((a) => (
+              <Preview key={a} account={accountRow(a)} copy={copies.find((c) => c.account === a)} media={contentFor(draft, a).items.map((i) => i.media)} dimmed={dimmed} />
+            ))}
             {postId && post.data && <ReviewPanel post={post.data} onChanged={() => void client.invalidateQueries({ queryKey: ["social"] })} />}
           </div>
         }

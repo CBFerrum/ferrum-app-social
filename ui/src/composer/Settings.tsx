@@ -7,7 +7,7 @@ import { useState } from "react";
 import { isolate, t } from "@ferrum/client";
 import { Field, useDebounced } from "@ferrum/kit";
 import { run } from "../data";
-import { asked, kindLabel, optionLabel, optionValue, type Rules, type Setting, settingProblems } from "../model";
+import { asked, kindLabel, optionLabel, optionValue, type Rules, type Setting } from "../model";
 
 export interface Choice {
   value: unknown;
@@ -118,7 +118,6 @@ export function SettingField({ account, s, value, answers, onChange, error }: { 
 export function AccountOptions({ account, rules, kind, answers, onKind, onAnswers, locked }: { account: string; rules: Rules; kind: string; answers: Record<string, unknown>; onKind: (k: string) => void; onAnswers: (a: Record<string, unknown>) => void; locked?: boolean }) {
   const current = kind || rules.kinds[0]?.name || null;
   const shown = asked(rules, current, answers);
-  const wrong = new Map(settingProblems(rules, current, answers).map((p) => [p.key, p.why]));
   return (
     <fieldset className="stack" disabled={locked}>
       {rules.kinds.length > 1 && (
@@ -133,7 +132,7 @@ export function AccountOptions({ account, rules, kind, answers, onKind, onAnswer
         </Field>
       )}
       {shown.map((s) => (
-        <SettingField key={s.key} account={account} s={s} value={answers[s.key]} answers={answers} error={wrong.get(s.key)} onChange={(v) => onAnswers({ ...answers, [s.key]: v })} />
+        <SettingField key={s.key} account={account} s={s} value={answers[s.key]} answers={answers} onChange={(v) => onAnswers({ ...answers, [s.key]: v })} />
       ))}
     </fieldset>
   );
