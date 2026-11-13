@@ -198,3 +198,9 @@
   background: var(--primary-soft);
   border-color: var(--primary);
 }
+
+/* An answer being replaced by a newer one: the last stays, dimmed. */
+[data-dimmed] {
+  opacity: 0.55;
+  transition: opacity var(--duration-state);
+}

@@ -8,7 +8,7 @@ import { errorMessage, formatDecimal, isolate, t } from "@ferrum/client";
 import { Alert, Button, Field, Icon } from "@ferrum/kit";
 import { blankItem, type Content, type ItemState, kindOfMedium, keyed, type MediaState } from "../draft";
 import { acceptOf, uploadMedium, uploadThumbnail } from "./media";
-import { itemLength, type MediaRule, type TextRule } from "../model";
+import type { MediaRule } from "../model";
 
 export interface Insertable {
   label: string;
@@ -75,7 +75,7 @@ export function Items({
   onChange,
   followLabel,
   followNone,
-  text,
+  counts,
   media,
   snippets,
   variables,
@@ -88,8 +88,8 @@ export function Items({
   followLabel: string;
   /** The account takes no follow-ups. */
   followNone: boolean;
-  /** The length rule of the account this is for (the original has none: each account's counter is in its checks). */
-  text: TextRule | null;
+  /** The server's count of each item for the account this is for (the original has none: each account's count is in its checks). */
+  counts: { length: number; max: number | null }[] | null;
   media: MediaRule | null;
   snippets: Insertable[];
   variables: string[];
@@ -159,8 +159,9 @@ export function Items({
       )}
       {failed && <Alert tone="error">{failed}</Alert>}
       {content.items.map((it, i) => {
-        const n = itemLength(text ?? { count: "characters" }, it.text, it.link);
-        const over = text?.max != null && n > text.max;
+        const count = counts?.[i];
+        const n = count?.length ?? 0;
+        const over = !!count && count.max != null && n > count.max;
         const label = i === 0 ? t("The post") : followLabel ? t("{word} {n}", { word: followLabel, n: String(i) }) : t("Follow-up {n}", { n: String(i) });
         const id = `${idPrefix}-item-${i}`;
         const fileInput = `${id}-file`;
@@ -168,7 +169,7 @@ export function Items({
           <fieldset key={it.key} className="card card-body stack" disabled={locked}>
             <legend className="field-label">{label}</legend>
             {i > 0 && followNone && <Alert tone="warning">{t("This network takes nothing after the post.")}</Alert>}
-            <Field label={isolate(label)} htmlFor={id} error={over ? t("{n} is over the {max} this network takes", { n: String(n), max: String(text?.max) }) : undefined}>
+            <Field label={isolate(label)} htmlFor={id} error={over ? t("{n} is over the {max} this network takes", { n: String(n), max: String(count?.max) }) : undefined}>
               <textarea id={id} className="textarea" rows={i === 0 ? 5 : 3} ref={(el) => { areas.current[it.key] = el; }} value={it.text} onFocus={() => { lastUsed.current = i; }} onChange={(e) => set(i, { text: e.target.value })} />
             </Field>
             <div className="row">
@@ -180,7 +181,7 @@ export function Items({
                   <input id={`${id}-delay`} className="input" type="number" min={0} value={it.delay} onChange={(e) => set(i, { delay: Math.max(0, Number(e.target.value) || 0) })} />
                 </Field>
               )}
-              {text && <span className={over ? "field-error" : "muted"} aria-live="polite">{text.max != null ? t("{n} of {max}", { n: formatDecimal(n, 0), max: formatDecimal(text.max, 0) }) : formatDecimal(n, 0)}</span>}
+              {count && <span className={over ? "field-error" : "muted"} aria-live="polite">{count.max != null ? t("{n} of {max}", { n: formatDecimal(n, 0), max: formatDecimal(count.max, 0) }) : formatDecimal(n, 0)}</span>}
             </div>
             {it.media.length > 0 && (
               <ul className="stack" aria-label={t("Media of {label}", { label: isolate(label) })}>

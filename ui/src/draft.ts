@@ -4,7 +4,7 @@
 // original mixed in; an account without one gets the original.
 
 import { fromZonedInput, toZonedInput } from "@ferrum/client";
-import { answers, type Copy, effective, fill, finalText, type Piece, type Rules } from "./model";
+import { answers, effective, type Rules } from "./model";
 import type { Row } from "./data";
 
 export interface MediaState {
@@ -209,27 +209,4 @@ export function toRecord(d: Draft, brand: string | null, rules: Record<string, R
     items,
     media,
   };
-}
-
-/** One account's copy as the live checks read it: the first words made final (the signature when the post asks for one, then the variables; a first comment only gets variables), the media as the rules see them. */
-export function copyOf(d: Draft, account: string, signature: string | null, values: Record<string, string>): Copy {
-  const c = contentFor(d, account);
-  const tg = d.targets.find((t) => t.account === account);
-  const piece = (m: MediaState): Piece => ({ kind: kindOfMedium(m), type: m.type, bytes: m.bytes, width: m.width, height: m.height, seconds: m.seconds, alt: m.alt });
-  return {
-    kind: tg?.kind || null,
-    settings: tg?.settings ?? {},
-    firstComment: fill(d.firstComment, values).text,
-    items: c.items.map((it, n) => ({ text: n === 0 ? finalText(it.text, d.addSignature ? signature : null, values).text : fill(it.text, values).text, link: it.link, media: it.media.map(piece) })),
-  };
-}
-
-/** The first variable a post's words name that has no value, or null. */
-export function missingVariable(d: Draft, account: string, values: Record<string, string>): string | null {
-  const c = contentFor(d, account);
-  for (const it of c.items) {
-    const m = fill(it.text, values).missing;
-    if (m) return m;
-  }
-  return fill(d.firstComment, values).missing;
 }

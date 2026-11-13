@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
-import { ComposerRoute, signatureFor, variablesFor } from "./Composer";
+import { ComposerRoute } from "./Composer";
 import { byText, draw, fakeServer, settle, until } from "./testkit";
 
 afterEach(() => {
@@ -34,8 +34,15 @@ const rules = {
 const brands = { rows: [{ id: "b1", brand_name: "Northwind" }] };
 const accounts = { rows: [{ id: "x", account_name: "North Short", display_name: "North", brand: "b1", network: "Shortline", handle: "north", state: "Connected", active: true, sort_order: 0 }] };
 const empty = { rows: [] };
+// What `_calc` with want_checks answers (src/posts.rs `copies`): here a network that takes 10 characters and folds at 6.
+const calc = (_url: URL, body: unknown) => {
+  const b = body as { text: string };
+  const n = [...b.text].length;
+  return { text: b.text, checks: { copies: [{ account: "x", account_name: "North Short", network: "Shortline", kind: "post", follow_ups: "thread", items: [{ text: b.text, link: null, delay_minutes: 0, length: n, max: 10, fold: 6, media: [] }], first_comment: null, settings: {}, problems: n > 10 ? [`Shortline takes 10 characters, and this post is ${n}`] : [] }] } };
+};
 const server = (extra: Parameters<typeof fakeServer>[0] = []) =>
   fakeServer([
+    ["POST", "/api/v1/SocialPost/_calc", calc],
     ...extra,
     ["POST", "/api/v1/SocialAccount/x/actions/rules", rules],
     ["GET", "/api/v1/SocialBrand", brands],
@@ -69,12 +76,12 @@ describe("the composer", () => {
     await type(field(host, "post-headline"), "Spring");
     await type(field(host, "original-item-0"), "Spring is here");
     // 14 characters against the network's 10, as its rules count them.
-    await settle(200);
+    await until(() => host.textContent!.includes("Shortline takes 10 characters, and this post is 14"));
     expect(host.textContent).toContain("14 of 10");
-    expect(host.textContent).toContain("Shortline takes 10 characters, and this post is 14");
+    // the preview folds at the rules' fold, "see more" opens it
+    expect(host.querySelector(".preview-card")?.textContent).toContain("Spring… See more");
     await type(field(host, "original-item-0"), "Spring!");
-    await settle(200);
-    expect(host.textContent).toContain("Nothing in the way.");
+    await until(() => host.textContent!.includes("Nothing in the way."));
     await press(byText(host, "button", "Save draft"));
     const sent = fake.seen.find((s) => s.line === "POST /api/v1/SocialPost");
     expect(sent?.body).toMatchObject({
@@ -117,7 +124,7 @@ describe("the composer", () => {
     expect(field(host, "set-x-board")).toBeFalsy();
     await type(field(host, "kind-x"), "pin");
     await until(() => !!field(host, "set-x-board"));
-    expect(host.textContent).toContain("Board is needed");
+    expect(host.textContent).toContain("Board*");
     await until(() => (field(host, "set-x-board") as HTMLSelectElement).options.length > 2);
     const asked = fake.seen.find((s) => s.line.endsWith("/choices"));
     expect(asked?.body).toMatchObject({ setting: "board", query: "", settings: {} });
@@ -125,47 +132,42 @@ describe("the composer", () => {
     expect(host.textContent).not.toContain("Board is needed");
   });
 
-  it("a saved post: the server's count and its refusals beside the account, the review steps", async () => {
+  it("a draft with problems is kept; leaving Draft is refused in the server's words", async () => {
+    const fake = server([
+      ["POST", "/api/v1/SocialPost/p9/actions/send_for_review", { error: "invalid", message: "for North Short: Shortline takes 10 characters, and this post is 14" }, 422],
+      ["POST", "/api/v1/SocialPost", { id: "p9", version: 1, status: "Draft" }],
+      ["GET", "/api/v1/SocialPost/p9/tags", { tags: [] }],
+      ["GET", "/api/v1/SocialPost/p9/approval", null],
+      ["GET", "/api/v1/SocialPost/p9/links", { links: [] }],
+      ["GET", "/api/v1/SocialPost/p9", { id: "p9", version: 1, headline: "Spring", brand: "b1", text: "Spring is here", status: "Draft", targets: [{ account: "x", kind: "", settings: {} }], items: [], media: [] }],
+    ]);
+    const host = await draw(<ComposerRoute />, "/compose/:id?", "/compose");
+    await press(host.querySelector<HTMLInputElement>("input[type=checkbox]")!);
+    await until(() => !!field(host, "original-item-0"));
+    await type(field(host, "post-headline"), "Spring");
+    await type(field(host, "original-item-0"), "Spring is here");
+    await until(() => host.textContent!.includes("this post is 14"));
+    await press(byText(host, "button", "Save draft"));
+    expect(fake.seen.some((s) => s.line === "POST /api/v1/SocialPost")).toBe(true);
+    expect(host.querySelector(".alert-error")?.textContent ?? "").not.toContain("takes 10 characters, and this post is 14\n");
+    await press(byText(host, "button", "Send for review"));
+    expect(fake.seen.some((s) => s.line.endsWith("/p9/actions/send_for_review"))).toBe(true);
+    expect(host.textContent).toContain("for North Short: Shortline takes 10 characters, and this post is 14");
+  });
+
+  it("a saved post: the server's count beside the account, the review steps", async () => {
     server([
-      ["POST", "/api/v1/SocialPost/p1/actions/copies", { copies: [{ account: "x", account_name: "North Short", network: "Shortline", kind: "post", follow_ups: "thread", items: [{ text: "Spring is here\n\n-- Ann", link: null, delay_minutes: 0, length: 21, max: 10, media: [] }], first_comment: null, settings: {}, problems: ["Shortline takes 10 characters, and this post is 21"] }] }],
       ["GET", "/api/v1/SocialPost/p1/approval", { id: "r1", status: "pending", steps: [{ label: "Social Approver", state: "open", need: 1, approvers: ["u1"] }], decisions: [] }],
       ["GET", "/api/approvals", { to_decide: [], awaiting_others: [] }],
       ["GET", "/api/v1/SocialPost/p1/tags", { tags: ["spring"] }],
       ["GET", "/api/v1/SocialPost/p1/links", { links: [] }],
-      ["GET", "/api/v1/SocialPost/p1", { id: "p1", version: 3, headline: "Spring", brand: "b1", text: "Spring is here", status: "In Review", add_signature: true, targets: [{ account: "x", kind: "", settings: {} }], items: [], media: [] }],
+      ["GET", "/api/v1/SocialPost/p1", { id: "p1", version: 3, headline: "Spring", brand: "b1", text: "Spring is here", status: "In Review", add_signature: false, targets: [{ account: "x", kind: "", settings: {} }], items: [], media: [] }],
     ]);
     const host = await draw(<ComposerRoute />, "/compose/:id", "/compose/p1");
-    await until(() => host.textContent!.includes("Counted by the server"));
-    expect(host.textContent).toContain("21 of 10");
-    expect(host.textContent).toContain("Shortline takes 10 characters, and this post is 21");
+    await until(() => host.textContent!.includes("14 of 10"));
+    expect(host.textContent).toContain("Shortline takes 10 characters, and this post is 14");
     expect(host.textContent).toContain("Social Approver");
     expect(host.textContent).toContain("Waiting for a decision");
     expect(host.textContent).toContain("spring");
-  });
-});
-
-describe("the library", () => {
-  const vars = [
-    { variable_name: "shop", value: "workspace shop" },
-    { variable_name: "shop", value: "brand shop", brand: "b1" },
-    { variable_name: "shop", value: "account shop", brand: "b1", account: "x" },
-    { variable_name: "city", value: "Pune", brand: "b2" },
-  ] as never[];
-  it("a variable's value: the account's before the brand's before the workspace's", () => {
-    expect(variablesFor(vars, "b1", "x")).toEqual({ shop: "account shop" });
-    expect(variablesFor(vars, "b1", "y")).toEqual({ shop: "brand shop" });
-    expect(variablesFor(vars, "b3", "y")).toEqual({ shop: "workspace shop" });
-  });
-  it("the signature: the one named, else the account's default, the brand's, the workspace's", () => {
-    const sigs = [
-      { id: "s1", text: "workspace", is_default: true },
-      { id: "s2", text: "brand", is_default: true, brand: "b1" },
-      { id: "s3", text: "account", is_default: true, brand: "b1", account: "x" },
-      { id: "s4", text: "named", is_default: false },
-    ] as never[];
-    expect(signatureFor(sigs, "s4", "b1", "x")).toBe("named");
-    expect(signatureFor(sigs, "", "b1", "x")).toBe("account");
-    expect(signatureFor(sigs, "", "b1", "y")).toBe("brand");
-    expect(signatureFor(sigs, "", "b2", "y")).toBe("workspace");
   });
 });
