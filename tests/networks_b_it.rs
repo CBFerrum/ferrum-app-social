@@ -557,6 +557,9 @@ async fn scenario() {
     if wanted("listmonk") {
         listmonk(&t).await;
     }
+    if wanted("moltbook") {
+        moltbook(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -2638,4 +2641,96 @@ async fn listmonk(t: &T) {
     net.clear();
     t.delete_remote(&out).await;
     assert_eq!(net.order(), ["DELETE /api/campaigns/70"]);
+}
+
+// ───────────── Moltbook ─────────────
+
+async fn moltbook(t: &T) {
+    // The agent API as Postiz calls it (www.moltbook.com/api/v1): a bearer API key, /agents/me, /posts (`submolt`, `title`,
+    // `content`), /posts/{id}/comments, answers with `success`.
+    let posts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let comments: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (p2, c2, l2) = (posts.clone(), comments.clone(), lose.clone());
+    let net = fake(move |r| {
+        let no = |code: u16, m: &str| status(code, json!({"success": false, "error": m, "hint": "check the request"}));
+        if r.header("authorization") != "Bearer moltbook_key" {
+            return no(401, "Invalid API key");
+        }
+        let mut posts = p2.lock().unwrap();
+        let mut comments = c2.lock().unwrap();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/api/v1/agents/me") => ok(json!({"success": true, "agent": {"name": "northwind_bot", "display_name": "Northwind Bot"}})),
+            ("GET", "/api/v1/submolts") => {
+                ok(json!({"success": true, "submolts": [{"name": "general", "display_name": "General"}, {"name": "builds", "display_name": "Builds"}]}))
+            }
+            ("POST", "/api/v1/posts") => {
+                let b = r.json();
+                if b["content"] == "Forbidden" {
+                    return no(429, "You can only post once every 30 minutes");
+                }
+                let id = format!("p{}", posts.len() + 1);
+                posts.push(json!({"id": id, "body": b}));
+                if l2.lock().unwrap().as_deref() == b["content"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"success": true, "post": {"id": id}}))
+            }
+            ("POST", p) if p.ends_with("/comments") => {
+                let id = format!("c{}", comments.len() + 1);
+                comments.push(json!({"id": id, "post": p.split('/').nth(4), "body": r.json()}));
+                ok(json!({"success": true, "comment": {"id": id}}))
+            }
+            ("DELETE", p) => {
+                posts.retain(|x| !p.ends_with(x["id"].as_str().unwrap()));
+                comments.retain(|x| !p.ends_with(x["id"].as_str().unwrap()));
+                ok(json!({"success": true}))
+            }
+            _ => no(404, "Not found"),
+        }
+    })
+    .await;
+    let conn = t.connect("moltbook_north", "moltbook", &[("https://www.moltbook.com", &net.base)], json!({"api_key": "moltbook_key"}), |_| {}).await;
+    let me = t.account("Northwind Bot", "northwind_bot", conn, "northwind_bot").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["max"].as_u64()), (Some("Moltbook"), Some(300)));
+    let subs = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "submolt"})).await.unwrap();
+    assert_eq!(subs["choices"], json!([{"value": "general", "label": "General"}, {"value": "builds", "label": "Builds"}]));
+    let p = t
+        .post(
+            "Shipped a thing today",
+            vec![target_with(me, "post", json!({"submolt": "builds"}))],
+            json!({"items": [{"text": "Details in the comments"}], "first_comment": "And a first comment"}),
+        )
+        .await;
+    let out = t.out(p, me).await;
+    assert_eq!((out["external_id"].as_str(), out["permalink"].as_str()), (Some("p1"), Some(format!("{}/post/p1", net.base).as_str())));
+    {
+        let b = posts.lock().unwrap()[0]["body"].clone();
+        assert_eq!(
+            b,
+            json!({"submolt": "builds", "title": "Shipped a thing today", "content": "Shipped a thing today"}),
+            "the title is the text's start when none is given"
+        );
+        let c = comments.lock().unwrap().clone();
+        assert_eq!(c.iter().map(|c| c["body"]["content"].as_str().unwrap()).collect::<Vec<_>>(), ["Details in the comments", "And a first comment"]);
+        assert!(c.iter().all(|c| c["post"] == "p1"));
+    }
+    *lose.lock().unwrap() = Some("Lost one".into());
+    let p = t.post("Lost one", vec![target(me)], json!({})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("may have been sent"));
+    assert_eq!(posts.lock().unwrap().iter().filter(|x| x["body"]["content"] == "Lost one").count(), 1);
+    // Moltbook refuses with `success: false`, on a failing status: its words are read.
+    let p = t.post("Forbidden", vec![target(me)], json!({})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("once every 30 minutes"));
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(
+        net.order(),
+        ["DELETE /api/v1/comments/c1", "DELETE /api/v1/posts/p1"],
+        "the follow-up, then the post; Social keeps no id for a first comment, so it stays"
+    );
 }
