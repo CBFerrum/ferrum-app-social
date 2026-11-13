@@ -79,8 +79,18 @@
     - {name: provider_account, type: data, read_only: true, no_copy: true, description: "The account the provider says is signed in"}
     - {name: metrics_error, type: text, read_only: true, no_copy: true, description: "Why its numbers could not be read the last time, if they could not"}
     - {name: active, type: check, default: true, in_list: true}
+    - {name: network_id, type: data, read_only: true, no_copy: true, label: Its Id on the Network, description: "The page, organisation, location or channel picked after sign-in; sent as account_id"}
+    - {name: display_name, type: data, read_only: true, no_copy: true, label: Name on the Network}
+    - {name: picture, type: data, read_only: true, no_copy: true, label: Picture Address}
+    - {name: default_kind, type: data, label: Kind of Post, description: "The kind its posts are unless a post says (a kind its network's rules name)"}
+    - {name: default_settings, type: json, label: Usual Answers, description: "Answers to what its network asks, used unless a post answers"}
+    - {name: sort_order, type: int, default: 0, label: Order, description: "Where it comes in lists of accounts, lowest first"}
   actions:
     - {name: check, label: Check the Connection, permission: write}
+    - {name: reachable, label: What the Sign-in Reaches, permission: read, read_only: true}
+    - {name: choose, label: Choose Accounts, permission: write, params: [{name: picked, type: text, label: Ids Picked, required: true}]}
+    - {name: mentions, label: Look Up Mentions, permission: read, read_only: true, hidden: true, params: [{name: query, type: data, label: Who}]}
+    - {name: choices, label: Choices of a Setting, permission: read, read_only: true, hidden: true, params: [{name: setting, type: data, label: Setting, required: true}, {name: query, type: data, label: Search}]}
     - {name: connect, label: Connect or Reconnect, permission: write, read_only: true}
     - {name: disconnect, label: Disconnect, permission: write, confirm: "Sign this account out? The provider is told to revoke its access."}
   list: {columns: [account_name, brand, network, state, active], sort: account_name asc}

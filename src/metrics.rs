@@ -115,7 +115,7 @@ async fn read_one(k: &Kernel, ctx: &Ctx, account: &Doc, t: &Target, today: Naive
     let call = Call {
         connection: conn.id.to_string(),
         operation: operation.into(),
-        inputs: conn.fit(operation, json!({"id": t.external})),
+        inputs: conn.fit(operation, json!({"id": t.external, "account_id": crate::picker::network_id(account), "handle": s(account, "handle")})),
         key: None,
         entity: Some(if t.publication.is_some() { "SocialPublication" } else { "SocialAccount" }.into()),
         record: Some(t.publication.unwrap_or(t.account)),

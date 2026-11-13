@@ -142,12 +142,28 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
             n.deleted.push(p.trim_start_matches("/v1/posts/").to_string());
             (200, json!({"deleted": true}))
         }
+        ("GET", "/v1/pages") => (
+            200,
+            json!({"pages": [{"id": "pg-1", "name": "Northwind Shop", "username": "@nwshop", "avatar": "https://chirp.test/a/1.png"},
+                             {"id": "pg-2", "name": "Northwind Cafe", "username": "nwcafe", "avatar": "https://chirp.test/a/2.png"}]}),
+        ),
+        ("GET", "/v1/people") => {
+            let q = path.split("q=").nth(1).unwrap_or_default().to_lowercase();
+            let people = [json!({"id": "u-9", "name": "Ana Lima"}), json!({"id": "u-7", "name": "Bo Chen"})];
+            (200, json!(people.into_iter().filter(|p| p["name"].as_str().unwrap().to_lowercase().contains(&q)).collect::<Vec<_>>()))
+        }
+        ("GET", "/v1/boards") => (200, json!({"items": [{"id": "b-1", "name": "Spring"}, {"id": "b-2", "name": "Summer"}], "for": path.split("for=").nth(1)})),
         ("GET", "/v1/me") => {
             n.reads += 1;
             if n.stats_down {
                 return (503, json!({"error": {"message": "Stats are down"}}));
             }
-            (200, json!({"handle": "northwind", "followers": 1200, "day": {"views": 900, "unique": 700, "actions": 40, "taps": 8}}))
+            let cafe = path.contains("for=pg-2");
+            (
+                200,
+                json!({"handle": if cafe { "nwcafe" } else { "northwind" }, "name": if cafe { "Northwind Café" } else { "Northwind" }, "avatar": "https://chirp.test/a/0.png",
+                         "followers": 1200, "day": {"views": 900, "unique": 700, "actions": 40, "taps": 8}}),
+            )
         }
         ("GET", p) if p.ends_with("/stats") => {
             n.reads += 1;
@@ -245,8 +261,8 @@ impl ferrum_kernel::files::FileStore for MemFiles {
 fn description(base: &str, auth: Value, ops: &[&str], inbound: bool) -> Value {
     let err = "/error/message";
     let all = json!({
-        "publish": {"method": "POST", "path": "/posts", "body": "{\"text\": {{ inputs.text_with_link | json }}, \"media_ids\": {{ inputs.media | json }}{% if inputs.reply_to %}, \"reply_to\": {{ inputs.reply_to | json }}{% endif %}{% if inputs.settings %}, \"settings\": {{ inputs.settings | json }}, \"kind\": {{ inputs.kind | json }}{% endif %}}",
-                    "result": {"id": "/post/id", "url": "/post/url"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["text_with_link", "media", "reply_to", "settings", "kind"]},
+        "publish": {"method": "POST", "path": "/posts", "body": "{\"text\": {{ inputs.text_with_link | json }}, \"media_ids\": {{ inputs.media | json }}{% if inputs.reply_to %}, \"reply_to\": {{ inputs.reply_to | json }}{% endif %}{% if inputs.settings %}, \"settings\": {{ inputs.settings | json }}, \"kind\": {{ inputs.kind | json }}{% endif %}{% if inputs.account_id %}, \"account\": {{ inputs.account_id | json }}{% endif %}}",
+                    "result": {"id": "/post/id", "url": "/post/url"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["text_with_link", "media", "reply_to", "settings", "kind", "account_id"]},
         "publish_media": {"method": "POST", "path": "/media", "body": "{\"name\": {{ inputs.name | json }}, \"alt\": {{ inputs.alt | json }}, \"type\": {{ inputs.content_type | json }}, \"size\": {{ inputs.size | json }}, \"data\": {{ inputs.data | json }}}",
                           "result": {"id": "/media/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["name", "alt", "content_type", "size", "data"]},
         "delete": {"method": "DELETE", "path": "/posts/{{ inputs.id }}", "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["id"]},
@@ -256,7 +272,11 @@ fn description(base: &str, auth: Value, ops: &[&str], inbound: bool) -> Value {
                          "result": {"id": "/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["to", "text"]},
         "metrics": {"path": "/posts/{{ inputs.id }}/stats", "result": {"impressions": "/views", "reach": "/unique", "engagements": {"expr": "answer.likes + answer.shares + answer.replies"}, "clicks": "/taps"},
                     "error_at": err, "inputs": ["id"]},
-        "account": {"path": "/me", "result": {"followers": "/followers", "impressions": "/day/views", "reach": "/day/unique", "engagements": "/day/actions", "clicks": "/day/taps"}, "error_at": err},
+        "account": {"path": "/me", "query": {"for": "{{ inputs.account_id or '' }}"}, "inputs": ["account_id"], "result": {"followers": "/followers", "impressions": "/day/views", "reach": "/day/unique", "engagements": "/day/actions", "clicks": "/day/taps",
+                                              "name": "/name", "handle": "/handle", "picture": "/avatar"}, "error_at": err},
+        "accounts": {"path": "/pages", "error_at": err},
+        "mentions": {"path": "/people", "query": {"q": "{{ inputs.q }}"}, "error_at": err, "inputs": ["q"]},
+        "boards": {"path": "/boards", "query": {"for": "{{ inputs.account_id }}"}, "error_at": err, "inputs": ["account_id"]},
         "messages": {"path": "/inbox", "query": {"since": "{{ cursor or '' }}"}, "error_at": err},
     });
     let operations: serde_json::Map<String, Value> = ops.iter().map(|o| (o.to_string(), all[o].clone())).collect();
@@ -1180,6 +1200,58 @@ async fn scenario() {
     let only_view = t.act(&author, "SocialPost", review_id, "review_link", json!({})).await.unwrap();
     let other = only_view["url"].as_str().unwrap().rsplit('/').next().unwrap().to_string();
     assert!(t.k.use_link("brands", &other, "review_approve", &serde_json::Map::new(), None).await.is_err(), "a link without a say decides nothing");
+
+    // ───────────── accounts: what a sign-in reaches, picked; names read; mentions and choices looked up ─────────────
+    let pages_social = json!({"name": "Chirp Pages", "text": {"max": 100},
+        "settings": [{"key": "board", "label": "Board", "type": "select", "required": true,
+                      "choices": {"operation": "boards", "inputs": {"account_id": "account.id"}, "items_at": "/items", "value_at": "/id", "label_at": "/name"}}],
+        "accounts": {"operation": "accounts", "items_at": "/pages", "value_at": "/id", "label_at": "/name", "handle_at": "/username", "picture_at": "/avatar"},
+        "mentions": {"operation": "mentions", "inputs": {"q": "query"}, "items_at": "", "value_at": "/id", "label_at": "/name", "format": "@[{{ label }}]({{ value }})"}});
+    let mut pages_desc =
+        description(&base, json!({"type": "header", "header": "x-api-key", "secret": "key"}), &["publish", "account", "accounts", "mentions", "boards"], false);
+    pages_desc["meta"] = json!({"social": pages_social});
+    let on_pages = save("chirp_pages", pages_desc, json!({"key": KEY})).await;
+    let pending = uid(&t.insert(&manager, "SocialAccount", threaded("Northwind Pages", "pages", on_pages)).await["id"]);
+    let reached = t.act(&manager, "SocialAccount", pending, "reachable", Value::Null).await.unwrap();
+    assert_eq!(reached["accounts"].as_array().unwrap().len(), 2, "{reached}");
+    assert_eq!((reached["accounts"][0]["name"].as_str(), reached["accounts"][0]["account"].clone()), (Some("Northwind Shop"), Value::Null));
+    refused(t.act(&manager, "SocialAccount", pending, "choose", json!({"picked": ["pg-9"]})).await, "invalid", "does not reach pg-9");
+    let chosen = t.act(&manager, "SocialAccount", pending, "choose", json!({"picked": "pg-1, pg-2"})).await.unwrap();
+    let chosen = chosen["accounts"].as_array().unwrap().clone();
+    assert_eq!((chosen[0]["id"].clone(), chosen[0]["created"].clone(), chosen[1]["created"].clone()), (json!(pending), json!(false), json!(true)));
+    let shop = t.get("SocialAccount", pending).await;
+    assert_eq!((shop["network_id"].as_str(), shop["display_name"].as_str(), shop["handle"].as_str()), (Some("pg-1"), Some("Northwind Shop"), Some("nwshop")));
+    let cafe = t.get("SocialAccount", uid(&chosen[1]["id"])).await;
+    assert_eq!(
+        (cafe["account_name"].as_str(), cafe["network_id"].as_str(), cafe["brand"].clone()),
+        (Some("Northwind Cafe"), Some("pg-2"), json!(northwind.to_string()))
+    );
+    let again = t.act(&manager, "SocialAccount", pending, "choose", json!({"picked": ["pg-2"]})).await.unwrap();
+    assert_eq!(
+        (again["accounts"][0]["id"].clone(), again["accounts"][0]["created"].clone()),
+        (chosen[1]["id"].clone(), json!(false)),
+        "picked again: updated, not made twice"
+    );
+    assert!(t.act(&author, "SocialAccount", pending, "choose", json!({"picked": ["pg-1"]})).await.is_err(), "an author does not pick accounts");
+    let found = t.act(&author, "SocialAccount", pending, "mentions", json!({"query": "ana"})).await.unwrap();
+    assert_eq!(found["mentions"], json!([{"value": "u-9", "label": "Ana Lima", "picture": null, "text": "@[Ana Lima](u-9)"}]));
+    let boards = t.act(&author, "SocialAccount", pending, "choices", json!({"setting": "board"})).await.unwrap();
+    assert_eq!(boards["choices"], json!([{"value": "b-1", "label": "Spring"}, {"value": "b-2", "label": "Summer"}]));
+    refused(t.act(&author, "SocialAccount", pending, "choices", json!({"setting": "colour"})).await, "invalid", "asks nothing called colour");
+    let checked = t.act(&manager, "SocialAccount", uid(&chosen[1]["id"]), "check", Value::Null).await.unwrap();
+    assert_eq!(
+        (checked["read"]["picture"].as_str(), checked["read"]["display_name"].as_str()),
+        (Some("https://chirp.test/a/0.png"), Some("Northwind Café")),
+        "{checked}"
+    );
+    assert_eq!(t.get("SocialAccount", uid(&chosen[1]["id"])).await["handle"], "nwcafe");
+    // A post to a picked page names it to the network.
+    let mut to_page = tagged("To the shop", &[], "Page post");
+    to_page["targets"] = json!([target(pending, json!({"settings": {"board": "b-1"}}))]);
+    let to_page = t.insert(&author, "SocialPost", to_page).await;
+    go(uid(&to_page["id"])).await;
+    t.upkeep(due + Duration::hours(19)).await;
+    assert_eq!(t.net.lock().unwrap().posts.last().unwrap().1["account"], "pg-1");
 
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();

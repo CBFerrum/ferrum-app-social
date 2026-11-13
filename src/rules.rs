@@ -151,12 +151,7 @@ pub struct Kind {
 #[serde(untagged)]
 pub enum Opt {
     Plain(String),
-    /// The label is the interface's to show.
-    Labelled {
-        value: Value,
-        #[allow(dead_code)]
-        label: String,
-    },
+    Labelled { value: Value, label: String },
 }
 
 impl Opt {
@@ -164,6 +159,13 @@ impl Opt {
         match self {
             Opt::Plain(s) => Value::String(s.clone()),
             Opt::Labelled { value, .. } => value.clone(),
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            Opt::Plain(s) => s.clone(),
+            Opt::Labelled { label, .. } => label.clone(),
         }
     }
 }

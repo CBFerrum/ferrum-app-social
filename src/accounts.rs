@@ -35,6 +35,11 @@ impl Reach {
         self.desc["operations"].get(operation).is_some()
     }
 
+    /// Whether an operation only reads (a GET, the default), so calls it without a key.
+    pub fn reads(&self, operation: &str) -> bool {
+        self.desc["operations"][operation]["method"].as_str().is_none_or(|m| m.eq_ignore_ascii_case("GET"))
+    }
+
     /// The inputs an operation declares; none declared means it takes any.
     pub fn inputs(&self, operation: &str) -> Vec<String> {
         self.desc["operations"][operation]["inputs"].as_array().into_iter().flatten().filter_map(|i| i.as_str().map(str::to_string)).collect()
@@ -263,16 +268,15 @@ impl DocHook for AccountHook {
         Ok(())
     }
 
-    async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
-        if !matches!(name, "check" | "connect" | "disconnect") {
+    async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
+        if let Some(out) = crate::picker::action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        if !matches!(name, "connect" | "disconnect") {
             return Ok(None);
         }
         let conn = reach(hc.tx, hc.ctx.tenant, s(doc, "connection")).await?.ok_or_else(|| Error::invalid("no connection by that id is here"))?;
         match name {
-            "check" => {
-                let (state, note) = refresh(hc.kernel, hc.ctx, hc.tx, doc).await?;
-                Ok(Some(json!({"state": state, "note": note})))
-            }
             "connect" => {
                 if !conn.signs_in() {
                     return Err(Error::invalid(format!("{} proves who calls with a key an administrator holds: there is nothing to sign in to", conn.name)));
