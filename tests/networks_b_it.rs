@@ -551,6 +551,9 @@ async fn scenario() {
     if wanted("whop") {
         whop(&t).await;
     }
+    if wanted("mewe") {
+        mewe(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -2437,4 +2440,84 @@ async fn whop(t: &T) {
     net.clear();
     t.delete_remote(&out).await;
     assert_eq!(net.order(), ["DELETE /api/v1/forum_posts/post_2", "DELETE /api/v1/forum_posts/post_1"], "the reply first");
+}
+
+// ───────────── MeWe ─────────────
+
+async fn mewe(t: &T) {
+    // The Dev API as Postiz calls it (MeWe publishes no open documentation): `X-App-Id` and `X-Api-Key` on every call, the
+    // user's apiToken as a bearer, /me, /groups, /photo/upload, /me/post and /group/{id}/post (204, no id).
+    let posts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let p2 = posts.clone();
+    let net = fake(move |r| {
+        let err = |code: u16, m: &str| status(code, json!({"message": m}));
+        if r.header("x-app-id") != "mewe-app" || r.header("x-api-key") != "mewe-key" {
+            return err(403, "Forbidden");
+        }
+        if r.header("authorization") != "Bearer mewe-user-token" {
+            return err(401, "Unauthorized");
+        }
+        let mut posts = p2.lock().unwrap();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/api/dev/me") => ok(json!({"userId": "mewe-u1", "firstName": "North", "lastName": "Wind", "handle": "northwind"})),
+            ("GET", "/api/dev/groups") => ok(json!({"groups": [{"groupId": 8123, "name": "Northwind Fans"}]})),
+            ("POST", "/api/dev/photo/upload") => {
+                assert_eq!(r.part("file").expect("a file part").content, PNG);
+                ok(json!({"id": "ph1"}))
+            }
+            ("POST", p @ ("/api/dev/me/post" | "/api/dev/group/8123/post")) => {
+                let b = r.json();
+                if b["text"] == "Forbidden" {
+                    return err(403, "Forbidden");
+                }
+                posts.push(json!({"via": p, "body": b}));
+                if b["text"] == "Lost one" {
+                    return Resp::Lost;
+                }
+                Resp::Answer(204, vec![], String::new())
+            }
+            _ => err(404, "Not found"),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "mewe_north",
+            "mewe",
+            &[("https://mewe.com", &net.base)],
+            json!({"api_token": "mewe-user-token", "app_id": "mewe-app", "api_key": "mewe-key"}),
+            |_| {},
+        )
+        .await;
+    let me = t.account("North Wind on MeWe", "northwind", conn, "mewe-u1").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["kinds"][1]["name"].as_str()), (Some("MeWe"), Some("group")));
+    let groups = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "group"})).await.unwrap();
+    assert_eq!(groups["choices"], json!([{"value": "8123", "label": "Northwind Fans"}]));
+    let e = t.refused("Hello", vec![target_with(me, "group", json!({}))], json!({})).await;
+    assert!(e.contains("Group is needed"), "{e}");
+
+    let p = t.post("To my timeline", vec![target_with(me, "timeline", json!({}))], json!({"link": "https://northwind.example/x"})).await;
+    let out = t.out(p, me).await;
+    assert!(out["external_id"].as_str().unwrap().starts_with("mewe-"), "MeWe gives no id: {out:?}");
+    let p =
+        t.post("To the group", vec![target_with(me, "group", json!({"group": "8123"}))], json!({"media": [t.media(&t.png, ""), t.media(&t.png, "")]})).await;
+    t.out(p, me).await;
+    {
+        let ps = posts.lock().unwrap();
+        assert_eq!((ps[0]["via"].as_str(), ps[0]["body"]["text"].as_str()), (Some("/api/dev/me/post"), Some("To my timeline https://northwind.example/x")));
+        assert_eq!((ps[1]["via"].as_str(), ps[1]["body"]["uploadedPhotoIds"].clone()), (Some("/api/dev/group/8123/post"), json!(["ph1", "ph1"])));
+    }
+    // A lost answer is not sent again (MeWe has no idempotency key and no way to read a post back); a refusal is read in MeWe's word.
+    let p = t.post("Lost one", vec![target_with(me, "timeline", json!({}))], json!({})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("may have been sent"));
+    assert_eq!(posts.lock().unwrap().iter().filter(|x| x["body"]["text"] == "Lost one").count(), 1);
+    let p = t.post("Forbidden", vec![target_with(me, "timeline", json!({}))], json!({})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("Forbidden"));
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "North Wind", "{checked}");
+    // No delete: MeWe returned no id.
+    assert!(t.act(&t.manager, "SocialPublication", uid(&out["id"]), "delete_remote", Value::Null).await.is_err());
 }

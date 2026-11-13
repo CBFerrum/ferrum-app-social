@@ -324,3 +324,21 @@ a file above 25 MB; follow-ups with files.
 /forum_posts/{id}`; the scopes; that the `PUT` needs nothing but the signed address.
 **Setup**: a Whop app (whop.com/dashboard/developer) with the redirect `{PUBLIC_URL}/api/connections/callback`;
 its client id in the description; connect as a member of the company who may post in the forum.
+
+## MeWe (`mewe.json`)
+
+**Does** (from Postiz's code only: MeWe publishes no open documentation of its Dev API): the user's `apiToken` as a
+bearer and the app's id and key as `X-App-Id` and `X-Api-Key` (all three connection secrets); the user is the account;
+two kinds, a post on the user's timeline and a post in a group (the group a required setting, choices from `/groups`);
+plain text up to 63206 characters; up to 10 photos (`/photo/upload`, then `uploadedPhotoIds`).
+**Cannot**: **sign in.** MeWe's sign-in is its own login-request flow: the browser goes to `mewe.com/login`, comes back
+with a `loginRequestToken`, which is exchanged by `GET /api/dev/token` carrying the app's headers for an `apiToken` that
+lasts about 30 days. The platform's `oauth` exchange is a POST of a code to a token address; it cannot make that call, so
+the `apiToken` has to be obtained elsewhere and put under `api_token`, and it must be renewed by hand. *Needed from the
+platform*: a sign-in whose exchange is an operation of the description (a GET with the callback's `loginRequestToken` and
+headers from secrets), keeping its `apiToken` and expiry. Also: an id (posts answer 204, so the id is `mewe-<moment>`:
+no delete, no numbers, no comments; the post's permalink); video (Postiz filters it out); a lost answer fails the call
+(no key, nothing to read back).
+**Unverified**: everything: MeWe's host, paths, field names and the `Forbidden` / `Unauthorized` / 420 texts come from Postiz
+and have not been checked against MeWe's documentation, which I could not read.
+**Setup**: a MeWe developer app (by request to MeWe), its id and key, and an `apiToken` for the user (via MeWe's login flow).
