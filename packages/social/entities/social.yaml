@@ -51,6 +51,8 @@
     - {name: metrics_days, type: int, default: 30, min: 1, max: 366, label: Read a Post's Numbers For (Days), description: "How long after it went out each post's numbers are read"}
     - {name: metrics_hours, type: int, default: 6, min: 1, max: 168, label: Read Again After (Hours), description: "The soonest an account's or a post's numbers are read again"}
     - {name: media_sources, type: text, label: Picture and GIF Sources, description: "Connections searched for stock pictures and GIFs (search_media, fetch_media), by name, one a line; the first is the default"}
+    - {name: shorten_connection, type: data, label: Shorten Links Through, description: "The connection whose shorten makes short links (and link_clicks reads their clicks); empty: links go as they are"}
+    - {name: shorten_text_links, type: check, default: false, label: Shorten Links in the Words Too}
     - {name: fetch_connection, type: data, label: Media From an Address Through, description: "The connection whose fetch_media takes an address and stores the file"}
 
 - name: SocialSavedReply
@@ -243,6 +245,9 @@
     - {name: sent_items, type: json, read_only: true, no_copy: true, label: Items Out, description: "Each item out on the network: its number from 0, the network's id and address, its media's ids, when"}
     - {name: next_at, type: datetime, read_only: true, no_copy: true, label: Next Item At, description: "When the next item of a thread goes, while it waits its delay"}
     - {name: follow_ups, type: data, read_only: true, no_copy: true, hidden: true, description: "thread or comment: what its items after the first are on the network"}
+    - {name: kind, type: data, read_only: true, no_copy: true, in_filter: true, description: "(round two) The kind of post it went as"}
+    - {name: short_links, type: json, read_only: true, no_copy: true, label: Short Links, description: "(round two) Each address it carried and its short link: made once, used again on a retry"}
+    - {name: clicks_read_at, type: datetime, read_only: true, no_copy: true, hidden: true}
   actions:
     - {name: delete_remote, label: Delete on the Network, permission: write, condition: "!isEmpty(doc.external_id) && isEmpty(doc.deleted_at)", confirm: "Delete this post from the network? It cannot be put back from here."}
   list: {columns: [post, account, external_id, impressions, engagements], sort: sent_at desc}
@@ -458,3 +463,20 @@
     - {name: bytes, type: int, read_only: true, label: Size (Bytes)}
     - {name: added_by, type: email, read_only: true}
   list: {columns: [asset_name, kind, source, credit, brand], sort: created_at desc}
+
+- name: SocialLinkTemplate
+  label: Link Template
+  label_plural: Link Templates
+  kind: master
+  module: social
+  title_field: template_name
+  description: "Tracking parameters a post's links get: an account's template, else its brand's, else the workspace's. Values name {{post}}, {{post_id}}, {{account}}, {{handle}}, {{network}}, {{kind}}, {{brand}}, {{tags}}."
+  fields:
+    - {name: template_name, type: data, required: true, unique: true, in_list: true}
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true}
+    - {name: parameters, type: text, required: true, description: "One name=value a line, as utm_source={{network}}"}
+    - {name: in_text, type: check, default: false, label: Links in the Words Too}
+    - {name: exclude, type: text, label: Not On, description: "Hosts whose addresses are left as they are, one a line"}
+    - {name: active, type: check, default: true, in_list: true}
+  list: {columns: [template_name, brand, account, active], sort: template_name asc}

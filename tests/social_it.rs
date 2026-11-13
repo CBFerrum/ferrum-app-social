@@ -1392,6 +1392,51 @@ async fn scenario() {
         (asset["file"].clone(), Some("A lake at dawn"), Some(4000))
     );
 
+    // ───────────── (round two) links: tracking by the most specific template, short links once, their clicks ─────────────
+    refused(
+        t.k.insert(&manager, "SocialLinkTemplate", obj(json!({"template_name": "Bad", "parameters": "utm_source={{planet}}"}))).await,
+        "invalid",
+        "{{planet}} is not one of",
+    );
+    t.insert(&manager, "SocialLinkTemplate", json!({"template_name": "Everyone", "parameters": "utm_source=ws"})).await;
+    let brand_links = t
+        .insert(
+            &manager,
+            "SocialLinkTemplate",
+            json!({"template_name": "Northwind links", "brand": northwind.to_string(), "in_text": true, "exclude": "partner.example",
+                                                       "parameters": "utm_source={{network}}\nutm_medium=social\nutm_campaign={{post}}"}),
+        )
+        .await;
+    let short_desc = json!({"base": base, "auth": key_auth2.clone(), "apps": ["social"], "operations": {
+        "shorten": {"method": "POST", "path": "/short", "body": "{\"url\": {{ inputs.url | json }}}", "result": {"url": "/shortLink", "id": "/id"}, "error_at": "/error/message", "idempotency_header": "Idempotency-Key"},
+        "link_clicks": {"path": "/short/{{ inputs.id }}", "result": {"clicks": "/clicks"}, "error_at": "/error/message"}}});
+    save("chirp_short", short_desc, json!({"key": KEY})).await;
+    let mut linked = tagged("Shop https://shop.example/b and https://cdn.partner.example/p", &[nw_key], "Sale");
+    linked["link"] = json!("https://shop.example/a?x=1&utm_medium=email");
+    let linked = t.insert(&author, "SocialPost", linked).await;
+    let copy = t.act(&author, "SocialPost", uid(&linked["id"]), "copies", Value::Null).await.unwrap()["copies"][0]["items"][0].clone();
+    assert_eq!(
+        copy["link"], "https://shop.example/a?x=1&utm_medium=email&utm_source=Chirp&utm_campaign=Sale",
+        "the brand's, the address's own kept, not doubled"
+    );
+    assert_eq!(copy["text"], "Shop https://shop.example/b?utm_source=Chirp&utm_medium=social&utm_campaign=Sale and https://cdn.partner.example/p", "{copy}");
+    set(json!({"shorten_connection": "chirp_short", "metrics_hours": 1})).await;
+    go(uid(&linked["id"])).await;
+    let before = t.net.lock().unwrap().posts.len();
+    t.upkeep(due + Duration::hours(20)).await;
+    let sent_text = t.net.lock().unwrap().posts[before].1["text"].as_str().unwrap().to_string();
+    assert!(
+        sent_text.starts_with("Shop https://shop.example/b?") && sent_text.ends_with(" https://sh.test/k1"),
+        "the post's link shortened, the words' left: {sent_text}"
+    );
+    let lpub = t.rows("SocialPublication", json!({"post": uid(&linked["id"]).to_string()})).await.remove(0);
+    assert_eq!(lpub["short_links"]["https://shop.example/a?x=1&utm_medium=email&utm_source=Chirp&utm_campaign=Sale"]["url"], "https://sh.test/k1");
+    t.upkeep(due + Duration::hours(22)).await;
+    assert_eq!(t.get("SocialPublication", uid(&lpub["id"])).await["clicks"], 42, "the shortener's clicks");
+    assert_eq!(t.net.lock().unwrap().calls.iter().filter(|c| c.0.starts_with("POST /v1/short")).count(), 1, "shortened once");
+    t.k.update(&manager, "SocialLinkTemplate", uid(&brand_links["id"]), obj(json!({"active": false})), None).await.unwrap();
+    set(json!({"shorten_connection": null, "metrics_hours": 6})).await;
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});

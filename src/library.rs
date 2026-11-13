@@ -176,6 +176,9 @@ impl DocHook for LibraryHook {
     }
 
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        if hc.entity.def.name == "SocialLinkTemplate" {
+            return crate::links::check_template(doc);
+        }
         if hc.entity.def.name != "SocialVariable" {
             return Ok(());
         }
