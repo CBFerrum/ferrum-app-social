@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.8.0
+
+The composer's server. Everything a network takes and asks is one declarative shape, `meta.social` on its connection's
+description (or the same shape in a Network Profile's new Rules field, else the profile's fields as before): text
+limits and how length is counted (characters, graphemes, UTF-16, bytes, X's weights, links at a fixed length), text
+format, media kinds, counts, mixes, sizes, types, dimensions, duration, descriptions and thumbnails, kinds of post
+(post, reel, story, short, article... each with its own rules), what a follow-up is (a thread, comments, none), the
+settings the composer asks (fetched from the network where they are: boards, subreddits, channels), the accounts a
+sign-in reaches and how mentions are looked up. One generic check proves it can express YouTube, Reddit, Pinterest,
+TikTok, Instagram, LinkedIn pages, Discord, Google Business Profile and WordPress (docs/connectors/examples/, their
+operations not written yet). A setting the shape does not declare is refused; a required one missing names the account
+and the field.
+
+A post has an original and per-account versions (an account's own words, link, media and follow-ups), follow-up items
+with delays, and several media per item with descriptions, thumbnails and dimensions. It is sent item by item under a
+key each (`publish:<publication>` for the first, as 0.7.0, `publish:<publication>:<n>` after), each item's network id
+and address kept as it goes; a thread that fails half way resumes where it stopped and Retry sends only what did not go;
+Delete on the network takes every item down. When: Publish Now, Move (keeping an approval), Back to Draft, Duplicate,
+Add to Queue (Posting Times per account or brand, by weekday, on the workspace's clock; two posts queued at once never
+share a time), and repeats every N days, weeks or months until a date or a count, each next one a real post made once
+when the one before goes out. Library: Post Templates, Sets, Snippets, Signatures (one default per account, brand or
+workspace, never added twice) and Variables (`{{name}}`, an account's value before its brand's). Accounts: what a
+sign-in reaches is listed and picked (each pick an account of its own), Check reads the name, handle and picture, and
+mentions and a setting's choices are looked up; usual kind and answers, an order. As Each Account Gets It shows each
+copy's final words and lengths.
+
+Review is the platform's approval policy: the package ships 0.7.0's rule (one step, a Social Approver, never the
+author) for a workspace to change in Customize (steps, approvers by brand, N of M, escalation) without code; approvers
+decide in the platform's approvals, and Approve It still works where no policy can open (nobody holds the role) or a
+post was In Review before the upgrade. A Review Link gives someone outside a signed link (expiry, uses) to read each
+account's copy, comment, and approve or ask for changes; what they say is kept as Reviews and erased with them.
+
+Every writing operation of the four descriptions carries an idempotency header. RetryAfter from the platform is
+treated as "later". New: Posting Time, Post Template, Set, Snippet, Signature, Variable, Review; the message
+`social.review_link`; Social Author may import posts. The interface is not rebuilt: docs/interface-notes.md is what the
+screens are built from.
+
+**Upgrading from 0.6.13 or 0.7.0.** No step for an administrator. Posts, approvals and publications read and send as
+before (an approval given before keeps holding: its fingerprint is unchanged for a post with only 0.7.0's content); a
+publication under way keeps its key. The review policy applies at once; a workspace where nobody holds Social Approver
+keeps 0.7.0's Approve It until someone does.
+
 ## 0.7.0
 
 Social reaches every network through the platform's connections (Ferrum 0.3.5) and names none in code. A network is a connection's description; `docs/connectors/` has working ones for Mastodon and Bluesky (what the earlier built-in connectors did: text posts, a picture, delete, replies, mentions and notifications, numbers, followers), LinkedIn (a post's id read from a response header) and X, each tested end to end against a fake of the network's documented shapes, and the package ships Mastodon's and Bluesky's as data. What a network takes in a post is `meta.capabilities` on its description when it says (a server's own limit lives there), else the account's Network Profile: the seeded profiles (X, Bluesky, Mastodon, Threads, LinkedIn, Facebook, Instagram, YouTube) are the defaults.

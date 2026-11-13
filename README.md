@@ -44,7 +44,14 @@ connections:
   tries); a post whose account cannot be reached (not connected, sign-in refused, connection off) waits,
   saying which and why; Retry sends again to the accounts not reached. A first comment follows where the profile
   takes one; Delete on the network where the connection offers `delete`.
-- **Review.** Someone other than the author approves; a changed post needs approving again.
+- **Review.** The platform's approval policy on the post's review, shipped as one step by a Social Approver who is not
+  the author, editable per workspace; a changed post needs approving again. A review link lets someone outside read
+  each account's copy, comment and approve or ask for changes.
+- **Composer's server.** What a network takes and asks is `meta.social` on its description (docs/connectors/README.md):
+  kinds, lengths as the network counts them, media rules, follow-ups and settings. A post has per-account versions,
+  follow-ups (a thread or comments) with delays, several media; Publish Now, Add to Queue (Posting Times), Move, Back to
+  Draft, Duplicate, repeats; Post Templates, Sets, Snippets, Signatures, Variables. docs/interface-notes.md lists every
+  route, action and field the screens need.
 - **The inbox.** Comments, mentions and direct messages arrive on the connection's inbound address or
   by a pull with a cursor, mapped by the description onto Messages found by the network's id, so each
   arrives once. They are routed to the account by the handle the item names, else by the post they
@@ -80,8 +87,10 @@ this release: connections made from the shipped descriptions, administrators tol
   address from an earlier call's answer (LinkedIn's pictures), a link as clickable text with offsets
   (Bluesky), a record key made from the delivery's key, the clock in a mapping (numbers a day are Social's),
   and an app's own call reading `Retry-After` (see docs/connectors/README.md).
-- Video, several pictures, threads, polls. Link preview and native scheduling are recorded in a
-  profile but Social always sends at its time itself.
+- The screens for all of 0.8.0 (docs/interface-notes.md): the generic record forms show the new fields and actions.
+- Video, documents and carousels go as far as a description can upload them: chunked or resumable uploads, waiting for
+  a network to process media and steps that read an earlier answer are the platform's connections part three. Link
+  preview and native scheduling are recorded but Social always sends at its time itself.
 - The first pull of Mastodon's mentions reads the newest page, not the history.
 - Handles that are not addresses are found by name for a person to judge, never erased by request.
 
@@ -89,6 +98,7 @@ this release: connections made from the shipped descriptions, administrators tol
 
 | Version | Highlights |
 |---|---|
+| **0.8.0** | The composer's server: what each network takes and asks as one shape (`meta.social`); versions per account, threads and comments with delays, several media; publish now, queue by posting times, repeats; templates, sets, snippets, signatures, variables; review by the platform's approval policies and a review link for outside people; accounts picked after sign-in, mentions and choices looked up. |
 | **0.7.0** | Accounts on connections, with their state; network profiles as records and a description's own `meta`; one queued call per account, once; the inbox through inbound addresses and pulls, as the person on a person's own connection; numbers by day and reports by account, post and tag. The built-in Mastodon and Bluesky connectors are gone: their descriptions ship as data, accounts are carried over (connection off, administrators told once) and posts wait for an account that cannot be reached. |
 | **0.6.10** | The redesigned interface: the upgraded design system, shaped loading, told-apart states. |
 | **0.6.12** | The home lists posts that did not go out, with the reason and Retry. |

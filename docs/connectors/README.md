@@ -22,16 +22,49 @@ account's own server (it appears in four places); LinkedIn's `author` and X's ha
 
 ## What Social calls
 
-* `publish` (inputs `text`, `link`, `text_with_link`, `media`, `media_id`, `alt`, `created_at`, `picture_type`,
-  `picture_size`; result `id`, `url`). `created_at` is the publication's own moment, the same on every attempt.
-* `publish_media` (inputs `file`, the stored file's id, for a part or a body; `name`, `content_type`, `alt`, `size`; and
-  `data`, base64, only when the description lists it among its `inputs`; result `id`), called first when a post has a
-  picture, under a key of its own.
-* `delete` (`id`), `reply` (`text`, `in_reply_to`, `author`, `thread`, `created_at`; result `id`), `send_message` (`to`,
-  `author`, `text`, `in_reply_to`, `thread`; result `id`).
-* `metrics` (`id`) and `account`: results named `impressions`, `reach`, `engagements`, `clicks`, `followers`. A network
-  that counts likes, boosts and replies apart adds them in the description: `{"expr": "answer.favourites_count +
-  answer.reblogs_count"}` under `engagements`.
+Every operation is looked up by Social's name, or by the name `meta.social.operations` maps it to. Every call that
+writes carries a key (below); each description here names an `idempotency_header`, so the network is given the key
+too. Mastodon documents `Idempotency-Key` on statuses; Bluesky, LinkedIn and X do not say they honour it, so for them a
+retry under the same key is answered from the platform's stored answer when the first answer came back, and a lost
+answer can still post twice (see "What they still cannot do").
+
+* `publish`, once for each item of a copy that goes as a post: the first item, and in a thread (`follow_ups.as:
+  thread`) each one after it. Inputs:
+  * `text` (the item's final words: variables filled, the signature added), `link`, `text_with_link` (`text`, a space
+    and `link`);
+  * `media` (the network's ids of this item's media, in order), `media_id` (the first), `media_items` (`[{id, kind, alt,
+    content_type, size, width, height, seconds}]`), `alt`, `picture_type`, `picture_size` (the first medium's);
+  * `kind` (the kind of post, a name of `meta.social.kinds`), `settings` (the answers to what the network asks: only
+    those that apply to the kind, defaults filled), `account_id` (the account's id on the network: the page,
+    organisation, location or channel picked after sign-in, else the signed-in account), `handle`;
+  * `item` (its number from 0), `items` (how many), `reply_to` (the network's id of the item before; null for the
+    first), `root` and `in_reply_to` (the first item's id), `previous` (what the item before gave back: `{item, id,
+    url, media, sent_at, answer}`, `answer` holding whatever else its `result` maps, so a description can map Bluesky's
+    `cid` there and read `inputs.previous.answer.cid`);
+  * `created_at`: the publication's own moment, the same on every attempt.
+  Result: `id` (required) and `url`; anything else it maps is kept with the item.
+* `reply`, for each item after the first when follow-ups are comments (`follow_ups.as: comment`), with the same
+  inputs, `in_reply_to` the first item's id; and for the post's First Comment after every item (`text`, `in_reply_to`,
+  `root`), where the rules take one. Also the inbox's answers (`text`, `in_reply_to`, `author`, `thread`,
+  `created_at`). Result `id`.
+* `publish_media`, before the item that carries the medium, for each medium (inputs `file`, the stored file's id, for a
+  part or a body; `name`, `content_type`, `size`, `kind`, `alt` when `media.alt`, `thumbnail` (a stored file's id) when
+  `media.thumbnail`, `width`, `height`, `seconds`, `item`, `index` (its place in the item), `account_id`, `handle`,
+  `kind`, `settings`; and `data`, base64, only when the description lists it among its `inputs`). Result `id`.
+* Keys: `publish:<publication>` for the first item and `publish:<publication>:<n>` for item n after it (the first keeps
+  0.7.0's key, so a publication under way across the upgrade is not sent twice); `media:<publication>` for the first
+  item's first medium and `media:<publication>:<item>:<index>` for the others; `first_comment:<publication>`;
+  `delete:<publication>` and `delete:<publication>:<n>`.
+* `delete`, for each item out, the last first (`id`, `item`, `follow_up`: `thread` or `comment` for an item after the
+  first, `root`). `send_message` (`to`, `author`, `text`, `in_reply_to`, `thread`; result `id`).
+* `metrics` (`id`, `account_id`, `handle`) and `account` (`account_id`, `handle`): results named `impressions`,
+  `reach`, `engagements`, `clicks`, `followers`. A network that counts likes, boosts and replies apart adds them in the
+  description: `{"expr": "answer.favourites_count + answer.reblogs_count"}` under `engagements`. `account` may map
+  `name`, `handle` and `picture` too: Check reads them onto the account.
+* `accounts` (or what `meta.social.accounts.operation` names): what the sign-in reaches, read where
+  `meta.social.accounts` says (without it: items `{id, name, handle, picture}` of the whole answer). `mentions` and a
+  setting's `choices` operations: as `meta.social.mentions` and the setting's `choices` say. A lookup that is not a
+  GET is called under the key `look:<account>:<operation>:<minute>:<inputs>`.
 * `messages` is pulled by the description's `pulls`, or its `inbound` takes them, mapped onto `SocialMessage` found by
   `external_id`, with `"outside": true` (what is read is not sent back out). A field the network may leave out is a
   pointer (`/status/in_reply_to_id`, null when it is not there). `via_connection: "connection.id"` lets Social find the
@@ -153,6 +186,7 @@ a first connection to each is the first time its real answers are read.
 * **LinkedIn**: no picture (initialising an upload gives an address to `PUT` the bytes to, a second call that depends on
   the first's answer); no `\`-escaping of the characters its text format reserves; no numbers or comments (those need
   permissions LinkedIn gives to approved partners).
+* **X, LinkedIn, Bluesky**: the key goes in an `Idempotency-Key` header, which their pages do not say they honour.
 * **All**: a pick of a pull cannot read the clock, so the numbers a day are Social's; Retry-After is honoured for pulls
   and for the platform's own queued calls but an app's own call (Social's publish job) sees only "later" and is asked
   again by the jobs' backoff.
