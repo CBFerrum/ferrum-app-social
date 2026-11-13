@@ -87,6 +87,7 @@
     - {name: sort_order, type: int, default: 0, label: Order, description: "Where it comes in lists of accounts, lowest first"}
   actions:
     - {name: check, label: Check the Connection, permission: write}
+    - {name: rules, label: What Its Network Takes, permission: read, read_only: true}
     - {name: reachable, label: What the Sign-in Reaches, permission: read, read_only: true}
     - {name: choose, label: Choose Accounts, permission: write, params: [{name: picked, type: text, label: Ids Picked, required: true}]}
     - {name: mentions, label: Look Up Mentions, permission: read, read_only: true, hidden: true, params: [{name: query, type: data, label: Who}]}
@@ -184,6 +185,7 @@
     - {name: unschedule, label: Back to Draft, permission: write, condition: "doc.status == 'In Review' || doc.status == 'Approved'", confirm: "Take it off the calendar and back to a draft? It needs approving again."}
     - {name: duplicate, label: Duplicate, permission: write}
     - {name: stop_repeat, label: Stop Repeating, permission: write, condition: "!isEmpty(doc.repeat_every)"}
+    - {name: copies, label: As Each Account Gets It, permission: read, read_only: true}
     - {name: save_as_template, label: Save as Template, permission: read, params: [{name: name, type: data, label: Template Name, required: true}]}
     - {name: review, label: Approve Under the Policy, permission: write, hidden: true, condition: "doc.status == 'In Review'"}
     - {name: review_link, label: Review Link, permission: write, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", params: [{name: email, type: data, label: Send It To}, {name: name, type: data, label: Their Name}, {name: decide, type: check, label: They May Approve or Ask for Changes}, {name: days, type: int, label: Works For (Days)}, {name: uses, type: int, label: Uses}]}

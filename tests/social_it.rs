@@ -1118,6 +1118,13 @@ async fn scenario() {
     long["link"] = Value::Null;
     refused(t.k.insert(&author, "SocialPost", obj(long)).await, "invalid", "for Northwind Words: Chirp Words takes 100 characters, and this post is 101");
     let signed = t.insert(&author, "SocialPost", signed).await;
+    let copies = t.act(&author, "SocialPost", uid(&signed["id"]), "copies", Value::Null).await.unwrap();
+    let key_copy = copies["copies"].as_array().unwrap().iter().find(|c| c["account"] == json!(nw_key)).unwrap().clone();
+    assert_eq!(
+        (key_copy["items"][0]["text"].as_str(), key_copy["items"][0]["length"].as_i64(), key_copy["items"][0]["max"].as_i64()),
+        (Some("Visit key.example\n\n— N at key.example"), Some(48), Some(100)),
+        "{key_copy}"
+    );
     go(uid(&signed["id"])).await;
     let before = t.net.lock().unwrap().posts.len();
     t.upkeep(due + Duration::hours(17)).await;
@@ -1212,6 +1219,8 @@ async fn scenario() {
     pages_desc["meta"] = json!({"social": pages_social});
     let on_pages = save("chirp_pages", pages_desc, json!({"key": KEY})).await;
     let pending = uid(&t.insert(&manager, "SocialAccount", threaded("Northwind Pages", "pages", on_pages)).await["id"]);
+    let rules = t.act(&author, "SocialAccount", pending, "rules", Value::Null).await.unwrap();
+    assert_eq!((rules["rules"]["name"].as_str(), rules["rules"]["settings"][0]["key"].as_str()), (Some("Chirp Pages"), Some("board")), "{rules}");
     let reached = t.act(&manager, "SocialAccount", pending, "reachable", Value::Null).await.unwrap();
     assert_eq!(reached["accounts"].as_array().unwrap().len(), 2, "{reached}");
     assert_eq!((reached["accounts"][0]["name"].as_str(), reached["accounts"][0]["account"].clone()), (Some("Northwind Shop"), Value::Null));

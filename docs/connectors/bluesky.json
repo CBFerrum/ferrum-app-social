@@ -62,7 +62,8 @@
         "created_at",
         "picture_type",
         "picture_size"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "publish_media": {
       "method": "POST",
@@ -76,7 +77,8 @@
       "error_at": "/message",
       "inputs": [
         "file"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "delete": {
       "method": "POST",
@@ -85,7 +87,8 @@
       "error_at": "/message",
       "inputs": [
         "id"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "reply": {
       "method": "POST",
@@ -100,7 +103,8 @@
         "in_reply_to",
         "thread",
         "created_at"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "metrics": {
       "path": "/app.bsky.feed.getPosts",

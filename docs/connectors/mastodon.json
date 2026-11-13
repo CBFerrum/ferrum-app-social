@@ -70,7 +70,8 @@
         "file",
         "name",
         "alt"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "delete": {
       "method": "DELETE",
@@ -78,7 +79,8 @@
       "error_at": "/error",
       "inputs": [
         "id"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "reply": {
       "method": "POST",

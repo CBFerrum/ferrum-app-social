@@ -44,7 +44,8 @@
       "error_at": "/message",
       "inputs": [
         "text_with_link"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     },
     "delete": {
       "method": "DELETE",
@@ -52,7 +53,8 @@
       "error_at": "/message",
       "inputs": [
         "id"
-      ]
+      ],
+      "idempotency_header": "Idempotency-Key"
     }
   }
 }
