@@ -39,7 +39,8 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube", "tiktok", "pinterest"];
+const NETWORKS: &[&str] =
+    &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube", "tiktok", "pinterest", "reddit"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -202,6 +203,7 @@ fn handler(net: &str) -> Option<Handler> {
         "yt" | "yto" => fake_youtube,
         "tt" | "ttu" => fake_tiktok,
         "pi" | "pis3" => fake_pinterest,
+        "rd" | "rdw" | "rds3" => fake_reddit,
         _ => return None,
     })
 }
@@ -513,6 +515,7 @@ async fn scenario() {
     youtube(&t).await;
     tiktok(&t).await;
     pinterest(&t).await;
+    reddit(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -2461,4 +2464,204 @@ async fn pinterest(t: &T) {
     assert_eq!(a["followers"], 210);
     t.call("pinterest", "delete", json!({"id": one["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
     assert!(!t.net().list("pi:pins").iter().any(|p| p["id"] == one["id"]));
+}
+
+// ───────────── Reddit ─────────────
+
+fn fake_reddit(n: &mut Net, r: &Req) -> Resp {
+    let base = n.base.clone();
+    let refused = |code: &str, words: &str, field: &str| ok(json!({"json": {"errors": [[code, words, field]]}}));
+    if r.path == "/api/v1/access_token" {
+        if r.header("authorization") != Some(basic("rd-client", "rd-secret").as_str()) {
+            return status(401, json!({"message": "Unauthorized", "error": 401}));
+        }
+        let f = r.form();
+        let fine = match f.get("grant_type").map(String::as_str) {
+            Some("authorization_code") => f.get("code").map(String::as_str) == Some("CODE-rd"),
+            Some("refresh_token") => f.get("refresh_token").map(String::as_str) == Some("RDR"),
+            _ => false,
+        };
+        if !fine {
+            return status(400, json!({"error": "invalid_grant"}));
+        }
+        let i = n.next();
+        n.tokens("rd").push(json!(format!("RDA-{i}")));
+        return ok(
+            json!({"access_token": format!("RDA-{i}"), "token_type": "bearer", "expires_in": 86400, "refresh_token": "RDR", "scope": "identity submit"}),
+        );
+    }
+    if r.path == "/upload" {
+        let parts = r.parts();
+        if r.header("authorization").is_some()
+            || parts.get("key").map(|p| p.2.as_slice()) != Some(b"rte_images/abc.png".as_slice())
+            || !parts.contains_key("file")
+        {
+            return Resp(
+                403,
+                vec![("content-type".into(), "application/xml".into())],
+                b"<Error><Code>AccessDenied</Code><Message>Bad form</Message></Error>".to_vec(),
+            );
+        }
+        let first = parts.keys().next().cloned();
+        n.set("rd:s3", json!({"first": first, "bytes": parts["file"].2.len()}));
+        return Resp(
+            201,
+            vec![("content-type".into(), "application/xml".into())],
+            format!("<PostResponse><Location>{base}/rds3/rte_images%2Fabc.png</Location><Key>rte_images/abc.png</Key></PostResponse>").into_bytes(),
+        );
+    }
+    if !n.valid("rd", r) {
+        return status(401, json!({"message": "Unauthorized", "error": 401}));
+    }
+    if !r.header("user-agent").is_some_and(|u| u.starts_with("web:ferrum-social:")) {
+        return status(429, json!({"message": "Too Many Requests", "error": 429}));
+    }
+    match (r.method.as_str(), r.path.as_str()) {
+        ("GET", "/api/v1/me") => {
+            ok(json!({"name": "northwind_bakery", "icon_img": "https://styles.redditmedia.test/n.png", "subreddit": {"title": "Northwind", "subscribers": 77}}))
+        }
+        ("GET", "/api/subreddit_autocomplete_v2") => {
+            ok(json!({"data": {"children": [{"data": {"display_name": "Breadit", "display_name_prefixed": "r/Breadit"}}]}}))
+        }
+        ("GET", "/r/Breadit/api/link_flair_v2") => ok(json!([{"id": "f-1", "text": "Sourdough"}, {"id": "f-2", "text": "Question"}])),
+        ("POST", "/api/media/asset.json") => {
+            let f = r.form();
+            if f.get("mimetype").map(String::as_str) != Some("image/png") {
+                return status(400, json!({"message": "mimetype is required"}));
+            }
+            ok(
+                json!({"args": {"action": format!("{base}/rds3/upload"), "fields": [{"name": "acl", "value": "private"}, {"name": "key", "value": "rte_images/abc.png"},
+                                                                                     {"name": "x-amz-signature", "value": "sig"}]},
+                      "asset": {"asset_id": "ast1", "websocket_url": "wss://ws.test/x"}}),
+            )
+        }
+        ("POST", "/api/submit") => {
+            let f = r.form();
+            if f.get("sr").map(String::as_str) != Some("Breadit") {
+                return refused("SUBREDDIT_NOEXIST", "that subreddit doesn't exist", "sr");
+            }
+            if n.list("rd:posts").iter().any(|p| p["title"] == json!(f.get("title"))) {
+                return refused("ALREADY_SUB", "that link has already been submitted", "url");
+            }
+            let id = format!("p{}", n.next());
+            n.list("rd:posts").insert(
+                0,
+                json!({"name": format!("t3_{id}"), "title": f.get("title"), "kind": f.get("kind"), "url": f.get("url"), "text": f.get("text"),
+                                               "flair": f.get("flair_id"), "permalink": format!("/r/Breadit/comments/{id}/")}),
+            );
+            ok(
+                json!({"json": {"errors": [], "data": {"id": id, "name": format!("t3_{id}"), "url": format!("https://www.reddit.com/r/Breadit/comments/{id}/")}}}),
+            )
+        }
+        ("POST", "/api/submit_gallery_post.json") => {
+            let b = r.json();
+            let id = format!("g{}", n.next());
+            n.list("rd:posts").insert(0, json!({"name": format!("t3_{id}"), "title": b["title"], "kind": "gallery", "items": b["items"], "permalink": format!("/r/Breadit/comments/{id}/")}));
+            ok(json!({"json": {"errors": [], "data": {"id": id, "url": format!("https://www.reddit.com/gallery/{id}")}}}))
+        }
+        ("GET", "/user/northwind_bakery/submitted") => {
+            let children: Vec<Value> = n.list("rd:posts").iter().map(|p| json!({"kind": "t3", "data": p})).collect();
+            ok(json!({"data": {"children": children}}))
+        }
+        ("POST", "/api/comment") => {
+            let f = r.form();
+            let id = format!("t1_c{}", n.next());
+            n.list("rd:comments").push(json!({"name": id, "parent": f.get("thing_id"), "text": f.get("text")}));
+            ok(json!({"json": {"errors": [], "data": {"things": [{"kind": "t1", "data": {"name": id}}]}}}))
+        }
+        ("POST", "/api/del") => {
+            let id = r.form().get("id").cloned().unwrap_or_default();
+            n.list("rd:posts").retain(|p| p["name"] != json!(id));
+            ok(json!({}))
+        }
+        ("GET", "/api/info") => ok(json!({"data": {"children": [{"data": {"name": r.query.get("id"), "score": 42, "num_comments": 8}}]}})),
+        ("GET", "/message/inbox") => ok(json!({"data": {"children": [
+            {"kind": "t1", "data": {"name": "t1_x1", "author": "crumb", "body": "Recipe?", "subject": "post reply", "was_comment": true, "link_id": "t3_p9"}},
+            {"kind": "t1", "data": {"name": "t1_x2", "author": "yeast", "body": "u/northwind_bakery look", "subject": "username mention", "was_comment": true, "link_id": "t3_q1"}},
+            {"kind": "t4", "data": {"name": "t4_m1", "author": "flour", "body": "Hello", "subject": "hi", "was_comment": false}}]}})),
+        _ => status(404, json!({"message": "Not Found", "error": 404})),
+    }
+}
+
+async fn reddit(t: &T) {
+    let conn = t
+        .connect("reddit", "rd", &["oauth.reddit.com", "reddit-uploaded-media.s3-accelerate.amazonaws.com"], json!({"client_secret": "rd-secret"}), |d| {
+            let text = d.to_string().replace("https://www.reddit.com/api/v1/access_token", &format!("{}/rdw/api/v1/access_token", t.base));
+            *d = serde_json::from_str(&text).unwrap();
+        })
+        .await;
+    let q = t.sign_in(conn, "CODE-rd").await;
+    assert_eq!(q.get("duration").map(String::as_str), Some("permanent"), "a refresh token is asked for");
+    let account = t.account("Northwind Reddit", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "Reddit");
+    let subs = t.action(account, "choices", json!({"setting": "subreddit", "query": "brea"})).await.unwrap();
+    assert_eq!(subs["choices"][0], json!({"value": "Breadit", "label": "r/Breadit"}));
+    let flairs = t.action(account, "choices", json!({"setting": "flair", "settings": {"subreddit": "Breadit"}})).await.unwrap();
+    assert_eq!(flairs["choices"][0], json!({"value": "f-1", "label": "Sourdough"}), "the flairs of the subreddit picked");
+    let settings = |title: &str| json!({"subreddit": "Breadit", "title": title, "flair": "f-1", "nsfw": false, "spoiler": false});
+    let post = |text: &str, kind: &str, title: &str, ids: &[String]| {
+        let media: Vec<(&str, &str, i64)> = ids.iter().map(|_| ("x.png", "image/png", 4)).collect();
+        let mut v = post_in(text, Some("https://northwind.test/rye"), &media, ids);
+        v["kind"] = json!(kind);
+        v["settings"] = settings(title);
+        v
+    };
+    let key = format!("publish:{}", Uuid::now_v7());
+    // A text post, a link post.
+    let selfp = t.call("reddit", "publish", post("Our rye method", "self", "Rye, step by step", &[]), Some(&key)).await.unwrap();
+    assert_eq!(selfp["id"].as_str().map(|i| i.starts_with("t3_")), Some(true));
+    t.call("reddit", "publish", post("", "link", "Rye recipe", &[]), Some(&format!("{key}:l"))).await.unwrap();
+    {
+        let mut n = t.net();
+        let p = n.list("rd:posts").clone();
+        assert_eq!((p[1]["kind"].as_str(), p[1]["text"].as_str(), p[1]["flair"].as_str()), (Some("self"), Some("Our rye method"), Some("f-1")));
+        assert_eq!((p[0]["kind"].as_str(), p[0]["url"].as_str()), (Some("link"), Some("https://northwind.test/rye")));
+    }
+    // A picture: an upload lease, the file to the storage address with its fields, then the post by its address.
+    let m = t.medium("abc.png", "image/png", b"PNG-RYE", Some("media"), json!({}), None).await;
+    let pic = t.call("reddit", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    assert_eq!(t.net().get("rd:s3"), json!({"first": "acl", "bytes": 7}), "the lease's fields went with the file");
+    t.call("reddit", "publish", post("", "media", "Fresh rye", std::slice::from_ref(&pic)), Some(&format!("{key}:m"))).await.unwrap();
+    assert!(t.net().list("rd:posts")[0]["url"].as_str().unwrap().ends_with("/rds3/upload/rte_images/abc.png"));
+    // Two pictures: a gallery of their assets.
+    t.call("reddit", "publish", post("", "media", "Rye gallery", &[pic.clone(), pic.clone()]), Some(&format!("{key}:g"))).await.unwrap();
+    assert_eq!(t.net().list("rd:posts")[0]["items"][0]["media_id"], "ast1");
+    // The first comment, under the post.
+    t.call("reddit", "reply", json!({"text": "Questions welcome", "in_reply_to": selfp["id"], "root": selfp["id"]}), Some(&format!("first_comment:{key}")))
+        .await
+        .unwrap();
+    assert_eq!(t.net().list("rd:comments")[0]["parent"], selfp["id"]);
+    // A lost answer: found among the account's submissions by its title.
+    t.net().lose.insert("POST /rd/api/submit".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("rd:posts").len();
+    assert!(t.call("reddit", "publish", post("Once", "self", "Only once", &[]), Some(&lost)).await.is_err());
+    let got = t.call("reddit", "publish", post("Once", "self", "Only once", &[]), Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("rd:posts").len(), before + 1);
+    assert_eq!(got["id"], t.net().list("rd:posts")[0]["name"]);
+    // A refusal: Reddit answers 200 with its reasons in a list, which the platform cannot read as a refusal yet; the
+    // call fails because the post has no id.
+    let mut nowhere = post("x", "self", "Nowhere", &[]);
+    nowhere["settings"]["subreddit"] = json!("NoSuchPlace");
+    let e = t.call("reddit", "publish", nowhere, Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(!e.to_string().contains("doesn't exist"), "Reddit's words are not read yet: {e}");
+    // The inbox: a reply to a post is a comment on it, a mention a mention, a private message a direct message.
+    t.pull(conn, "inbox").await;
+    let kinds: BTreeMap<String, String> = t
+        .messages(json!({}))
+        .await
+        .iter()
+        .filter(|m| m["external_id"].as_str().is_some_and(|i| i.starts_with("t1_x") || i.starts_with("t4_")))
+        .map(|m| (m["external_id"].as_str().unwrap().to_string(), m["kind"].as_str().unwrap().to_string()))
+        .collect();
+    assert_eq!(kinds, BTreeMap::from([("t1_x1".into(), "Comment".into()), ("t1_x2".into(), "Mention".into()), ("t4_m1".into(), "Direct".into())]));
+    // Refreshed; numbers; the account; delete.
+    t.expire(conn).await;
+    let m = t.call("reddit", "metrics", json!({"id": selfp["id"], "account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!(m["engagements"], 50);
+    assert_eq!(t.net().last("rdw", "POST", "/api/v1/access_token").form()["grant_type"], "refresh_token");
+    let a = t.call("reddit", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(77), Some("northwind_bakery")));
+    t.call("reddit", "delete", json!({"id": selfp["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
+    assert!(!t.net().list("rd:posts").iter().any(|p| p["name"] == selfp["id"]));
 }
