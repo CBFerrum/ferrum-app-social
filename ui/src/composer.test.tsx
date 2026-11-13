@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { ComposerRoute } from "./Composer";
+import { mentionToken } from "./composer/Items";
 import { byText, draw, fakeServer, settle, until } from "./testkit";
 
 afterEach(() => {
@@ -169,5 +170,49 @@ describe("the composer", () => {
     expect(host.textContent).toContain("Social Approver");
     expect(host.textContent).toContain("Waiting for a decision");
     expect(host.textContent).toContain("spring");
+  });
+});
+
+describe("mentions and recalling", () => {
+  it("finds the @name being typed", () => {
+    expect(mentionToken("Hello @an", 9)).toEqual({ start: 6, query: "an" });
+    expect(mentionToken("mail a@b.c", 10)).toBeNull();
+    expect(mentionToken("Hello @an and more", 9)).toEqual({ start: 6, query: "an" });
+  });
+
+  it("types @, searches through the account's mentions, inserts what the server says to insert", async () => {
+    const withMentions = { rules: { ...rules.rules, mentions: { operation: "people" } } };
+    const fake = server([
+      ["POST", "/api/v1/SocialAccount/x/actions/rules", withMentions],
+      ["POST", "/api/v1/SocialAccount/x/actions/mentions", { mentions: [{ value: "ann", label: "Ann Lee", picture: null, text: "@ann@example.social" }] }],
+    ]);
+    const host = await draw(<ComposerRoute />, "/compose", "/compose");
+    await press(host.querySelector<HTMLInputElement>("input[type=checkbox]")!);
+    await until(() => !!field(host, "original-item-0"));
+    const area = field(host, "original-item-0") as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(area, "Hi @an");
+      area.setSelectionRange(6, 6);
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await until(() => host.textContent!.includes("Ann Lee"));
+    expect(fake.seen.find((s) => s.line.endsWith("/mentions"))?.body).toEqual({ query: "an" });
+    await press([...host.querySelectorAll<HTMLElement>("button.option")].find((b) => b.textContent!.includes("Ann Lee")));
+    expect((field(host, "original-item-0") as HTMLTextAreaElement).value).toBe("Hi @ann@example.social ");
+  });
+
+  it("takes an approval request back", async () => {
+    const fake = server([
+      ["POST", "/api/v1/SocialPost/p1/approval/recall", { ok: true }],
+      ["GET", "/api/v1/SocialPost/p1/approval", { id: "r1", status: "pending", steps: [{ label: "Social Approver", state: "open", need: 1, approvers: [] }], decisions: [] }],
+      ["GET", "/api/approvals", { to_decide: [], awaiting_others: [] }],
+      ["GET", "/api/v1/SocialPost/p1/tags", { tags: [] }],
+      ["GET", "/api/v1/SocialPost/p1/links", { links: [] }],
+      ["GET", "/api/v1/SocialPost/p1", { id: "p1", version: 3, headline: "Spring", brand: "b1", text: "Spring", status: "In Review", targets: [{ account: "x", kind: "", settings: {} }], items: [], media: [] }],
+    ]);
+    const host = await draw(<ComposerRoute />, "/compose/:id", "/compose/p1");
+    await until(() => !!byText(host, "button", "Take the request back"));
+    await press(byText(host, "button", "Take the request back"));
+    expect(fake.seen.some((s) => s.line === "POST /api/v1/SocialPost/p1/approval/recall")).toBe(true);
   });
 });

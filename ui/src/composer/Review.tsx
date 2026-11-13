@@ -159,6 +159,15 @@ export function ReviewPanel({ post, onChanged }: { post: Row; onChanged: () => v
     setNeed(false);
     decide.mutate(outcome);
   };
+  const recall = useMutation({
+    mutationFn: () => api.post(docPath("SocialPost", id, "approval", "recall"), {}),
+    onSuccess: async () => {
+      toast(t("The request is taken back"));
+      await client.invalidateQueries({ queryKey: ["social"] });
+      onChanged();
+    },
+    onError: (e) => setRefused(refusal(e)),
+  });
   const revoke = async (l: Issued) => {
     if (!(await confirmDialog({ title: t("Revoke this link?"), message: t("Whoever has it can no longer open the post."), confirmLabel: t("Revoke"), danger: true }))) return;
     try {
@@ -181,6 +190,11 @@ export function ReviewPanel({ post, onChanged }: { post: Row; onChanged: () => v
             </li>
           ))}
         </ol>
+      )}
+      {request && (
+        <div>
+          <Button size="sm" loading={recall.isPending} onClick={() => recall.mutate()}>{t("Take the request back")}</Button>
+        </div>
       )}
       {decided.length > 0 && (
         <ul className="stack" aria-label={t("Decisions")}>

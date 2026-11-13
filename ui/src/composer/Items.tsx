@@ -3,12 +3,20 @@
 // the cursor of the item last in use. What a follow-up is (a thread post, a comment, or not offered) comes from the
 // account's rules.
 
+import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { errorMessage, formatDecimal, isolate, t } from "@ferrum/client";
-import { Alert, Button, Field, Icon } from "@ferrum/kit";
+import { Alert, Button, Field, Icon, useDebounced } from "@ferrum/kit";
+import { run } from "../data";
 import { blankItem, type Content, type ItemState, kindOfMedium, keyed, type MediaState } from "../draft";
 import { acceptOf, uploadMedium, uploadThumbnail } from "./media";
 import type { MediaRule } from "../model";
+
+/** The `@name` being typed just before the caret, if any: where it starts and what has been typed after the @. */
+export function mentionToken(words: string, caret: number): { start: number; query: string } | null {
+  const m = /(^|\s)@([^\s@]{0,40})$/u.exec(words.slice(0, caret));
+  return m ? { start: caret - m[2].length - 1, query: m[2] } : null;
+}
 
 export interface Insertable {
   label: string;
@@ -81,6 +89,7 @@ export function Items({
   variables,
   locked,
   idPrefix,
+  mentionAccount,
 }: {
   content: Content;
   onChange: (c: Content) => void;
@@ -95,9 +104,30 @@ export function Items({
   variables: string[];
   locked?: boolean;
   idPrefix: string;
+  /** The account whose network is asked for people to mention (when its rules offer a lookup); none: no `@` lookup. */
+  mentionAccount?: string | null;
 }) {
   const areas = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const lastUsed = useRef(0);
+  const [token, setToken] = useState<{ item: number; start: number; end: number; query: string } | null>(null);
+  const asking = useDebounced(token?.query ?? "", 250);
+  const found = useQuery({
+    queryKey: ["social", "mentions", mentionAccount, asking],
+    queryFn: () => run<{ mentions: { value: string; label: string; picture: string | null; text: string }[] }>("SocialAccount", mentionAccount!, "mentions", { query: asking }).then((r) => r.mentions),
+    enabled: !!mentionAccount && !!token && asking.length > 0,
+    retry: false,
+  });
+  const watch = (i: number, el: HTMLTextAreaElement) => {
+    const caret = el.selectionStart ?? el.value.length;
+    const m = mentionAccount ? mentionToken(el.value, caret) : null;
+    setToken(m ? { item: i, start: m.start, end: caret, query: m.query } : null);
+  };
+  const take = (what: string) => {
+    if (!token) return;
+    const words = content.items[token.item].text;
+    set(token.item, { text: words.slice(0, token.start) + what + " " + words.slice(token.end) });
+    setToken(null);
+  };
   const [uploading, setUploading] = useState<number | null>(null);
   const [failed, setFailed] = useState("");
   const set = (i: number, patch: Partial<ItemState>) => onChange({ items: content.items.map((it, n) => (n === i ? { ...it, ...patch } : it)) });
@@ -170,8 +200,21 @@ export function Items({
             <legend className="field-label">{label}</legend>
             {i > 0 && followNone && <Alert tone="warning">{t("This network takes nothing after the post.")}</Alert>}
             <Field label={isolate(label)} htmlFor={id} error={over ? t("{n} is over the {max} this network takes", { n: String(n), max: String(count?.max) }) : undefined}>
-              <textarea id={id} className="textarea" rows={i === 0 ? 5 : 3} ref={(el) => { areas.current[it.key] = el; }} value={it.text} onFocus={() => { lastUsed.current = i; }} onChange={(e) => set(i, { text: e.target.value })} />
+              <textarea id={id} className="textarea" rows={i === 0 ? 5 : 3} ref={(el) => { areas.current[it.key] = el; }} value={it.text} onFocus={() => { lastUsed.current = i; }} onChange={(e) => { set(i, { text: e.target.value }); watch(i, e.target); }} onKeyUp={(e) => watch(i, e.currentTarget)} onClick={(e) => watch(i, e.currentTarget)} />
             </Field>
+            {token?.item === i && (found.isError || (found.data && found.data.length >= 0)) && token.query && (
+              <ul className="listbox" role="listbox" aria-label={t("People to mention")}>
+                {found.isError && <li className="option-empty">{(found.error as Error).message}</li>}
+                {found.data?.length === 0 && <li className="option-empty">{t("Nobody found")}</li>}
+                {found.data?.map((p) => (
+                  <li key={p.value} role="option" aria-selected={false}>
+                    <button type="button" className="option" onClick={() => take(p.text)}>
+                      {isolate(p.label)} <span className="muted">{isolate(p.value)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="row">
               <Field label={t("Link")} htmlFor={`${id}-link`}>
                 <input id={`${id}-link`} className="input" type="url" inputMode="url" value={it.link} onFocus={() => { lastUsed.current = i; }} onChange={(e) => set(i, { link: e.target.value })} />
