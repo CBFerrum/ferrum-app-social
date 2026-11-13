@@ -35,6 +35,11 @@ impl Reach {
         self.desc["operations"].get(operation).is_some()
     }
 
+    /// Whether an operation is made of steps (it may upload its own media, BD-53).
+    pub fn has_steps(&self, operation: &str) -> bool {
+        self.desc["operations"][operation]["steps"].as_array().is_some_and(|s| !s.is_empty())
+    }
+
     /// Where its calls go.
     pub fn base(&self) -> &str {
         self.desc["base"].as_str().unwrap_or("\u{0}")

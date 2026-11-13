@@ -65,6 +65,10 @@ struct Net {
     feed: Vec<Value>,
     /// Answer 429 with Retry-After (seconds) this many times to a post, and to every read of numbers while set.
     posts_retry: usize,
+    /// The fake's own address, for answers that name one.
+    base: String,
+    /// What the step-made uploads put: (address, bytes).
+    puts: Vec<(String, usize)>,
     stats_retry: Option<u64>,
     inbox: Vec<Value>,
     stats_down: bool,
@@ -165,10 +169,12 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
                 || r.starts_with("/v1/posts/") && (r.ends_with("/repost") || r.ends_with("/like"))
                 || r.starts_with("/v1/feed")
                 || r == "/v1/rss"
-                || r == "/v1/atom" =>
+                || r == "/v1/atom"
+                || r.starts_with("/v1/up/") =>
         {
-            n.calls.push((format!("{m} {path}"), json_body.clone()));
-            round_two(n, m, r, path, &json_body)
+            let raw = if json_body.is_null() { json!(body) } else { json_body.clone() };
+            n.calls.push((format!("{m} {path}"), raw.clone()));
+            round_two(n, m, r, path, &raw)
         }
         ("GET", "/v1/pages") => (
             200,
@@ -256,6 +262,15 @@ fn round_two(n: &mut Net, method: &str, route: &str, path: &str, body: &Value) -
         ("POST", r) if r.ends_with("/repost") => (200, json!({"id": format!("rp-{}", n.calls.len())})),
         ("POST", r) if r.ends_with("/like") => (200, json!({"liked": true})),
         ("GET", "/v1/feed") => (200, json!({"items": n.feed.clone()})),
+        ("POST", "/v1/up/register") => {
+            let i = n.puts.len() + 1;
+            (200, json!({"upload_url": format!("{}/up/put/{i}", n.base), "asset": format!("a-{i}")}))
+        }
+        ("PUT", r) if r.starts_with("/v1/up/put/") => {
+            let size = body.as_str().map_or(0, str::len);
+            n.puts.push((r.to_string(), size));
+            (200, json!({}))
+        }
         ("GET", "/v1/rss") => (
             200,
             json!({"__type": "application/rss+xml", "__bytes": format!(
@@ -509,6 +524,7 @@ async fn scenario() {
     let t = T { k: k.clone(), tenant, admin, net: net.clone() };
     let port = serve(net.clone()).await;
     let base = format!("http://127.0.0.1:{port}/v1");
+    net.lock().unwrap().base = base.clone();
     let author = t.user("author@brands.test", &["Social Author"]).await;
     let approver = t.user("approver@brands.test", &["Social Approver"]).await;
     let manager = t.user("manager@brands.test", &["Social Manager"]).await;
@@ -1687,6 +1703,51 @@ async fn scenario() {
     t.upkeep(due + Duration::hours(32)).await;
     let said = t.get("SocialFeed", uid(&elsewhere["id"])).await["last_error"].as_str().unwrap_or_default().to_string();
     assert!(said.contains("elsewhere.example") && said.contains("allowed hosts"), "{said}");
+
+    // ───────────── (round three) a publish made of steps: it uploads its own media, so no publish_media is asked for ─────────────
+    let mut steps_desc = description(&base, key_auth2.clone(), &["publish"], false);
+    steps_desc["operations"] = json!({
+        "publish": {"inputs": ["text_with_link", "media_items", "reply_to", "root_item", "previous"], "result": {"id": "/post/id", "url": "/post/url"}, "steps": [
+            {"name": "register", "operation": "register_upload", "when": "inputs.media_items | length > 0", "inputs": {"size": "inputs.media_items[0].size"}},
+            {"name": "upload", "operation": "put_bytes", "when": "inputs.media_items | length > 0", "inputs": {"url": "steps.register.upload_url", "file": "inputs.media_items[0].file"}},
+            {"name": "post", "operation": "create_post", "inputs": {"text": "inputs.text_with_link", "asset": "steps.register.asset if inputs.media_items | length > 0 else none",
+                                                                 "reply": "inputs.previous.id if inputs.previous else none", "root": "inputs.root_item.url if inputs.root_item else none"}}]},
+        "register_upload": {"method": "POST", "path": "/up/register", "body": "{\"size\": {{ inputs.size | json }}}", "error_at": "/error/message", "idempotency_header": "Idempotency-Key"},
+        "put_bytes": {"method": "PUT", "url": "{{ inputs.url }}", "body": {"file": "{{ inputs.file }}"}, "error_at": "/error/message"},
+        "create_post": {"method": "POST", "path": "/posts", "body": "{\"text\": {{ inputs.text | json }}, \"media_ids\": {% if inputs.asset %}[{{ inputs.asset | json }}]{% else %}[]{% endif %}, \"reply_to\": {{ inputs.reply | json }}, \"root\": {{ inputs.root | json }}}",
+                        "result": {"id": "/post/id", "url": "/post/url"}, "error_at": "/error/message", "idempotency_header": "Idempotency-Key"}});
+    steps_desc["meta"] =
+        json!({"social": {"name": "Chirp Steps", "text": {"max": 100}, "media": {"kinds": ["image"], "max": 1, "alt": true}, "follow_ups": {"as": "thread"}}});
+    let on_steps = save("chirp_steps", steps_desc, json!({"key": KEY})).await;
+    let nw_steps = uid(&t.insert(&manager, "SocialAccount", threaded("Northwind Steps", "nw_steps", on_steps)).await["id"]);
+    let mut stepped = pictured_post(&[nw_steps], &png, Some("Sage"));
+    stepped["link"] = Value::Null;
+    stepped["items"] = json!([{"text": "And then"}]);
+    let stepped = t.insert(&author, "SocialPost", stepped).await;
+    go(uid(&stepped["id"])).await;
+    let (posts_before, puts_before) = {
+        let n = t.net.lock().unwrap();
+        (n.posts.len(), n.puts.len())
+    };
+    t.upkeep(due + Duration::hours(30)).await;
+    assert_eq!(
+        t.get("SocialPost", uid(&stepped["id"])).await["status"],
+        "Published",
+        "{:?}",
+        t.rows("SocialPublication", json!({"post": stepped["id"]})).await
+    );
+    {
+        let n = t.net.lock().unwrap();
+        assert_eq!((n.posts.len() - posts_before, n.puts.len() - puts_before), (2, 1), "registered, the bytes put, posted, then the follow-up: once each");
+        let (first, second) = (&n.posts[posts_before], &n.posts[posts_before + 1]);
+        assert_eq!(first.1["media_ids"], json!([format!("a-{}", n.puts.len())]));
+        assert_eq!(
+            (second.1["reply_to"].clone(), second.1["root"].clone()),
+            (json!(first.0), json!(format!("https://chirp.test/p/{}", first.0))),
+            "the previous item's and the root's results"
+        );
+        assert!(n.puts.last().unwrap().1 > 0);
+    }
 
     // ───────────── (round three) a service's Retry-After: the post's job comes back then; the upkeep leaves it alone ─────────────
     let slow = t.insert(&author, "SocialPost", tagged("Slowly", &[nw_key], "Slow")).await;
