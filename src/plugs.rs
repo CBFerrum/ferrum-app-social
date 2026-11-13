@@ -127,7 +127,7 @@ async fn act(k: &Kernel, ctx: &Ctx, plug: &Doc, p: &Doc, account: Uuid, action: 
             };
             match connections::call(k, &calling, Some(crate::APP), &call).await {
                 Ok(out) => ("Done", None, text_of(&out["id"])),
-                Err(e) if matches!(e, ferrum_kernel::Error::Unavailable(_) | ferrum_kernel::Error::RetryAfter(..)) => return Ok(false),
+                Err(ferrum_kernel::Error::Unavailable(_) | ferrum_kernel::Error::RetryAfter(..)) => return Ok(false),
                 Err(e) => ("Refused", Some(crate::said(e).to_string()), None),
             }
         }
