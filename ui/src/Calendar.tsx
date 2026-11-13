@@ -113,6 +113,9 @@ export function Chip({ post, accounts, onOpen, onDrag }: { post: Placed; account
   );
 }
 
+/** A network that said "later" leaves a failure that begins so: it is waiting to try again, not failed. */
+export const waiting = (failure: string) => failure.startsWith("Waiting to try again");
+
 /** What a repeating post says of its rule, in words. */
 export function repeatWords(post: Row): string {
   if (post.repeat_every == null) return "";
@@ -129,7 +132,7 @@ export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: stri
   const post = useQuery({ queryKey: ["social", "post", id], queryFn: () => record("SocialPost", id) });
   const copies = useQuery({
     queryKey: ["social", "copies", id, post.data?.version],
-    queryFn: () => run<{ copies: { account: string; account_name: string; items: { text: string; length: number; max: number | null }[]; problems: string[] }[] }>("SocialPost", id, "copies").then((r) => r.copies),
+    queryFn: () => run<{ copies: { account: string; account_name: string; title?: string | null; items: { text: string; length: number; max: number | null }[]; problems: string[] }[] }>("SocialPost", id, "copies").then((r) => r.copies),
     enabled: !!post.data,
     retry: false,
   });
@@ -180,7 +183,7 @@ export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: stri
               {repeatWords(row) && <Badge>{repeatWords(row)}</Badge>}
               {text(row.repeat_of) && <Link to={`/compose/${text(row.repeat_of)}`}>{t("The first of the repeats")}</Link>}
             </div>
-            {text(row.failure) && <Alert tone="error">{isolate(text(row.failure))}</Alert>}
+            {text(row.failure) && <Alert tone={waiting(text(row.failure)) ? "warning" : "error"}>{isolate(text(row.failure))}</Alert>}
             {text(row.waiting_for) && <Alert tone="warning">{t("Waiting: {why}", { why: isolate(text(row.waiting_for)) })}</Alert>}
             {text(row.review_note) && <Alert tone="warning">{isolate(text(row.review_note))}</Alert>}
             {refused && <Alert tone="error">{isolate(refused)}</Alert>}
@@ -195,6 +198,7 @@ export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: stri
                           {a && <Face name={text(a.account_name)} picture={text(a.picture)} />}
                           <strong>{isolate(c.account_name ?? "")}</strong>
                         </div>
+                        {c.title?.trim() && <strong>{isolate(c.title)}</strong>}
                         <p className="preview-text">{isolate(c.items[0]?.text ?? "")}</p>
                         {c.problems.map((w, i) => (
                           <p key={i} className="field-error">{isolate(w)}</p>

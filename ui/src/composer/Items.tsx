@@ -92,6 +92,9 @@ export function Items({
   idPrefix,
   mentionAccount,
   brand,
+  titleRule,
+  titleNote,
+  mediaNotes,
 }: {
   content: Content;
   onChange: (c: Content) => void;
@@ -110,6 +113,12 @@ export function Items({
   mentionAccount?: string | null;
   /** The post's brand: the library the media picker opens on. */
   brand?: string | null;
+  /** A title the network(s) take: needed if any needs one; the most the strictest takes. */
+  titleRule?: { required: boolean; max: number | null } | null;
+  /** Which accounts take the title, for the original tab. */
+  titleNote?: string;
+  /** What the server refused about media, with the account it is for (media a network only takes by a public address). */
+  mediaNotes?: { account: string; why: string }[];
 }) {
   const areas = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const lastUsed = useRef(0);
@@ -132,7 +141,7 @@ export function Items({
     set(token.item, { text: words.slice(0, token.start) + what + " " + words.slice(token.end) });
     setToken(null);
   };
-  const set = (i: number, patch: Partial<ItemState>) => onChange({ items: content.items.map((it, n) => (n === i ? { ...it, ...patch } : it)) });
+  const set = (i: number, patch: Partial<ItemState>) => onChange({ ...content, items: content.items.map((it, n) => (n === i ? { ...it, ...patch } : it)) });
   const insert = (what: string) => {
     const i = Math.min(lastUsed.current, content.items.length - 1);
     const el = areas.current[content.items[i].key];
@@ -175,6 +184,11 @@ export function Items({
             </select>
           )}
         </div>
+      )}
+      {titleRule && (
+        <Field label={t("Title")} htmlFor={`${idPrefix}-title`} required={titleRule.required} hint={titleNote || (titleRule.max != null ? t("At most {n} characters.", { n: String(titleRule.max) }) : undefined)}>
+          <input id={`${idPrefix}-title`} className="input" disabled={locked} value={content.title ?? ""} onChange={(e) => onChange({ ...content, title: e.target.value })} />
+        </Field>
       )}
       {content.items.map((it, i) => {
         const count = counts?.[i];
@@ -220,13 +234,16 @@ export function Items({
                 ))}
               </ul>
             )}
+            {it.media.length > 0 && (mediaNotes ?? []).map((n) => (
+              <Alert key={n.account} tone="warning">{isolate(n.why)}</Alert>
+            ))}
             <div className="row">
               <Button size="sm" icon="upload" onClick={() => setPicking(i)}>
                 {t("Add media")}
               </Button>
               <span className="spacer" />
               {i > 0 && (
-                <Button size="sm" variant="danger" icon="trash" onClick={() => onChange({ items: content.items.filter((_, n) => n !== i) })}>
+                <Button size="sm" variant="danger" icon="trash" onClick={() => onChange({ ...content, items: content.items.filter((_, n) => n !== i) })}>
                   {t("Remove")}
                 </Button>
               )}
@@ -235,11 +252,11 @@ export function Items({
         );
       })}
       {picking !== null && (
-        <MediaPicker brandId={brand ?? undefined} onClose={() => setPicking(null)} onPick={(assets) => { const at = picking; onChange({ items: content.items.map((it, n) => (n === at ? { ...it, media: [...it.media, ...assets.map(mediumOfAsset)] } : it)) }); }} />
+        <MediaPicker brandId={brand ?? undefined} onClose={() => setPicking(null)} onPick={(assets) => { const at = picking; onChange({ ...content, items: content.items.map((it, n) => (n === at ? { ...it, media: [...it.media, ...assets.map(mediumOfAsset)] } : it)) }); }} />
       )}
       {!locked && (
         <div>
-          <Button size="sm" icon="plus" onClick={() => onChange({ items: [...content.items, { ...blankItem(), key: keyed() }] })}>
+          <Button size="sm" icon="plus" onClick={() => onChange({ ...content, items: [...content.items, { ...blankItem(), key: keyed() }] })}>
             {followLabel ? t("Add to the {word}", { word: followLabel.toLowerCase() }) : t("Add a follow-up")}
           </Button>
         </div>

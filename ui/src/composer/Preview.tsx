@@ -21,6 +21,9 @@ export interface ServerCopy {
   follow_ups: "thread" | "comment" | "none";
   items: { text: string; link: string | null; delay_minutes: number; length: number; max: number | null; fold?: number | null; media: { file: string; kind: string; alt: string | null; name: string }[] }[];
   first_comment: string | null;
+  /** The title as it goes (round four) and the most the network takes of one. */
+  title?: string | null;
+  title_max?: number | null;
   problems: string[];
 }
 
@@ -86,7 +89,11 @@ export function Preview({ account, copy, media, dimmed }: { account: Row; copy?:
           ) : (
             <p className="muted">{t("Nothing in the way.")}</p>
           )}
+          {copy.title_max != null && (
+            <p className={[...(copy.title ?? "").trim()].length > copy.title_max ? "field-error" : "muted"}>{t("Title: {n} of {max}", { n: String([...(copy.title ?? "").trim()].length), max: String(copy.title_max) })}</p>
+          )}
           <div className="preview-card stack" role="group" aria-label={t("How it looks")}>
+            {copy.title?.trim() && <strong className="preview-text">{isolate(copy.title)}</strong>}
             {copy.items.map((i, n) => (
               <div key={n} className={n === 0 ? "stack" : "stack preview-follow"}>
                 <Words words={i.text} fold={i.fold} />

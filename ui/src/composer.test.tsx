@@ -9,6 +9,7 @@ import { mentionToken } from "./composer/Items";
 import { byText, draw, fakeServer, settle, until } from "./testkit";
 
 afterEach(() => {
+  calcOverride = null;
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
 });
@@ -36,7 +37,9 @@ const brands = { rows: [{ id: "b1", brand_name: "Northwind" }] };
 const accounts = { rows: [{ id: "x", account_name: "North Short", display_name: "North", brand: "b1", network: "Shortline", handle: "north", state: "Connected", active: true, sort_order: 0 }] };
 const empty = { rows: [] };
 // What `_calc` with want_checks answers (src/posts.rs `copies`): here a network that takes 10 characters and folds at 6.
+let calcOverride: unknown = null;
 const calc = (_url: URL, body: unknown) => {
+  if (calcOverride) return calcOverride;
   const b = body as { text: string };
   const n = [...b.text].length;
   return { text: b.text, checks: { copies: [{ account: "x", account_name: "North Short", network: "Shortline", kind: "post", follow_ups: "thread", items: [{ text: b.text, link: null, delay_minutes: 0, length: n, max: 10, fold: 6, media: [] }], first_comment: null, settings: {}, problems: n > 10 ? [`Shortline takes 10 characters, and this post is ${n}`] : [] }] } };
@@ -214,5 +217,59 @@ describe("mentions and recalling", () => {
     await until(() => !!byText(host, "button", "Take the request back"));
     await press(byText(host, "button", "Take the request back"));
     expect(fake.seen.some((s) => s.line === "POST /api/v1/SocialPost/p1/approval/recall")).toBe(true);
+  });
+});
+
+describe("title, kind from the media, media by address (round four)", () => {
+  const titled = {
+    rules: {
+      ...rules.rules,
+      title: { required: true, max: 20 },
+      kind_by_media: { none: "post", image: "pin" },
+      kinds: [{ name: "post", label: "Post" }, { name: "pin", label: "Pin" }],
+      settings: [],
+      media: { ...rules.rules.media, kinds: ["image"], by_address: ["image"] },
+    },
+  };
+  const saved = { id: "p5", version: 1, headline: "Spring", title: "Spring is here", brand: "b1", text: "Words", status: "Draft", targets: [{ account: "x", kind: "", settings: {} }], items: [], media: [{ item: 1, file: "/files/a", alt: "A hill" }] };
+  const answer = { checks: { copies: [{ account: "x", account_name: "North Short", network: "Shortline", kind: "pin", follow_ups: "none", title: "Spring is here", title_max: 20, items: [{ text: "Words", link: null, delay_minutes: 0, length: 5, max: 100, fold: null, media: [] }], first_comment: null, problems: ["Shortline takes pictures only by a public address, which this server cannot give a stored file yet"] }] } };
+
+  it("asks the title the rules take, shows the kind chosen for the person, and says the server's refusal beside the medium", async () => {
+    calcOverride = answer;
+    const fake = server([
+      ["POST", "/api/v1/SocialAccount/x/actions/rules", titled],
+      ["GET", "/api/v1/SocialPost/p5/tags", { tags: [] }],
+      ["GET", "/api/v1/SocialPost/p5/approval", null],
+      ["GET", "/api/v1/SocialPost/p5/links", { links: [] }],
+      ["GET", "/api/v1/SocialPost/p5", saved],
+    ]);
+    const host = await draw(<ComposerRoute />, "/compose/:id", "/compose/p5");
+    await until(() => !!field(host, "original-title"));
+    expect((field(host, "original-title") as HTMLInputElement).value).toBe("Spring is here");
+    expect(host.querySelector('label[for="original-title"]')?.textContent).toContain("*");
+    await until(() => !!field(host, "kind-x") && (field(host, "kind-x") as HTMLSelectElement).options[0].textContent === "Chosen for you: Pin");
+    expect(host.textContent).toContain("Title: 14 of 20");
+    // beside the medium and the account, not a generic error
+    await until(() => !!host.querySelector("fieldset .alert-warning"));
+    expect(host.querySelector("fieldset .alert-warning")?.textContent).toContain("takes pictures only by a public address");
+    // the title goes in the body of the check
+    const sent = fake.seen.filter((s) => s.line.endsWith("/_calc")).pop()?.body as Record<string, unknown>;
+    expect(sent.title).toBe("Spring is here");
+  });
+
+  it("lets go of a kind the account no longer has", async () => {
+    const withKind = { ...saved, targets: [{ account: "x", kind: "gone", settings: {} }] };
+    calcOverride = answer;
+    const fake = server([
+      ["POST", "/api/v1/SocialAccount/x/actions/rules", titled],
+      ["GET", "/api/v1/SocialPost/p5/tags", { tags: [] }],
+      ["GET", "/api/v1/SocialPost/p5/approval", null],
+      ["GET", "/api/v1/SocialPost/p5/links", { links: [] }],
+      ["GET", "/api/v1/SocialPost/p5", withKind],
+    ]);
+    const host = await draw(<ComposerRoute />, "/compose/:id", "/compose/p5");
+    await until(() => !!field(host, "kind-x"));
+    await until(() => (field(host, "kind-x") as HTMLSelectElement).value === "");
+    void fake;
   });
 });
