@@ -219,6 +219,7 @@ fn handler(net: &str) -> Option<Handler> {
         "rd" | "rdw" | "rds3" => fake_reddit,
         "ma" => fake_mastodon,
         "bs" => fake_bluesky,
+        "gb" | "gba" | "gbi" | "gbo" => fake_google_business,
         _ => return None,
     })
 }
@@ -535,6 +536,7 @@ async fn scenario() {
     reddit(&t).await;
     mastodon(&t).await;
     bluesky(&t).await;
+    google_business(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -3084,4 +3086,154 @@ async fn bluesky(t: &T) {
     assert_eq!(a["followers"], 77);
     t.call("bluesky", "delete", json!({"id": got["id"]}), Some(&format!("delete:{lost}"))).await.unwrap();
     assert!(!t.net().list("bs:records").iter().any(|x| x["uri"] == got["id"]));
+}
+
+// ───────────── Google Business Profile ─────────────
+
+fn fake_google_business(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, m: &str, st: &str| status(code, json!({"error": {"code": code, "message": m, "status": st}}));
+    if r.path == "/token" {
+        let f = r.form();
+        if f.get("client_id").map(String::as_str) != Some("gb-client") || f.get("client_secret").map(String::as_str) != Some("gb-secret") {
+            return status(401, json!({"error": "invalid_client"}));
+        }
+        let fine = match f.get("grant_type").map(String::as_str) {
+            Some("authorization_code") => f.get("code").map(String::as_str) == Some("CODE-gb"),
+            Some("refresh_token") => f.get("refresh_token").map(String::as_str) == Some("GR"),
+            _ => false,
+        };
+        if !fine {
+            return status(400, json!({"error": "invalid_grant"}));
+        }
+        let i = n.next();
+        n.tokens("gb").push(json!(format!("GA-{i}")));
+        let mut out = json!({"access_token": format!("GA-{i}"), "expires_in": 3599});
+        if f.get("grant_type").map(String::as_str) == Some("authorization_code") {
+            out["refresh_token"] = json!("GR");
+        }
+        return ok(out);
+    }
+    if !n.valid("gb", r) {
+        return err(401, "Request had invalid authentication credentials.", "UNAUTHENTICATED");
+    }
+    let path = r.path.clone();
+    match (r.method.as_str(), path.as_str()) {
+        ("GET", "/v1/accounts") => ok(json!({"accounts": [{"name": "accounts/1", "accountName": "Northwind", "type": "PERSONAL"}]})),
+        ("GET", "/v1/accounts/1/locations") => {
+            if r.query.get("readMask").is_none_or(|m| !m.contains("title")) {
+                return err(400, "readMask is required", "INVALID_ARGUMENT");
+            }
+            ok(json!({"locations": [{"name": "locations/2", "title": "Northwind Cafe", "storefrontAddress": {"locality": "Leeds"}}]}))
+        }
+        ("GET", "/v1/locations/2") => ok(json!({"name": "locations/2", "title": "Northwind Cafe", "storefrontAddress": {"locality": "Leeds"}})),
+        ("POST", "/v4/accounts/1/locations/2/localPosts") => {
+            let b = r.json();
+            if let Some(cta) = b["callToAction"].as_object()
+                && cta["actionType"] != "CALL"
+                && cta.get("url").and_then(Value::as_str).is_none_or(str::is_empty)
+            {
+                return err(400, "Request contains an invalid argument.", "INVALID_ARGUMENT");
+            }
+            if ["EVENT", "OFFER"].contains(&b["topicType"].as_str().unwrap_or_default()) && !b["event"]["schedule"]["startDate"]["year"].is_number() {
+                return err(400, "An event needs its schedule.", "INVALID_ARGUMENT");
+            }
+            let name = format!("accounts/1/locations/2/localPosts/{}", n.next());
+            n.list("gb:posts").insert(0, json!({"name": name, "summary": b["summary"], "body": b, "searchUrl": format!("https://local.google.test/{name}")}));
+            ok(json!({"name": name, "summary": b["summary"], "state": "LIVE", "searchUrl": format!("https://local.google.test/{name}")}))
+        }
+        ("GET", "/v4/accounts/1/locations/2/localPosts") => ok(json!({"localPosts": n.list("gb:posts").clone()})),
+        ("POST", "/v4/accounts/1/locations/2/localPosts:reportInsights") => {
+            let b = r.json();
+            ok(json!({"localPostMetrics": [{"localPostName": b["localPostNames"][0], "metricValues": [
+                {"metric": "LOCAL_POST_VIEWS_SEARCH", "totalValue": {"metricOption": "AGGREGATED_TOTAL", "value": "640"}},
+                {"metric": "LOCAL_POST_ACTIONS_CALL_TO_ACTION", "totalValue": {"metricOption": "AGGREGATED_TOTAL", "value": "12"}}]}]}))
+        }
+        ("DELETE", p) if p.starts_with("/v4/accounts/1/locations/2/localPosts/") => {
+            let name = p.trim_start_matches("/v4/").to_string();
+            n.list("gb:posts").retain(|x| x["name"] != json!(name));
+            ok(json!({}))
+        }
+        _ => err(404, "Requested entity was not found.", "NOT_FOUND"),
+    }
+}
+
+async fn google_business(t: &T) {
+    let conn = t
+        .connect("google_business", "gb", &["mybusiness.googleapis.com", "oauth2.googleapis.com"], json!({"client_secret": "gb-secret"}), |d| {
+            let text = d
+                .to_string()
+                .replace("https://mybusinessaccountmanagement.googleapis.com", &format!("{}/gba", t.base))
+                .replace("https://mybusinessbusinessinformation.googleapis.com", &format!("{}/gbi", t.base))
+                .replace(&format!("{}/gb/token", t.base), &format!("{}/gbo/token", t.base));
+            *d = serde_json::from_str(&text).unwrap();
+        })
+        .await;
+    t.sign_in(conn, "CODE-gb").await;
+    let account = t.account("Northwind on Google", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "Google Business Profile");
+    let reach = t.action(account, "reachable", json!({})).await.unwrap();
+    assert_eq!((reach["accounts"][0]["id"].as_str(), reach["accounts"][0]["handle"].as_str()), (Some("accounts/1/locations/2"), Some("Leeds")), "{reach}");
+    t.action(account, "choose", json!({"picked": ["accounts/1/locations/2"]})).await.unwrap();
+    let on = |text: &str, kind: &str, settings: Value, media: &[String]| {
+        let m: Vec<(&str, &str, i64)> = media.iter().map(|_| ("p.jpg", "image/jpeg", 4)).collect();
+        let mut v = post_in(text, None, &m, media);
+        v["account_id"] = json!("accounts/1/locations/2");
+        v["kind"] = json!(kind);
+        v["settings"] = settings;
+        v
+    };
+    let key = format!("publish:{}", Uuid::now_v7());
+    // An update with a button and a picture by its address.
+    let mut m = t.medium("p.jpg", "image/jpeg", b"JPEG", Some("standard"), json!({}), Some("accounts/1/locations/2")).await;
+    m["url"] = json!("https://files.northwind.test/p.jpg");
+    let photo = t.call("google_business", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let first = t
+        .call(
+            "google_business",
+            "publish",
+            on("Fresh today", "standard", json!({"cta": "LEARN_MORE", "cta_url": "https://northwind.test", "language": "en"}), &[photo]),
+            Some(&key),
+        )
+        .await
+        .unwrap();
+    {
+        let mut n = t.net();
+        let b = n.list("gb:posts")[0]["body"].clone();
+        assert_eq!(
+            (b["topicType"].as_str(), b["callToAction"]["actionType"].as_str(), b["media"][0]["sourceUrl"].as_str()),
+            (Some("STANDARD"), Some("LEARN_MORE"), Some("https://files.northwind.test/p.jpg"))
+        );
+    }
+    assert!(first["url"].as_str().unwrap().contains("localPosts"));
+    // An event and an offer, their dates as Google's date objects.
+    let event = json!({"cta": "NONE", "event_title": "Bread class", "event_start": "2026-12-01", "event_end": "2026-12-02"});
+    t.call("google_business", "publish", on("Join us", "event", event.clone(), &[]), Some(&format!("{key}:e"))).await.unwrap();
+    assert_eq!(t.net().list("gb:posts")[0]["body"]["event"]["schedule"]["startDate"], json!({"year": 2026, "month": 12, "day": 1}));
+    let mut offer = event.clone();
+    offer["coupon"] = json!("BREAD10");
+    t.call("google_business", "publish", on("10% off", "offer", offer, &[]), Some(&format!("{key}:o"))).await.unwrap();
+    assert_eq!(t.net().list("gb:posts")[0]["body"]["offer"]["couponCode"], "BREAD10");
+    // A lost answer: found among the location's posts by its words.
+    t.net().lose.insert("POST /gb/v4/accounts/1/locations/2/localPosts".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("gb:posts").len();
+    assert!(t.call("google_business", "publish", on("Once only", "standard", json!({"cta": "NONE"}), &[]), Some(&lost)).await.is_err());
+    let got = t.call("google_business", "publish", on("Once only", "standard", json!({"cta": "NONE"}), &[]), Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("gb:posts").len(), before + 1);
+    assert_eq!(got["id"], t.net().list("gb:posts")[0]["name"]);
+    // A refusal in Google's words.
+    let e = t
+        .call("google_business", "publish", on("No address", "standard", json!({"cta": "BOOK"}), &[]), Some(&format!("publish:{}", Uuid::now_v7())))
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("invalid argument"), "{e}");
+    // Refreshed; numbers; the location; delete.
+    t.expire(conn).await;
+    let m = t.call("google_business", "metrics", json!({"id": first["id"], "account_id": "accounts/1/locations/2", "handle": null}), None).await.unwrap();
+    assert_eq!((m["impressions"].as_i64(), m["clicks"].as_i64()), (Some(640), Some(12)));
+    assert_eq!(t.net().last("gbo", "POST", "/token").form()["grant_type"], "refresh_token");
+    let a = t.call("google_business", "account", json!({"account_id": "accounts/1/locations/2", "handle": null}), None).await.unwrap();
+    assert_eq!(a["name"], "Northwind Cafe");
+    t.call("google_business", "delete", json!({"id": first["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
+    assert!(!t.net().list("gb:posts").iter().any(|p| p["name"] == first["id"]));
 }
