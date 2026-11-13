@@ -65,7 +65,8 @@ export interface Placed extends Row {
 export async function postsBetween(from: string, to: string, f: Filters, accounts: Row[]): Promise<Placed[]> {
   const filters = filtersFor(from, to, f);
   const found = await rows("SocialPost", filters, { fields: FIELDS, sort: "scheduled_at asc" });
-  if (!found.length || Array.isArray(found[0].targets)) return found.map((p) => ({ ...p, _accounts: (Array.isArray(p.targets) ? (p.targets as Row[]) : []).map((x) => text(x.account)).filter(Boolean) }));
+  // The first answer holds the targets when asked for them; one read per account only when no row carries any.
+  if (!found.length || found.some((p) => Array.isArray(p.targets))) return found.map((p) => ({ ...p, _accounts: (Array.isArray(p.targets) ? (p.targets as Row[]) : []).map((x) => text(x.account)).filter(Boolean) }));
   const by = new Map<string, string[]>();
   for (const a of accounts.slice(0, 40)) for (const p of await rows("SocialPost", [...filters, ["targets.account", "in", [a.id]]], { fields: "headline" })) by.set(p.id, [...(by.get(p.id) ?? []), a.id]);
   return found.map((p) => ({ ...p, _accounts: by.get(p.id) ?? [] }));
