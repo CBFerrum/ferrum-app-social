@@ -75,6 +75,14 @@ answer can still post twice (see "What they still cannot do").
   `meta.social.accounts` says (without it: items `{id, name, handle, picture}` of the whole answer). `mentions` and a
   setting's `choices` operations: as `meta.social.mentions` and the setting's `choices` say. A lookup that is not a
   GET is called under the key `look:<account>:<operation>:<minute>:<inputs>`.
+* (round three) **The account's own posts read back**: a pull (its `inputs` from the signed-in `account`, its `each`
+  asking each post's numbers, BD-60) mapped onto `SocialPublication` with `"as": "system"`, `by: {external_id}`, `set`
+  of `text`, `permalink`, `sent_at`, `impressions`, `engagements`, `clicks` (from `item.<each's as>`), and `create` of
+  `native: true` and `via_connection: connection.id` (create-only, so a post sent from here and read back keeps
+  `native` false and gets its numbers). Its account is the one the connection reaches, else the one `account_handle`
+  names. It has no post; the upkeep reads its numbers as any publication's after that. **Comment or mention**: a
+  mapping sets `kind` as it can and `post_external_id` (what the item answers); a Mention answering a publication of the
+  brand's is kept as a Comment.
 * `messages` is pulled by the description's `pulls`, or its `inbound` takes them, mapped onto `SocialMessage` found by
   `external_id`, with `"outside": true` (what is read is not sent back out). A field the network may leave out is a
   pointer (`/status/in_reply_to_id`, null when it is not there). `via_connection: "connection.id"` lets Social find the
