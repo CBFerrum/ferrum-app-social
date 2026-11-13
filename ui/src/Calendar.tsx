@@ -100,6 +100,7 @@ export function Chip({ post, accounts, onOpen, onDrag }: { post: Placed; account
       className="cal-chip"
       data-tone={POST_TONES[status as keyof typeof POST_TONES] ?? "neutral"}
       data-post={post.id}
+      title={`${timeOf(text(post.scheduled_at))} ${text(post.headline)}`}
       draggable={movable}
       onDragStart={(e) => {
         e.dataTransfer?.setData("text/plain", post.id);

@@ -199,3 +199,22 @@ describe("at phone width", () => {
     expect(css).toMatch(/\.cal-chip \{\s*overflow: hidden/);
   });
 });
+
+describe("the headline in a narrow cell", () => {
+  it("is the chip's flexible part, and the time and marks show only by container width", async () => {
+    server();
+    const host = await draw(<CalendarRoute />, "/calendar", at);
+    await until(() => !!host.querySelector('[data-post="p1"]'));
+    const c = chip(host, "p1");
+    expect(c.getAttribute("title")).toContain("Spring sale");
+    expect(c.getAttribute("title")).toContain("09:00");
+    expect(c.closest(".cal-items")).toBeTruthy();
+    const css = (await import("node:fs")).readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    expect(css).toMatch(/\.cal-chip-title \{[^}]*flex: 1;[^}]*min-width: 0;[^}]*text-overflow: ellipsis/s);
+    expect(css).toMatch(/\.cal-items > li \{\s*container-type: inline-size/);
+    expect(css).toMatch(/\.cal-items \.cal-chip-time,\s*\.cal-items \.cal-faces \{\s*display: none/);
+    expect(css).toMatch(/@container \(min-width: 150px\)[^}]*\.cal-chip-time/s);
+    expect(css).toMatch(/@container \(min-width: 210px\)[^}]*\.cal-faces/s);
+    expect(css).toMatch(/\.agenda-list > li \{\s*min-width: 0/);
+  });
+});

@@ -306,3 +306,33 @@
   font-size: var(--text-xs);
   color: var(--muted-foreground);
 }
+
+/* Month cells are narrow (about 100 px at 1024): the headline gets the room first. The time shows before it, and the account marks
+   after it, only where the cell (a container, not the viewport) still leaves a few words. Week, day and the phone agenda keep all three. */
+.cal-items > li {
+  container-type: inline-size;
+}
+.cal-items .cal-chip-time,
+.cal-items .cal-faces {
+  display: none;
+}
+@container (min-width: 150px) {
+  .cal-items .cal-chip-time {
+    display: inline;
+  }
+}
+@container (min-width: 210px) {
+  .cal-items .cal-faces {
+    display: inline-flex;
+  }
+}
+/* The phone agenda: a row is as wide as the screen, and the headline ends in an ellipsis inside it. */
+.agenda-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+.agenda-list > li {
+  min-width: 0;
+}
+.agenda-list .cal-chip {
+  max-width: 100%;
+}
