@@ -6,7 +6,7 @@ import { formatDecimal, isolate, t } from "@ferrum/client";
 import { Alert, Badge, ListSkeleton, PageHead, PageStack, StatePanel } from "@ferrum/kit";
 import { useParams } from "react-router";
 import { record } from "./data";
-import { Nav, useAccounts } from "./ui";
+import { useAccounts } from "./ui";
 import { type Row, rows, text } from "./data";
 import { sparkline } from "./period";
 import { Await } from "./ui";
@@ -61,7 +61,6 @@ export function NativeRoute() {
   const accounts = useAccounts();
   return (
     <PageStack>
-      <Nav />
       <PageHead title={t("A post made on the network")} description={t("It was made on the network itself and read back, so it has no draft here; these are its numbers.")} />
       <Await q={q} skeleton={<ListSkeleton rows={2} />}>
         {(p) => (

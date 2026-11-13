@@ -9,7 +9,7 @@ import { Link } from "react-router";
 import { api, errorMessage, isolate, refusal, t } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, confirmDialog, Dialog, Field, ListSkeleton, PageHead, PageStack, StatePanel, StatusBadge, toast } from "@ferrum/kit";
 import { change, make, type Row, rows, run, STATE_TONES, stateWord, text } from "./data";
-import { Await, brandName, byOrder, Face, firstOf, Nav, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
+import { Await, brandName, byOrder, Face, firstOf, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
 
 /** What `reachable` lists: `{id, name, handle, picture, kind, account}`; `account` is the Social account that has it. */
 export interface Reached {
@@ -384,7 +384,6 @@ export function AccountsRoute() {
   });
   return (
     <PageStack>
-      <Nav />
       <PageHead
         title={t("Accounts")}
         description={t("Each brand's accounts, and whether they can be reached.")}

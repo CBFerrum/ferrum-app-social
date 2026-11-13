@@ -6,7 +6,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, docPath, errorMessage, formatDecimal, t as tr, isolate } from "@ferrum/client";
 import { STATE_TONES, stateWord } from "./data";
-import { Nav } from "./ui";
 import { Button, ButtonLink, toast, HomeSection, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, StatePanel, StatusBadge, type Tone } from "@ferrum/kit";
 
 export interface Row {
@@ -102,7 +101,12 @@ export function Home() {
   const failed = all.find((q) => q.isError);
   const head = (
     <>
-      <Nav />
+      <div className="row" role="navigation" aria-label={tr("Social")}>
+        <ButtonLink to="/calendar" size="sm" icon="calendar">{tr("Calendar")}</ButtonLink>
+        <ButtonLink to="/queue" size="sm" icon="timeline">{tr("Posting times")}</ButtonLink>
+        <ButtonLink to="/accounts" size="sm" icon="apps">{tr("Accounts")}</ButtonLink>
+        <ButtonLink to="/inbox" size="sm" icon="mail">{tr("Inbox")}</ButtonLink>
+      </div>
       <PageHead title={tr("Social")} actions={<ButtonLink to="/compose" variant="primary" icon="plus">{tr("New post")}</ButtonLink>} />
     </>
   );

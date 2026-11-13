@@ -21,7 +21,7 @@ import { Writing, type Adapted } from "./composer/Writing";
 import { ReviewPanel } from "./composer/Review";
 import { type Mode, modeOf, When } from "./composer/When";
 import { effective, followWord, NO_RULES, type Rules } from "./model";
-import { Await, Face, firstOf, Nav, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
+import { Await, Face, firstOf, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
 
 const LOCKED = ["Sending", "Published", "Failed"];
 
@@ -282,8 +282,7 @@ export function ComposerRoute() {
   if (q.isPending || q.isError || !draft)
     return (
       <PageStack>
-        <Nav />
-        <Await q={q} skeleton={<FormSkeleton fields={6} />}>{() => <FormSkeleton fields={6} />}</Await>
+          <Await q={q} skeleton={<FormSkeleton fields={6} />}>{() => <FormSkeleton fields={6} />}</Await>
       </PageStack>
     );
 
@@ -364,7 +363,6 @@ export function ComposerRoute() {
 
   return (
     <PageStack>
-      <Nav />
       {guard}
       <PageHead
         title={postId ? t("Edit post") : t("New post")}

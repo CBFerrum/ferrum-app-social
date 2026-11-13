@@ -8,7 +8,7 @@ import { Link } from "react-router";
 import { formatMoment, isolate, t } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, ListSkeleton, PageHead, PageStack, StatePanel, type Tone } from "@ferrum/kit";
 import { type Row, rows, text } from "./data";
-import { Await, firstOf, Nav, useAllowed } from "./ui";
+import { Await, firstOf, useAllowed } from "./ui";
 
 const TONES: Record<string, Tone> = { Made: "green", Done: "green", Skipped: "neutral", Refused: "amber", Failed: "red" };
 
@@ -99,7 +99,6 @@ export function AutomationRoute() {
   const plugs = useQuery({ queryKey: ["social", "plugs"], queryFn: () => rows("SocialPlug", [], { sort: "plug_name asc" }) });
   return (
     <PageStack>
-      <Nav />
       <PageHead title={t("Feeds and plugs")} description={t("Feeds make posts from new items; plugs act when a post reaches a number.")} />
       <Await q={firstOf(feeds, plugs)}>
         {() => (

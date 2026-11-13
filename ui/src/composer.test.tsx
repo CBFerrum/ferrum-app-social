@@ -273,3 +273,23 @@ describe("title, kind from the media, media by address (round four)", () => {
     void fake;
   });
 });
+
+describe("a decision shows at once", () => {
+  it("after approving, the post and its approval are read again, not waited for", async () => {
+    const fake = server([
+      ["POST", "/api/v1/SocialPost/p1/approval/decide", { ok: true }],
+      ["GET", "/api/v1/SocialPost/p1/approval", { id: "r1", status: "pending", steps: [{ label: "Social Approver", state: "open", need: 1, approvers: [] }], decisions: [] }],
+      ["GET", "/api/approvals", { to_decide: [{ entity: "SocialPost", record: "p1" }], awaiting_others: [] }],
+      ["GET", "/api/v1/SocialPost/p1/tags", { tags: [] }],
+      ["GET", "/api/v1/SocialPost/p1/links", { links: [] }],
+      ["GET", "/api/v1/SocialPost/p1", { id: "p1", version: 3, headline: "Spring", brand: "b1", text: "Spring", status: "In Review", targets: [{ account: "x", kind: "", settings: {} }], items: [], media: [] }],
+    ]);
+    const host = await draw(<ComposerRoute />, "/compose/:id", "/compose/p1");
+    await until(() => !!byText(host, "button", "Approve"));
+    const before = fake.seen.filter((s) => s.line === "GET /api/v1/SocialPost/p1").length;
+    await press(byText(host, "button", "Approve"));
+    await until(() => fake.seen.filter((s) => s.line === "GET /api/v1/SocialPost/p1").length > before);
+    expect(fake.seen.some((s) => s.line === "POST /api/v1/SocialPost/p1/approval/decide")).toBe(true);
+    expect(fake.seen.filter((s) => s.line.startsWith("GET /api/v1/SocialPost/p1/approval")).length).toBeGreaterThan(1);
+  });
+});
