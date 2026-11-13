@@ -34,7 +34,7 @@ roles:
       - {entity: SocialMediaAsset, read: true, write: true, create: true}
       - {entity: SocialLinkTemplate, read: true}
       - {entity: SocialPlug, read: true}
-      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true, via: person}
       - {entity: SocialPlugRun, read: true}
       - {entity: SocialPost, read: true, write: true, create: true, import: true}
       - {entity: SocialPublication, read: true}
@@ -59,7 +59,7 @@ roles:
       - {entity: SocialMediaAsset, read: true}
       - {entity: SocialLinkTemplate, read: true}
       - {entity: SocialPlug, read: true}
-      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true, via: person}
       - {entity: SocialPlugRun, read: true}
       - {entity: SocialPost, read: true, write: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
@@ -88,7 +88,7 @@ roles:
       - {entity: SocialWritingUse, read: true, export: true}
       - {entity: SocialPlug, read: true, write: true, create: true, delete: true}
       - {entity: SocialPlugRun, read: true, export: true}
-      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true, via: person}
       - {entity: SocialDigestRun, read: true}
       - {entity: SocialFeed, read: true, write: true, create: true, delete: true}
       - {entity: SocialFeedItem, read: true, export: true}

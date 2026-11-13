@@ -137,3 +137,30 @@ pub(crate) async fn digest(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<Utc
     }
     Ok(())
 }
+
+/// A notice opt-out is its person's: someone who does not administer the workspace makes and changes only their own
+/// (the roles' rule reaches only rows naming them, `via: person`).
+pub struct OptOutHook;
+
+#[async_trait::async_trait]
+impl ferrum_kernel::DocHook for OptOutHook {
+    fn name(&self) -> &'static str {
+        "social.notice_opt_out"
+    }
+
+    async fn before_validate(&self, hc: &mut ferrum_kernel::HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        if hc.ctx.is_admin || hc.ctx.is_system {
+            return Ok(());
+        }
+        match s(doc, "person").map(str::trim) {
+            None | Some("") => {
+                doc.insert("person".into(), json!(hc.ctx.email.to_lowercase()));
+            }
+            Some(p) if !p.eq_ignore_ascii_case(&hc.ctx.email) => {
+                return Err(ferrum_kernel::Error::Forbidden("a notice opt-out is your own: an administrator sets another person's".into()));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}

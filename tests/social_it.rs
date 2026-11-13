@@ -1617,6 +1617,14 @@ async fn scenario() {
     assert!(sent_with(thread_id).await.contains(&"social.failed".to_string()), "and when it did not");
     assert!(sent_with(spring_id).await.contains(&"social.review".to_string()), "the approval policy's notices in the package's words");
     t.insert(&author, "SocialNoticeOptOut", json!({"person": "author@brands.test", "notice": "went_out"})).await;
+    // (round three) Each person's own: another's is neither made nor seen; an administrator sets anyone's.
+    refused(t.k.insert(&author, "SocialNoticeOptOut", obj(json!({"person": "approver@brands.test", "notice": "digest"}))).await, "forbidden", "your own");
+    let theirs = t.insert(&t.admin, "SocialNoticeOptOut", json!({"person": "approver@brands.test", "notice": "digest"})).await;
+    let q = ListQuery { limit: Some(50), ..Default::default() };
+    let seen = t.k.list(&author, "SocialNoticeOptOut", &q).await.unwrap().rows;
+    assert!(seen.iter().all(|r| r["person"] == "author@brands.test") && !seen.is_empty(), "{seen:?}");
+    assert!(t.k.update(&author, "SocialNoticeOptOut", uid(&theirs["id"]), obj(json!({"notice": "failed"})), None).await.is_err());
+    t.k.delete(&t.admin, "SocialNoticeOptOut", uid(&theirs["id"]), None).await.unwrap();
     let quiet = t.insert(&author, "SocialPost", tagged("Quietly", &[nw_key], "Quiet")).await;
     go(uid(&quiet["id"])).await;
     t.upkeep(due + Duration::hours(25)).await;
