@@ -39,7 +39,7 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube", "tiktok"];
+const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube", "tiktok", "pinterest"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -201,6 +201,7 @@ fn handler(net: &str) -> Option<Handler> {
         "th" => fake_threads,
         "yt" | "yto" => fake_youtube,
         "tt" | "ttu" => fake_tiktok,
+        "pi" | "pis3" => fake_pinterest,
         _ => return None,
     })
 }
@@ -511,6 +512,7 @@ async fn scenario() {
     threads(&t).await;
     youtube(&t).await;
     tiktok(&t).await;
+    pinterest(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -2299,4 +2301,164 @@ async fn tiktok(t: &T) {
     assert_eq!((m["impressions"].as_i64(), m["engagements"].as_i64()), (Some(5000), Some(330)));
     let a = t.call("tiktok_tested", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
     assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(8800), Some("northwind")));
+}
+
+// ───────────── Pinterest ─────────────
+
+fn fake_pinterest(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, c: u32, m: &str| status(code, json!({"code": c, "message": m}));
+    let base = n.base.clone();
+    if r.path == "/v5/oauth/token" {
+        if r.header("authorization") != Some(basic("pi-client", "pi-secret").as_str()) {
+            return err(401, 2, "Authentication failed.");
+        }
+        let f = r.form();
+        let fine = match f.get("grant_type").map(String::as_str) {
+            Some("authorization_code") => f.get("code").map(String::as_str) == Some("CODE-pi") && f.contains_key("redirect_uri"),
+            Some("refresh_token") => f.get("refresh_token").map(String::as_str) == Some("PR-1"),
+            _ => false,
+        };
+        if !fine {
+            return err(400, 1, "Invalid request.");
+        }
+        let i = n.next();
+        n.tokens("pi").push(json!(format!("PA-{i}")));
+        return ok(json!({"access_token": format!("PA-{i}"), "refresh_token": "PR-1", "response_type": "authorization_code", "token_type": "bearer",
+                         "expires_in": 2592000, "refresh_token_expires_in": 31536000, "scope": "boards:read pins:read pins:write user_accounts:read"}));
+    }
+    if r.path == "/upload" {
+        // S3: a form whose fields the register answer named, then the file; no credentials of the connection's.
+        let parts = r.parts();
+        if r.header("authorization").is_some() || parts.get("key").map(|p| p.2.as_slice()) != Some(b"uploads/v1.mp4".as_slice()) || !parts.contains_key("file")
+        {
+            return Resp(403, vec![("content-type".into(), "application/xml".into())], b"<Error><Code>AccessDenied</Code></Error>".to_vec());
+        }
+        let names: Vec<String> = parts.keys().cloned().collect();
+        n.set("pi:s3", json!({"fields": names, "bytes": parts["file"].2.len()}));
+        return empty(204);
+    }
+    if !n.valid("pi", r) {
+        return err(401, 2, "Authentication failed.");
+    }
+    let seg: Vec<&str> = r.path.trim_start_matches("/v5/").split('/').collect();
+    match (r.method.as_str(), seg.as_slice()) {
+        ("GET", ["boards"]) => ok(json!({"items": [{"id": "B1", "name": "Breads"}, {"id": "B2", "name": "Cakes"}], "bookmark": null})),
+        ("POST", ["media"]) => {
+            let id = format!("{}", 9000 + n.next());
+            ok(json!({"media_id": id, "media_type": "video", "upload_url": format!("{base}/pis3/upload"),
+                      "upload_parameters": {"key": "uploads/v1.mp4", "x-amz-signature": "sig", "policy": "pol", "Content-Type": "multipart/form-data"}}))
+        }
+        ("GET", ["media", id]) => {
+            let polls = n.next();
+            let _ = id;
+            ok(
+                json!({"media_id": id, "media_type": "video", "status": if n.get("pi:s3").is_null() { "registered" } else if polls.is_multiple_of(2) { "succeeded" } else { "processing" }}),
+            )
+        }
+        ("GET", ["user_account"]) => {
+            ok(json!({"username": "northwind", "business_name": "Northwind", "follower_count": 210, "profile_image": "https://i.pinimg.test/n.jpg"}))
+        }
+        ("POST", ["pins"]) => {
+            let b = r.json();
+            if !["B1", "B2"].contains(&b["board_id"].as_str().unwrap_or_default()) {
+                return err(404, 2, "Board not found.");
+            }
+            let src = &b["media_source"];
+            let fine = match src["source_type"].as_str() {
+                Some("image_url") => src["url"].is_string(),
+                Some("multiple_image_urls") => src["items"].as_array().is_some_and(|i| i.len() >= 2),
+                Some("video_id") => src["media_id"].is_string() && src["cover_image_key_frame_time"].is_number(),
+                _ => false,
+            };
+            if !fine {
+                return err(400, 1, "Invalid media_source.");
+            }
+            let id = format!("{}", 1_000_000 + n.next());
+            n.list("pi:pins").insert(0, json!({"id": id, "board_id": b["board_id"], "title": b["title"], "description": b["description"], "link": b["link"], "alt_text": b["alt_text"], "media_source": src}));
+            status(201, json!({"id": id}))
+        }
+        ("GET", ["boards", board, "pins"]) => {
+            let mine: Vec<Value> = n.list("pi:pins").iter().filter(|p| p["board_id"] == json!(board)).cloned().collect();
+            ok(json!({"items": mine, "bookmark": null}))
+        }
+        ("GET", ["pins", id]) => {
+            let _ = id;
+            ok(
+                json!({"id": id, "pin_metrics": {"lifetime_metrics": {"impression": 700, "save": 12, "pin_click": 30, "outbound_click": 9, "reaction": 4, "comment": 1}}}),
+            )
+        }
+        ("DELETE", ["pins", id]) => {
+            let id = id.to_string();
+            n.list("pi:pins").retain(|p| p["id"] != json!(id));
+            empty(204)
+        }
+        _ => err(404, 404, "Not found"),
+    }
+}
+
+async fn pinterest(t: &T) {
+    let conn = t
+        .connect("pinterest", "pi", &["api.pinterest.com", "pinterest-media-upload.s3-accelerate.amazonaws.com"], json!({"client_secret": "pi-secret"}), |_| {})
+        .await;
+    t.sign_in(conn, "CODE-pi").await;
+    let account = t.account("Northwind Pinterest", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "Pinterest");
+    let boards = t.action(account, "choices", json!({"setting": "board"})).await.unwrap();
+    assert_eq!(boards["choices"][0], json!({"value": "B1", "label": "Breads"}));
+    let pin = |text: &str, ids: &[String], settings: Value| {
+        let media: Vec<(&str, &str, i64)> = ids.iter().map(|_| ("x", "image/jpeg", 4)).collect();
+        let mut v = post_in(text, Some("https://northwind.test/bread"), &media, ids);
+        v["settings"] = settings;
+        v
+    };
+    let key = format!("publish:{}", Uuid::now_v7());
+    let mut ids = vec![];
+    for i in 0..2 {
+        let mut m = t.medium(&format!("{i}.jpg"), "image/jpeg", b"JPEG", None, json!({}), None).await;
+        m["url"] = json!(format!("https://files.northwind.test/{i}.jpg"));
+        ids.push(t.call("pinterest", "publish_media", m, Some(&format!("media:{key}:0:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
+    }
+    // One picture, then a carousel, each on the board the setting names.
+    let one = t.call("pinterest", "publish", pin("Sourdough", &ids[..1], json!({"board": "B1", "title": "Sourdough"})), Some(&key)).await.unwrap();
+    assert_eq!(one["url"], format!("https://www.pinterest.com/pin/{}/", one["id"].as_str().unwrap()));
+    {
+        let mut n = t.net();
+        let p = n.list("pi:pins")[0].clone();
+        assert_eq!(
+            (p["media_source"]["source_type"].as_str(), p["link"].as_str(), p["alt_text"].as_str()),
+            (Some("image_url"), Some("https://northwind.test/bread"), Some("What it shows"))
+        );
+    }
+    t.call("pinterest", "publish", pin("Two loaves", &ids, json!({"board": "B1"})), Some(&format!("{key}:c"))).await.unwrap();
+    assert_eq!(t.net().list("pi:pins")[0]["media_source"]["items"].as_array().unwrap().len(), 2);
+    // A video: registered, sent to the storage address with the fields it named, waited for, pinned.
+    let m = t.medium("v.mp4", "video/mp4", b"VIDEO-BYTES", None, json!({}), None).await;
+    let vid = t.call("pinterest", "publish_media", m, Some(&format!("media:{key}:v"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    assert!(vid.starts_with("video:"));
+    assert_eq!(t.net().get("pi:s3")["bytes"], 11);
+    assert!(t.net().get("pi:s3")["fields"].as_array().unwrap().contains(&json!("x-amz-signature")));
+    let mut v = post_in("Watch the crumb", None, &[("v.mp4", "video/mp4", 11)], &[vid]);
+    v["settings"] = json!({"board": "B2"});
+    t.call("pinterest", "publish", v, Some(&format!("{key}:v"))).await.unwrap();
+    assert_eq!(t.net().list("pi:pins")[0]["media_source"]["source_type"], "video_id");
+    // A lost answer: found on its board by its description.
+    t.net().lose.insert("POST /pi/v5/pins".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("pi:pins").len();
+    assert!(t.call("pinterest", "publish", pin("Only once", &ids[..1], json!({"board": "B1"})), Some(&lost)).await.is_err());
+    let got = t.call("pinterest", "publish", pin("Only once", &ids[..1], json!({"board": "B1"})), Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("pi:pins").len(), before + 1);
+    assert_eq!(got["id"], t.net().list("pi:pins")[0]["id"]);
+    // A refusal in Pinterest's words.
+    let e = t.call("pinterest", "publish", pin("Nowhere", &ids[..1], json!({"board": "B9"})), Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(e.to_string().contains("Board not found"), "{e}");
+    // Refreshed, numbers, the account, delete.
+    t.expire(conn).await;
+    let m = t.call("pinterest", "metrics", json!({"id": one["id"], "account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!((m["impressions"].as_i64(), m["clicks"].as_i64(), m["engagements"].as_i64()), (Some(700), Some(39), Some(17)));
+    assert_eq!(t.net().last("pi", "POST", "/v5/oauth/token").form()["grant_type"], "refresh_token");
+    let a = t.call("pinterest", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!(a["followers"], 210);
+    t.call("pinterest", "delete", json!({"id": one["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
+    assert!(!t.net().list("pi:pins").iter().any(|p| p["id"] == one["id"]));
 }
