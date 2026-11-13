@@ -1821,6 +1821,41 @@ async fn scenario() {
     t.net.lock().unwrap().stats_retry = None;
     tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
 
+    // ───────────── (round four) a person's own pull writes as the system; one of before is refused plainly ─────────────
+    // (proved against the old Mastodon-shaped fake until round four; the networks' own suites now drive their files)
+    let inbox_mine = |who: &str, system: bool| {
+        let mut d = description(&base, json!({"type": "oauth", "owner": "person", "provider": provider(who)}), &["publish", "messages"], true);
+        d["meta"] = json!({"social": {"name": "Chirp Mine", "text": {"max": 100}}});
+        if !system {
+            d["pulls"][0]["map"].as_object_mut().unwrap().remove("as");
+        }
+        d
+    };
+    let mine_new = save("chirp_mine_inbox", inbox_mine("pia2", true), json!({"client": "pia2-secret"})).await;
+    let mine_old = save("chirp_mine_old", inbox_mine("pia3", false), json!({"client": "pia3-secret"})).await;
+    for (name, conn) in [("Pia Inbox", mine_new), ("Pia Old", mine_old)] {
+        let mut a = threaded(name, &name.to_lowercase().replace(' ', "_"), conn);
+        a["connected_by"] = json!("pia@brands.test");
+        t.insert(&manager, "SocialAccount", a).await;
+        t.sign_in(&pia, conn, "CODE-pia").await;
+    }
+    t.net
+        .lock()
+        .unwrap()
+        .inbox
+        .push(json!({"id": "own-1", "kind": "mention", "from": "kay", "from_id": "u-kay", "text": "Hi Pia", "to": "pia_inbox", "thread": "t-own"}));
+    for conn in [mine_old, mine_new] {
+        t.k.pull_now(&t.admin, conn, "inbox").await.unwrap();
+        t.work().await;
+    }
+    let kay = t.rows("SocialMessage", json!({"author": "kay"})).await;
+    assert_eq!((kay.len(), kay[0]["external_id"].as_str()), (1, Some("own-1")), "made by her pull as the system, its read-only id kept: {kay:?}");
+    let old_said = t.k.connection_pulls(&t.admin, mine_old).await.unwrap();
+    assert!(old_said.iter().any(|p| p["last_error"].as_str().is_some_and(|e| !e.is_empty())), "a description of before is refused plainly: {old_said:?}");
+    // Left as the inbox's own part below finds things.
+    t.k.delete(&t.admin, "SocialMessage", uid(&kay[0]["id"]), None).await.unwrap();
+    t.net.lock().unwrap().inbox.retain(|i| i["id"] != "own-1");
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});
