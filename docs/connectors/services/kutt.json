@@ -1,0 +1,42 @@
+{
+  "base": "https://kutt.it/api/v2",
+  "auth": {
+    "type": "none"
+  },
+  "apps": [
+    "social"
+  ],
+  "headers": {
+    "X-API-KEY": "{{ secret.api_key }}"
+  },
+  "operations": {
+    "shorten": {
+      "method": "POST",
+      "path": "/links",
+      "body": "{\"target\": {{ inputs.url | json }}}",
+      "result": {
+        "url": "/link",
+        "id": "/id"
+      },
+      "error_at": "/error",
+      "idempotency_header": "Idempotency-Key",
+      "inputs": [
+        "url"
+      ]
+    },
+    "link_clicks": {
+      "path": "/links/{{ inputs.id }}/stats",
+      "result": {
+        "clicks": "/allTime/views"
+      },
+      "error_at": "/error",
+      "inputs": [
+        "id"
+      ]
+    }
+  },
+  "meta": {
+    "label": "Short links: Kutt",
+    "note": "Secret: api_key. A self-hosted Kutt: change base."
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "base": "https://blog.example",
+  "auth": {
+    "type": "none"
+  },
+  "any_host": true,
+  "apps": [
+    "social"
+  ],
+  "operations": {
+    "feed": {
+      "url": "{{ inputs.address }}",
+      "error_at": "/error",
+      "inputs": [
+        "address"
+      ]
+    }
+  },
+  "meta": {
+    "label": "Feeds: JSON Feed",
+    "feed": {
+      "items_at": "/items",
+      "id_at": "/id",
+      "link_at": "/url",
+      "title_at": "/title",
+      "text_at": "/content_text",
+      "picture_at": "/image",
+      "published_at": "/date_published"
+    },
+    "note": "A JSON Feed (jsonfeed.org, version 1.1): each feed's address is the feed record's, on any public host (any_host, BD-65). RSS and Atom are the feeds description's."
+  }
+}

@@ -3,3 +3,336 @@
 @import "../../../ferrum/web/src/index.css";
 @source "../../../ferrum/web/src";
 @source ".";
+
+/* An account's or a brand's picture, or its initials. */
+.face {
+  flex: none;
+  width: calc(32 / 14 * 1rem);
+  height: calc(32 / 14 * 1rem);
+  border-radius: 999px;
+  object-fit: cover;
+  background: var(--primary-soft);
+}
+.face-initial {
+  display: inline-grid;
+  place-items: center;
+  color: var(--primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.face-sm {
+  width: calc(20 / 14 * 1rem);
+  height: calc(20 / 14 * 1rem);
+}
+
+/* Small pictures of media, and the neutral card a preview draws. */
+.thumb {
+  flex: none;
+  width: calc(48 / 14 * 1rem);
+  height: calc(48 / 14 * 1rem);
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--surface-2);
+}
+.thumb-kind {
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  overflow: hidden;
+}
+.preview-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.preview-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.preview-follow {
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--border-strong);
+}
+.preview-media {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(96 / 14 * 1rem), 1fr));
+  gap: 4px;
+}
+.preview-media img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+.mark {
+  background: transparent;
+  color: var(--primary);
+}
+
+/* The calendar: chips for posts, a column for each day of a week or a day, and empty places where a posting time is free. */
+.cal-chip {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 2px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--tone, var(--border-strong));
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: start;
+  cursor: pointer;
+}
+.cal-chip[draggable="true"] {
+  cursor: grab;
+}
+.cal-chip:hover {
+  background: var(--surface-2);
+}
+.cal-chip[data-tone="blue"] { --tone: var(--primary); }
+.cal-chip[data-tone="green"] { --tone: var(--success); }
+.cal-chip[data-tone="amber"] { --tone: var(--warning); }
+.cal-chip[data-tone="red"] { --tone: var(--danger); }
+.cal-chip[data-tone="purple"] { --tone: var(--purple); }
+.cal-chip-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.cal-chip-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-repeat {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.cal-faces {
+  display: inline-flex;
+  flex: none;
+}
+.cal-cols {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 7), minmax(0, 1fr));
+  gap: 8px;
+}
+.cal-cols[data-days="1"] {
+  --cols: 1;
+}
+.cal-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.cal-col[data-over] {
+  background: var(--primary-soft);
+}
+.cal-col-head {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+.cal-place {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+  background: none;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.cal-place:hover,
+.cal-place[data-over] {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+.cal-add {
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+.cal-day[data-over] {
+  background: var(--primary-soft);
+}
+@media (max-width: 720px) {
+  .cal-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A place in the queue: a time, and what is in it. */
+.cal-place-row {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.cal-place-row[data-over] {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+/* An answer being replaced by a newer one: the last stays, dimmed. */
+[data-dimmed] {
+  opacity: 0.55;
+  transition: opacity var(--duration-state);
+}
+
+/* The media library's grid. */
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(180 / 14 * 1rem), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.media-grid > li[data-picked] {
+  border-color: var(--primary);
+}
+.media-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.media-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The inbox desk: conversations beside the thread (one under the other on a phone). */
+.inbox-desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+.inbox-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.inbox-row[aria-current] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.inbox-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.inbox-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox-ours {
+  background: var(--primary-soft);
+}
+@media (max-width: 720px) {
+  .inbox-desk {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A small line of days. */
+.spark {
+  width: calc(120 / 14 * 1rem);
+  height: calc(28 / 14 * 1rem);
+  color: var(--primary);
+}
+
+/* A chip stays inside its day: the time, the headline with an ellipsis, then at most two marks and "+n". */
+.cal-day {
+  overflow: hidden;
+}
+.cal-items {
+  min-width: 0;
+}
+.cal-items > li {
+  min-width: 0;
+}
+.cal-more-faces {
+  flex: none;
+  margin-inline-start: 2px;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+/* Month cells are narrow (about 100 px at 1024): the headline gets the room first. The time shows before it, and the account marks
+   after it, only where the cell (a container, not the viewport) still leaves a few words. Week, day and the phone agenda keep all three. */
+.cal-items > li {
+  container-type: inline-size;
+}
+.cal-items .cal-chip-time,
+.cal-items .cal-faces {
+  display: none;
+}
+@container (min-width: 150px) {
+  .cal-items .cal-chip-time {
+    display: inline;
+  }
+}
+@container (min-width: 210px) {
+  .cal-items .cal-faces {
+    display: inline-flex;
+  }
+}
+/* The phone agenda: a row is as wide as the screen, and the headline ends in an ellipsis inside it. */
+.agenda-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+.agenda-list > li {
+  min-width: 0;
+}
+.agenda-list .cal-chip {
+  max-width: 100%;
+}

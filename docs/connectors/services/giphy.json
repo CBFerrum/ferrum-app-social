@@ -1,0 +1,73 @@
+{
+  "base": "https://api.giphy.com",
+  "auth": {
+    "type": "none"
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.giphy.com",
+    "media.giphy.com",
+    "media0.giphy.com",
+    "media1.giphy.com",
+    "media2.giphy.com",
+    "media3.giphy.com",
+    "media4.giphy.com",
+    "i.giphy.com"
+  ],
+  "operations": {
+    "search_media": {
+      "path": "/v1/gifs/search",
+      "query": {
+        "api_key": "{{ secret.api_key }}",
+        "q": "{{ inputs.query }}",
+        "limit": "25",
+        "offset": "{{ (inputs.page - 1) * 25 }}",
+        "rating": "g"
+      },
+      "error_at": "/meta/msg",
+      "inputs": [
+        "query",
+        "page"
+      ]
+    },
+    "fetch_media": {
+      "path": "/v1/gifs/{{ inputs.id }}",
+      "query": {
+        "api_key": "{{ secret.api_key }}"
+      },
+      "result": {
+        "file": {
+          "file": {
+            "from": "/data/images/original/url",
+            "max_bytes": 15728640
+          }
+        }
+      },
+      "error_at": "/meta/msg",
+      "inputs": [
+        "id"
+      ]
+    }
+  },
+  "meta": {
+    "label": "GIFs: GIPHY",
+    "social": {
+      "media_search": {
+        "items_at": "/data",
+        "id_at": "/id",
+        "preview_at": "/images/fixed_width/url",
+        "url_at": "/images/original/url",
+        "credit_at": "/username",
+        "credit_link_at": "/user/profile_url",
+        "alt_at": "/alt_text",
+        "width_at": "/images/original/width",
+        "height_at": "/images/original/height",
+        "licence": "GIPHY: shown with its attribution (Powered by GIPHY)",
+        "kind": "gif"
+      }
+    },
+    "note": "Secret: api_key."
+  }
+}

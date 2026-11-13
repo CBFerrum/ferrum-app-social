@@ -7,8 +7,10 @@ This app's design and code are its own. No code was copied from another project.
   analytics.
 - The networks' limits are their published ones. Everything that reaches a network goes through
   Ferrum's connections (docs/connectors.md).
-- The Bluesky connector speaks the AT Protocol's published XRPC methods (docs.bsky.app):
-  `com.atproto.server.createSession`, `com.atproto.repo.getRecord` and `createRecord`,
-  `app.bsky.feed.getAuthorFeed` and `getPosts`, and `app.bsky.notification.listNotifications`, with
-  record keys in the protocol's TID form and links as its rich-text facets. The code is this app's
-  own.
+- No network is named in code. Examples under docs/connectors/ are written from the networks' public API
+  documentation (pages listed there; the package ships two of them as data); the code is this app's own.
+- 0.8.0 took behaviour and network facts, not code, from two open-source products read at
+  `referance/social/`: Postiz (AGPL-3.0; composer, threads and delays, time slots, repeat, sets, signatures, the
+  preview link, and each provider's limits and settings as written in docs/connectors/examples/) and Mixpost Lite
+  (MIT; versions per account, editor limits). X's weighted length follows its published counting rules (ranges and
+  weights only). No code was copied.

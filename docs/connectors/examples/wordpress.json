@@ -1,0 +1,15 @@
+{"label": "WordPress", "note": "meta.social only. Facts from Postiz wordpress.provider.ts: an article with a title, html, a status, categories read from the site, a featured picture.",
+ "meta": {"social": {
+  "name": "WordPress",
+  "text": {"format": "html"},
+  "media": {"kinds": ["image"], "max": 1, "alt": true},
+  "kinds": [{"name": "article", "label": "Article"}],
+  "follow_ups": {"as": "none"},
+  "settings": [
+    {"key": "title", "label": "Title", "type": "text", "required": true},
+    {"key": "status", "label": "Status", "type": "select", "default": "publish", "options": ["publish", "draft", "pending", "private"]},
+    {"key": "categories", "label": "Categories", "type": "multi", "choices": {"operation": "categories", "items_at": "", "value_at": "/id", "label_at": "/name"}},
+    {"key": "slug", "label": "Address name", "type": "text"}
+  ],
+  "link_preview": false
+ }}}

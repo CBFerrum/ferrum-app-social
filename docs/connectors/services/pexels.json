@@ -1,0 +1,66 @@
+{
+  "base": "https://api.pexels.com",
+  "auth": {
+    "type": "none"
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.pexels.com",
+    "images.pexels.com"
+  ],
+  "headers": {
+    "Authorization": "{{ secret.api_key }}"
+  },
+  "operations": {
+    "search_media": {
+      "path": "/v1/search",
+      "query": {
+        "query": "{{ inputs.query }}",
+        "page": "{{ inputs.page }}",
+        "per_page": "{{ inputs.per_page }}"
+      },
+      "error_at": "/error",
+      "inputs": [
+        "query",
+        "page",
+        "per_page"
+      ]
+    },
+    "fetch_media": {
+      "path": "/v1/photos/{{ inputs.id }}",
+      "result": {
+        "file": {
+          "file": {
+            "from": "/src/original",
+            "max_bytes": 10485760
+          }
+        }
+      },
+      "error_at": "/error",
+      "inputs": [
+        "id"
+      ]
+    }
+  },
+  "meta": {
+    "label": "Stock pictures: Pexels",
+    "social": {
+      "media_search": {
+        "items_at": "/photos",
+        "id_at": "/id",
+        "preview_at": "/src/medium",
+        "url_at": "/src/original",
+        "credit_at": "/photographer",
+        "credit_link_at": "/photographer_url",
+        "alt_at": "/alt",
+        "width_at": "/width",
+        "height_at": "/height",
+        "licence": "Pexels License: free to use; credit the photographer and Pexels",
+        "kind": "image"
+      }
+    },
+    "note": "Secret: api_key."
+  }
+}

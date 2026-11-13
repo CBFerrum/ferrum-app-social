@@ -1,102 +1,139 @@
-//! Accounts, posts and publications. A post goes from its brand to one or more of the brand's
-//! active accounts. It must fit every network it goes to, and each account's connection must be
-//! able to publish. Someone other than its author approves it; one sent back says why, and a post
-//! changed after its approval needs approving again. At its time, upkeep makes one publication per
-//! account and sends it through that account's own connection, by the platform's delivery. A
-//! publication is out once the network has given its id, and the post is published when all of
-//! them are. What each did is read back through the connection with the network's posts.
+//! Posts and publications. A post goes from its brand to one or more of the brand's active accounts, as the original or
+//! as each account's own version (content.rs). Each copy must fit what the account's network takes and answer what it
+//! asks (rules.rs), and the account's connection must offer what the copy needs (`publish`, `publish_media` for media,
+//! `reply` for follow-ups that are comments). Review: review.rs; when it goes: when.rs.
+//!
+//! At its time, upkeep makes one publication per account and queues one job for each, keyed by the publication. The job
+//! sends the copy item by item: each item's media first (`publish_media`), then the item (`publish`, or `reply` for a
+//! comment), each under a key of its own, and keeps each item's network id and address (`sent_items`) as it goes, in a
+//! transaction of its own. What makes that once per account and per item, under retries and two workers:
+//! * the job is deduplicated by the publication while queued or running, and a job is claimed by one worker at a time;
+//! * each item is sent holding a lock on the publication's row, and `sent_items` is read after taking it, so a second
+//!   job for the same publication waits, then finds the item out;
+//! * each call carries its key: `publish:<publication>` for the first item (0.7.0's key, so a publication under way
+//!   across the upgrade is not sent twice) and `publish:<publication>:<n>` for item n after it, `media:<publication>`
+//!   for the first item's first medium and `media:<publication>:<item>:<n>` for the others. The platform hands a key
+//!   that went through its stored answer without calling the network, and gives the network the same key on every
+//!   attempt in the description's idempotency header.
+//!
+//! A refusal ends the attempt at once and the service's own words are shown on the publication; "later" (a timeout, a
+//! limit, a 5xx) is tried again by the job with backoff. A thread that failed half way resumes where it stopped: the
+//! items out are in `sent_items` and are not sent again. An item with a delay waits it after the one before, the job
+//! put back for then. The post is published when every publication is out, failed when any one ended without being.
 
-use crate::{at, capabilities, connection, deliver, delivery, obj, sent_as};
+use crate::accounts::{self, Reach, any_profile, caller, reach};
+use crate::content::{self, Med, Version, fingerprint};
+use crate::rules::{self, FollowAs, Rules};
+use crate::{at, base64, obj};
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use ferrum_domain::util::{elevated, id, rows, s};
+use ferrum_kernel::connections::{self, Call};
+use ferrum_kernel::jobs::{Job, JobHandler, NewJob};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, Filter, HookCtx, Kernel, Result, Tx};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
+use std::time::Duration as Wait;
 use uuid::Uuid;
 
-/// A publication whose delivery has left no trace in the job list, and that is this old, is given
-/// up on: the list is cleaned after a while, and a send takes far less than this.
+/// A publication whose job has left no trace, and that is this old, is given up on: the list of
+/// jobs is cleaned after a while, and a send takes far less than this.
 const STALE: Duration = Duration::hours(24);
 
-/// The stream a connection sends posts on, and reads them back from.
-pub(crate) const POSTS: &str = "posts";
+/// Attempts at one publication while the network says "later".
+const ATTEMPTS: i32 = 8;
 
-/// What a network takes in one post: its length, and whether it takes text alone.
-pub(crate) fn takes(network: &str) -> (usize, bool) {
-    match network {
-        "X" => (280, true),
-        "Bluesky" => (300, true),
-        "Mastodon" | "Threads" => (500, true),
-        "LinkedIn" => (3000, true),
-        "Facebook" => (63206, true),
-        // Instagram takes a post with its picture; YouTube publishes video.
-        _ => (2200, false),
+pub(crate) const PUBLISH: &str = "social.publish";
+
+/// What an account's network takes and asks: what its connection's description says (`meta.social`, or 0.7.0's
+/// `meta.capabilities`, which is where a server's own limit lives), else the network profile the account names (its
+/// `social` shape, else its fields; the seeded ones are the defaults).
+pub(crate) async fn rules_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) -> Result<Option<Rules>> {
+    if let Some(found) = reach(tx, ctx.tenant, s(account, "connection")).await?
+        && let Some(r) = found.social(s(account, "network"))?
+    {
+        return Ok(Some(r));
+    }
+    let Some(profile) = id(account, "profile") else { return Ok(None) };
+    let p = k.get_tx(&elevated(ctx), tx, "SocialProfile", profile, false).await?;
+    let name = s(&p, "profile_name").unwrap_or("This network");
+    match p.get("social").filter(|v| v.is_object()) {
+        Some(v) => Rules::parse(v, name).map(Some).map_err(|e| Error::invalid(format!("the network profile {name}: {e}"))),
+        None => Ok(Some(Rules::of_fields(&p, name))),
     }
 }
 
-/// Why a post of `text` and `link`, with a picture or not, does not fit `network`, when it does not.
-pub(crate) fn misfit(network: &str, text: &str, link: Option<&str>, image: bool) -> Option<String> {
-    let (max, text_alone) = takes(network);
-    if network == "YouTube" {
-        return Some("YouTube takes video, which posts here do not carry".into());
-    }
-    if !text_alone && !image {
-        return Some(format!("{network} takes no post without an image or a video"));
-    }
-    // X counts a link as 23 characters, whatever its length, after a space.
-    let length = text.chars().count() + link.map_or(0, |l| if network == "X" { 24 } else { l.chars().count() + 1 });
-    (length > max).then(|| format!("{network} takes {max} characters, and this post is {length}"))
+/// How a copy's follow-ups go out on a network with these rules.
+fn follow(r: &Rules, v: &Version) -> FollowAs {
+    let kind = r.kind(v.kind_on(r).as_deref()).ok().flatten();
+    r.effective(kind).2.as_
 }
 
-/// What approval fixes: the words, the link, the picture and what it says of it, where and when it
-/// goes.
-fn fingerprint(doc: &Doc) -> String {
-    let mut targets: Vec<String> = rows(doc, "targets").iter().filter_map(|t| s(t, "account").map(str::to_string)).collect();
-    targets.sort();
-    let what = json!([s(doc, "text"), s(doc, "link"), targets, at(doc, "scheduled_at").map(|t| t.timestamp()), s(doc, "image"), s(doc, "image_alt")]);
-    hex::encode(Sha256::digest(what.to_string()))
+/// Why account `a`'s copy of `doc` cannot go, in plain words naming the account; `None` when it can. Also what its
+/// connection must offer for it.
+/// `strict`: everything a post must be to leave Draft; else what even a draft may not hold (structure: a kind or a
+/// setting the network does not have, a medium for an item there is not).
+pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc, any_profiles: bool, strict: bool) -> Result<Option<(String, String)>> {
+    let name = s(a, "account_name").unwrap_or_default().to_string();
+    let v = content::version(k, ctx, tx, doc, a).await.map_err(|e| match e {
+        Error::Validation(f) => Error::Validation(
+            f.into_iter()
+                .map(|mut f| {
+                    f.message = format!("for {name}: {}", f.message);
+                    f
+                })
+                .collect(),
+        ),
+        other => other,
+    })?;
+    let r = match rules_of(k, ctx, tx, a).await? {
+        Some(r) => r,
+        // A workspace not yet updated has no profiles: nothing says what its networks take.
+        None if any_profiles && strict => {
+            return Ok(Some(("targets".into(), format!("{name} has no network profile, so it is not known what its network takes"))));
+        }
+        None if !strict => return Ok(None),
+        None => {
+            let open = Rules::default();
+            return Ok(conn_misses(tx, ctx, a, &open, &v, &name).await?.map(|why| ("targets".into(), why)));
+        }
+    };
+    if !strict {
+        return Ok(rules::structural(&r, &v.copy()).into_iter().next().map(|why| ("targets".into(), format!("for {name}: {why}"))));
+    }
+    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy_on(k))).next() {
+        return Ok(Some(("text".into(), format!("for {name}: {why}"))));
+    }
+    Ok(conn_misses(tx, ctx, a, &r, &v, &name).await?.map(|why| (if why.contains("pictures") { "image" } else { "targets" }.into(), why)))
 }
 
-pub struct AccountHook;
-
-#[async_trait]
-impl DocHook for AccountHook {
-    fn name(&self) -> &'static str {
-        "social.account"
+/// What account `a`'s connection lacks for copy `v`.
+async fn conn_misses(tx: &mut Tx, ctx: &Ctx, a: &Doc, r: &Rules, v: &Version, name: &str) -> Result<Option<String>> {
+    let conn = reach(tx, ctx.tenant, s(a, "connection")).await?;
+    let offers = |op: &str| conn.as_ref().is_some_and(|c| c.has(r.op(op)));
+    if !offers("publish") {
+        return Ok(Some(format!("{name}'s connection cannot publish posts")));
     }
-
-    async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
-        if let Some(handle) = s(doc, "handle").map(|h| h.trim().trim_start_matches('@').to_string()) {
-            doc.insert("handle".into(), json!(handle));
-        }
-        // The connection by its name, as Administration, Connections shows it, or by its id. A
-        // disconnected one (its credentials forgotten) is not one of them.
-        if let Some(given) = s(doc, "connection").map(|c| c.trim().to_string()).filter(|c| !c.is_empty() && c.parse::<Uuid>().is_err()) {
-            let named: Vec<Uuid> =
-                sqlx::query_scalar("select id from connection where tenant_id = $1 and lower(name) = lower($2) and sealed is not null limit 2")
-                    .bind(hc.ctx.tenant)
-                    .bind(&given)
-                    .fetch_all(&mut **hc.tx)
-                    .await?;
-            match named.as_slice() {
-                [one] => {
-                    doc.insert("connection".into(), json!(one.to_string()));
-                }
-                [] => return Err(Error::field("connection", format!("no connection is named {given}"))),
-                _ => return Err(Error::field("connection", format!("more than one connection is named {given}: give its id"))),
-            }
-        }
-        Ok(())
+    let steps = conn.as_ref().is_some_and(|c| c.has_steps(r.op("publish")));
+    if v.items.iter().any(|i| !i.media.is_empty()) && !offers("publish_media") && !steps {
+        return Ok(Some(format!("{name}'s connection cannot publish pictures")));
     }
-
-    async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
-        let conn = s(doc, "connection").and_then(|c| c.trim().parse().ok()).ok_or_else(|| Error::field("connection", "is a connection's id"))?;
-        if connection(hc.tx, hc.ctx.tenant, conn).await?.is_none() {
-            return Err(Error::field("connection", "no connection by that id in this workspace"));
-        }
-        Ok(())
+    if v.items.len() > 1 && follow(r, v) == FollowAs::Comment && !offers("reply") {
+        return Ok(Some(format!("{name}'s connection cannot add comments")));
     }
+    Ok(None)
+}
+
+/// Refused, in the words `unfit` gives, unless every account's copy of `doc` may leave Draft.
+pub(crate) async fn ready(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+    let system = elevated(hc.ctx);
+    let profiles = any_profile(hc).await?;
+    for account in content::accounts(doc) {
+        let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
+        if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles, true).await? {
+            return Err(Error::field(&field, why));
+        }
+    }
+    Ok(())
 }
 
 pub struct PostHook;
@@ -107,11 +144,23 @@ impl DocHook for PostHook {
         "social.post"
     }
 
+    /// (round five) The review's decision shows on the post at once (BD-66).
+    async fn approval_decided(&self, hc: &mut HookCtx<'_>, doc: &Doc, decided: &ferrum_kernel::ApprovalDecided<'_>) -> Result<()> {
+        crate::review::decided(hc, doc, decided).await
+    }
+
     fn fills(&self) -> &'static [&'static str] {
         &["author", "status", "approved_by", "approved_hash"]
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        crate::media::fill_lines(hc, doc).await?;
+        // Asked for by a body sent to `_calc` (nothing written): each account's copy, as `copies` answers it.
+        if doc.get("want_checks").and_then(Value::as_bool) == Some(true) {
+            let checks = copies_of(hc.kernel, hc.ctx, hc.tx, doc).await?;
+            doc.insert("checks".into(), checks);
+            doc.insert("want_checks".into(), json!(false));
+        }
         if s(doc, "author").is_none() && !hc.ctx.email.is_empty() {
             doc.insert("author".into(), json!(hc.ctx.email.to_lowercase()));
         }
@@ -127,9 +176,8 @@ impl DocHook for PostHook {
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
         let system = elevated(hc.ctx);
         let brand = id(doc, "brand");
-        let text = s(doc, "text").unwrap_or_default();
-        let link = s(doc, "link").filter(|l| !l.trim().is_empty());
-        if link.is_some_and(|l| !(l.starts_with("https://") || l.starts_with("http://")) || l.contains(char::is_whitespace)) {
+        let web = |l: &str| (l.starts_with("https://") || l.starts_with("http://")) && !l.contains(char::is_whitespace);
+        if s(doc, "link").map(str::trim).is_some_and(|l| !l.is_empty() && !web(l)) {
             return Err(Error::field("link", "is a web address"));
         }
         let image = s(doc, "image").filter(|i| !i.trim().is_empty());
@@ -139,8 +187,26 @@ impl DocHook for PostHook {
         if image.is_some() && s(doc, "image_alt").is_none_or(|a| a.trim().is_empty()) {
             return Err(Error::field("image_alt", "says what the picture shows, for people who cannot see it"));
         }
-        for target in rows(doc, "targets") {
-            let Some(account) = id(&target, "account") else { continue };
+        for line in rows(doc, "media") {
+            if s(&line, "file").is_none_or(|f| !f.starts_with("/files/")) || s(&line, "thumbnail").is_some_and(|f| !f.is_empty() && !f.starts_with("/files/")) {
+                return Err(Error::field("media", "each medium is a file stored here"));
+            }
+        }
+        if rows(doc, "items").iter().chain(rows(doc, "targets").iter()).any(|l| s(l, "link").map(str::trim).is_some_and(|l| !l.is_empty() && !web(l))) {
+            return Err(Error::field("items", "a link is a web address"));
+        }
+        let targets = content::accounts(doc);
+        for line in rows(doc, "items").iter().chain(rows(doc, "media").iter()) {
+            if let Some(a) = id(line, "account").filter(|a| !targets.contains(a)) {
+                let named = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", a, false).await?;
+                return Err(Error::field(
+                    "items",
+                    format!("{} has a version here but the post does not go to it", s(&named, "account_name").unwrap_or("an account")),
+                ));
+            }
+        }
+        let profiles = any_profile(hc).await?;
+        for account in targets {
             let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
             let name = s(&a, "account_name").unwrap_or_default();
             if id(&a, "brand") != brand {
@@ -149,17 +215,10 @@ impl DocHook for PostHook {
             if !a.get("active").and_then(Value::as_bool).unwrap_or(true) {
                 return Err(Error::field("targets", format!("{name} is paused")));
             }
-            if let Some(why) = misfit(s(&a, "network").unwrap_or_default(), text, link, image.is_some()) {
-                return Err(Error::field("text", format!("for {name}: {why}")));
-            }
-            let conn = s(&a, "connection").and_then(|c| c.parse().ok()).unwrap_or_default();
-            let provider = connection(hc.tx, hc.ctx.tenant, conn).await?.map(|(p, _)| p).unwrap_or_default();
-            let offers = capabilities(hc.kernel, hc.ctx.tenant, &provider).await?;
-            if !offers.iter().any(|c| c == "publish_text") {
-                return Err(Error::field("targets", format!("{name}'s connection cannot publish posts")));
-            }
-            if image.is_some() && !offers.iter().any(|c| c == "publish_image") {
-                return Err(Error::field("image", format!("{name}'s connection cannot publish pictures")));
+            // A draft keeps what is wrong with its content (`copies` says it); it is refused when it leaves Draft.
+            let strict = !matches!(s(doc, "status").unwrap_or("Draft"), "Draft" | "Rejected");
+            if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles, strict).await? {
+                return Err(Error::field(&field, why));
             }
         }
         Ok(())
@@ -173,79 +232,530 @@ impl DocHook for PostHook {
     }
 
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
+        if let Some(out) = crate::review::action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        if let Some(out) = crate::when::action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        if let Some(out) = crate::library::post_action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        if let Some(out) = crate::writing::action(hc, "SocialPost", name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        if name == "copies" {
+            return copies(hc, doc).await.map(Some);
+        }
+        if name != "retry" {
+            return Ok(None);
+        }
+        // Only to the accounts it did not reach, and only what did not go: the rest is out already.
         let post = id(doc, "id").ok_or_else(|| Error::internal("a post without an id"))?;
-        let approver = hc.ctx.is_admin || hc.ctx.roles.iter().any(|r| r == "Social Approver");
-        let values = match name {
-            "send_for_review" => json!({"status": "In Review", "review_note": null}),
-            "approve" => {
-                if !approver {
-                    return Err(Error::Forbidden("a Social Approver approves posts".into()));
-                }
-                if s(doc, "author").is_some_and(|a| a.eq_ignore_ascii_case(&hc.ctx.email)) {
-                    return Err(Error::Forbidden("a post is approved by someone other than its author".into()));
-                }
-                json!({"status": "Approved", "approved_by": hc.ctx.email, "approved_hash": fingerprint(doc)})
-            }
-            "reject" => {
-                if !approver {
-                    return Err(Error::Forbidden("a Social Approver sends posts back".into()));
-                }
-                let note = params.get("note").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
-                let note = note.ok_or_else(|| Error::field("note", "sending a post back says why"))?;
-                json!({"status": "Rejected", "review_note": note})
-            }
-            "retry" => {
-                // Only to the accounts it did not reach: the others have it already.
-                let system = elevated(hc.ctx);
-                let own = [Filter::eq("post", post.to_string())];
-                for p in hc.kernel.find_tx(&system, hc.tx, "SocialPublication", &own, None, 100).await? {
-                    let (Some(publication), true) = (id(&p, "id"), s(&p, "external_id").is_none()) else { continue };
-                    let account = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
-                    let Some(conn) = s(&account, "connection").and_then(|c| c.parse().ok()) else { continue };
-                    hc.kernel.set_values_tx(&system, hc.tx, "SocialPublication", publication, obj(json!({"failed_at": null, "failure": null}))).await?;
-                    deliver(hc.tx, hc.ctx.tenant, conn, POSTS, publication).await?;
-                }
-                json!({"status": "Sending", "failure": null})
-            }
-            _ => return Ok(None),
-        };
-        hc.kernel.set_values_tx(&elevated(hc.ctx), hc.tx, "SocialPost", post, obj(values.clone())).await?;
-        Ok(Some(json!({"status": values["status"]})))
+        let system = elevated(hc.ctx);
+        let own = [Filter::eq("post", post.to_string())];
+        for p in hc.kernel.find_tx(&system, hc.tx, "SocialPublication", &own, None, 100).await? {
+            let (Some(publication), true) = (id(&p, "id"), at(&p, "sent_at").is_none()) else { continue };
+            hc.kernel.set_values_tx(&system, hc.tx, "SocialPublication", publication, obj(json!({"failed_at": null, "failure": null}))).await?;
+            queue(hc.tx, hc.ctx.tenant, publication).await?;
+        }
+        hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "Sending", "failure": null}))).await?;
+        Ok(Some(json!({"status": "Sending"})))
     }
 }
 
-/// Approved posts whose time has come: one publication per account, each sent through that
-/// account's connection.
+/// `copies`: what each account gets, its words final (variables filled, signature added), each item's length as its
+/// network counts it against its most, and what is wrong, for the composer's preview and counters.
+async fn copies(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> {
+    copies_of(hc.kernel, hc.ctx, hc.tx, doc).await
+}
+
+/// What `copies` answers, for a saved post or an unsaved body; accounts read with the caller's rights; no network called.
+pub(crate) async fn copies_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> Result<Value> {
+    let mut out = vec![];
+    for account in content::accounts(doc) {
+        let a = k.get_tx(ctx, tx, "SocialAccount", account, false).await?;
+        let r = rules_of(k, ctx, tx, &a).await?.unwrap_or_default();
+        let (v, mut problems) = match content::version(k, ctx, tx, doc, &a).await {
+            Ok(v) => (v, vec![]),
+            Err(e) => (Version::default(), vec![e.to_string()]),
+        };
+        problems.extend(v.problems.iter().cloned());
+        problems.extend(rules::problems(&r, &v.copy_on(k)));
+        let kind = r.kind(v.kind_on(&r).as_deref()).ok().flatten();
+        let (text, _, follow, _) = r.effective(kind);
+        let title = v.title.clone();
+        let items: Vec<Value> = v
+            .items
+            .iter()
+            .enumerate()
+            .map(|(n, i)| {
+                let t = if n > 0 { follow.text.as_ref().unwrap_or(&text) } else { &text };
+                let length = rules::length(t, &i.text) + i.link.as_deref().map_or(0, |l| t.link_counts.unwrap_or_else(|| rules::length(t, l)) + 1);
+                json!({"text": i.text, "link": i.link, "delay_minutes": i.delay, "length": length, "max": t.max, "fold": t.fold,
+                       "media": i.media.iter().map(|m| json!({"file": format!("/files/{}", m.file), "kind": m.kind, "alt": m.alt, "name": m.name})).collect::<Vec<_>>()})
+            })
+            .collect();
+        out.push(json!({"account": account, "account_name": s(&a, "account_name"), "network": r.name(), "kind": kind.map(|k| k.name.clone()),
+                        "follow_ups": format!("{:?}", follow.as_).to_lowercase(), "items": items, "first_comment": v.first_comment, "title": title,
+                        "title_max": r.title.as_ref().and_then(|t| t.max),
+                        "settings": rules::answers(&r, kind.map(|k| k.name.as_str()), &v.settings).unwrap_or_default(), "problems": problems}));
+    }
+    Ok(json!({"copies": out}))
+}
+
+/// One job for a publication: queued once while one is waiting or running.
+pub(crate) async fn queue(tx: &mut Tx, tenant: Uuid, publication: Uuid) -> Result<()> {
+    let mut job = NewJob::new(PUBLISH, json!({"publication": publication}));
+    job.max_attempts = ATTEMPTS;
+    job.dedupe_key = Some(format!("publish:{publication}"));
+    ferrum_kernel::jobs::enqueue(tx, tenant, None, job).await?;
+    Ok(())
+}
+
+/// The items a publication has out: `{item, id, url, media, sent_at}` each, 0.7.0's single one read from its fields.
+fn sent_items(p: &Doc) -> Vec<Value> {
+    match p.get("sent_items").and_then(Value::as_array) {
+        Some(list) => list.clone(),
+        None => match s(p, "external_id") {
+            Some(id) => vec![
+                json!({"item": 0, "id": id, "url": s(p, "permalink"), "media": s(p, "media_ref").into_iter().collect::<Vec<_>>(), "sent_at": s(p, "sent_at")}),
+            ],
+            None => vec![],
+        },
+    }
+}
+
+/// The key of item `n`'s call, and of its medium `m`.
+fn key(publication: Uuid, what: &str, item: usize, medium: Option<usize>) -> String {
+    match (item, medium) {
+        (0, None) | (0, Some(0)) => format!("{what}:{publication}"),
+        (n, None) => format!("{what}:{publication}:{n}"),
+        (n, Some(m)) => format!("{what}:{publication}:{n}:{m}"),
+    }
+}
+
+pub struct PublicationHook;
+
+#[async_trait]
+impl DocHook for PublicationHook {
+    fn name(&self) -> &'static str {
+        "social.publication.actions"
+    }
+
+    fn fills(&self) -> &'static [&'static str] {
+        &["account"]
+    }
+
+    /// A post read back from the network (a pull's mapping, as the system, `native` set when it makes one): its account
+    /// is the one the connection it came through reaches, else the one its handle names.
+    async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        if id(doc, "account").is_some() {
+            return Ok(());
+        }
+        let system = elevated(hc.ctx);
+        if let Some(conn) = s(doc, "via_connection").filter(|c| !c.is_empty()) {
+            let found = hc.kernel.find_tx(&system, hc.tx, "SocialAccount", &[Filter::eq("connection", conn)], None, 50).await?;
+            let found: Vec<&Doc> = match s(doc, "account_handle").map(|h| h.trim().trim_start_matches('@').to_string()) {
+                Some(h) => found.iter().filter(|a| s(a, "handle").is_some_and(|x| x.eq_ignore_ascii_case(&h))).collect(),
+                None => found.iter().collect(),
+            };
+            if let [one] = found.as_slice() {
+                doc.insert("account".into(), json!(s(one, "id")));
+            }
+        }
+        Ok(())
+    }
+
+    /// `delete_remote`: every item taken down on the network, last first, where the connection offers `delete`.
+    async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
+        if name != "delete_remote" {
+            return Ok(None);
+        }
+        let publication = id(doc, "id").ok_or_else(|| Error::internal("a publication without an id"))?;
+        let items = sent_items(doc);
+        if items.is_empty() {
+            return Err(Error::invalid("it is not out on the network"));
+        }
+        let system = elevated(hc.ctx);
+        let account = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", id(doc, "account").unwrap_or_default(), false).await?;
+        let conn = reach(hc.tx, hc.ctx.tenant, s(&account, "connection")).await?.ok_or_else(|| Error::invalid("the account's connection is gone"))?;
+        let r = rules_of(hc.kernel, hc.ctx, hc.tx, &account).await?.unwrap_or_default();
+        let op = r.op("delete").to_string();
+        if !conn.has(&op) {
+            return Err(Error::invalid(format!("{} does not offer to delete a post", conn.name)));
+        }
+        let calling = caller(hc.kernel, hc.tx, hc.ctx.tenant, &account, &conn).await?;
+        let follows = s(doc, "follow_ups").map(str::to_string);
+        // What every delete is given: the account, the post's kind and answers, and every item as it was kept.
+        let post = match id(doc, "post") {
+            Some(p) => hc.kernel.get_tx(&system, hc.tx, "SocialPost", p, false).await.ok(),
+            None => None,
+        };
+        let settings = post
+            .as_ref()
+            .and_then(|p| rows(p, "targets").into_iter().find(|t| id(t, "account") == id(doc, "account")))
+            .and_then(|t| t.get("settings").cloned())
+            .unwrap_or(Value::Null);
+        let common = json!({"account_id": crate::picker::network_id(&account), "handle": s(&account, "handle"), "kind": s(doc, "kind"), "settings": settings,
+                            "items": items, "root": text_of(&items[0]["id"])});
+        // The first comment goes first, then the items, the last first.
+        let mut doomed: Vec<(String, String, Value)> = vec![];
+        if let Some(c) = s(doc, "first_comment_id") {
+            doomed.push((c.to_string(), format!("delete:{publication}:first_comment"), json!({"item": null, "follow_up": "comment", "first_comment": true})));
+        }
+        for it in items.iter().rev() {
+            let (Some(n), Some(external)) = (it["item"].as_u64(), text_of(&it["id"])) else { continue };
+            let n = n as usize;
+            doomed.push((
+                external,
+                key(publication, "delete", n, None),
+                json!({"item": n, "follow_up": if n > 0 { follows.clone() } else { None }, "first_comment": false}),
+            ));
+        }
+        for (external, call_key, more) in doomed {
+            let mut inputs = common.clone();
+            inputs["id"] = json!(external);
+            for (k2, v) in more.as_object().into_iter().flatten() {
+                inputs[k2] = v.clone();
+            }
+            let call = Call {
+                connection: conn.id.to_string(),
+                operation: op.clone(),
+                inputs: conn.fit(&op, inputs),
+                key: Some(call_key),
+                entity: Some("SocialPublication".into()),
+                record: Some(publication),
+            };
+            connections::call(hc.kernel, &calling, Some(crate::APP), &call).await.map_err(crate::said)?;
+        }
+        hc.kernel.set_values_tx(&system, hc.tx, "SocialPublication", publication, obj(json!({"deleted_at": Utc::now().to_rfc3339()}))).await?;
+        Ok(Some(json!({"deleted": items.len()})))
+    }
+}
+
+/// Starts sending `post` (`doc`, its row locked) now: one publication per account and one queued send for each, or
+/// says what it waits for. An account the connection cannot reach yet (not connected, its sign-in refused, or switched
+/// off) is waited for, saying which and why, instead of sending the post to fail: it goes when every account it names
+/// can be reached.
+pub(crate) async fn start(k: &Kernel, ctx: &Ctx, tx: &mut Tx, post: Uuid, doc: &Doc) -> Result<bool> {
+    let mut waiting = Vec::new();
+    for account in content::accounts(doc) {
+        let a = k.get_tx(ctx, tx, "SocialAccount", account, false).await?;
+        let (state, note, _) = accounts::state_of(tx, ctx.tenant, &a).await?;
+        if state != "Connected" {
+            waiting.push(format!("{}: {state}{}", s(&a, "account_name").unwrap_or("an account"), note.map(|n| format!(": {n}")).unwrap_or_default()));
+        }
+    }
+    if !waiting.is_empty() {
+        let why = waiting.join("\n");
+        if s(doc, "waiting_for") != Some(why.as_str()) {
+            k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"waiting_for": why}))).await?;
+        }
+        return Ok(false);
+    }
+    for account in content::accounts(doc) {
+        let made = k
+            .insert_tx(
+                ctx,
+                tx,
+                "SocialPublication",
+                obj(json!({"post": post.to_string(), "account": account.to_string(), "text": s(doc, "text"), "link": s(doc, "link"),
+                           "image": s(doc, "image"), "image_alt": s(doc, "image_alt")})),
+            )
+            .await?;
+        queue(tx, ctx.tenant, id(&made, "id").unwrap_or_default()).await?;
+    }
+    k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"status": "Sending", "waiting_for": null}))).await?;
+    Ok(true)
+}
+
+/// Approved posts whose time has come, started. Each is locked and looked at again first, so two upkeeps at once start
+/// it once.
 pub(crate) async fn send_due(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<Utc>) -> Result<()> {
     for found in k.find_tx(ctx, tx, "SocialPost", &[Filter::eq("status", "Approved")], Some("scheduled_at asc"), 500).await? {
         if at(&found, "scheduled_at").is_none_or(|t| t > now) {
             continue;
         }
         let post = id(&found, "id").unwrap_or_default();
-        let doc = k.get_tx(ctx, tx, "SocialPost", post, false).await?;
-        for target in rows(&doc, "targets") {
-            let Some(account) = id(&target, "account") else { continue };
-            let a = k.get_tx(ctx, tx, "SocialAccount", account, false).await?;
-            let Some(conn) = s(&a, "connection").and_then(|c| c.parse().ok()) else { continue };
-            let made = k
-                .insert_tx(
-                    ctx,
-                    tx,
-                    "SocialPublication",
-                    obj(json!({"post": post.to_string(), "account": account.to_string(), "text": s(&doc, "text"), "link": s(&doc, "link"),
-                               "image": s(&doc, "image"), "image_alt": s(&doc, "image_alt")})),
-                )
-                .await?;
-            deliver(tx, ctx.tenant, conn, POSTS, id(&made, "id").unwrap_or_default()).await?;
+        let doc = k.get_tx(ctx, tx, "SocialPost", post, true).await?;
+        if s(&doc, "status") != Some("Approved") {
+            continue;
         }
-        k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"status": "Sending"}))).await?;
+        start(k, ctx, tx, post, &doc).await?;
     }
     Ok(())
 }
 
-/// Publications the network has given its id to, marked out; one whose delivery ended without,
-/// marked failed with the reason (a send that left no trace for a day is given up on too); and
-/// posts all of whose are settled: published, or failed when any publication is.
+/// The text of a mapped value a network gave as its id: a string or a number.
+pub(crate) fn text_of(v: &Value) -> Option<String> {
+    match v {
+        Value::String(t) if !t.trim().is_empty() => Some(t.trim().to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+pub struct PublishJob;
+
+#[async_trait]
+impl JobHandler for PublishJob {
+    fn kind(&self) -> &'static str {
+        PUBLISH
+    }
+
+    fn title(&self) -> &'static str {
+        "A post sent to an account"
+    }
+
+    async fn run(&self, k: &Kernel, job: &Job) -> Result<Value> {
+        let publication: Uuid = job.payload["publication"].as_str().and_then(|p| p.parse().ok()).ok_or_else(|| Error::invalid("names its publication"))?;
+        // Bounded: a step either sends an item, waits or ends, and a post has far fewer items than this.
+        for _ in 0..100 {
+            match step(k, job.tenant_id, publication).await {
+                Ok(Step::Sent) => continue,
+                Ok(Step::Done(v)) => return Ok(v),
+                // An item's delay: the job is put back for then, which costs no attempt.
+                Ok(Step::Wait(secs)) => return Err(Error::Wait(format!("the next item goes in {secs} seconds"), secs)),
+                Err(e) => {
+                    // Said on the publication as it happens: a refusal ends it, "later" is shown as waiting; a service
+                    // that said when is asked again then (the jobs' runner puts the job back for those seconds, bounded).
+                    let last = !crate::outside::later(&e) || job.attempts >= job.max_attempts;
+                    let _ = fail(k, job.tenant_id, publication, &e.to_string(), last).await;
+                    return Err(match e {
+                        Error::RetryAfter(why, secs) => Error::RetryAfter(why, secs.clamp(1, crate::outside::MOST_WAIT)),
+                        other => other,
+                    });
+                }
+            }
+        }
+        Err(Error::internal("a publication's items did not settle"))
+    }
+
+    fn timeout(&self) -> Wait {
+        Wait::from_secs(180)
+    }
+}
+
+/// What the service said, on the publication.
+async fn fail(k: &Kernel, tenant: Uuid, publication: Uuid, why: &str, last: bool) -> Result<()> {
+    let ctx = Ctx::system(tenant, k.registry.schema(tenant).await?);
+    let mut tx = k.db.tenant_tx(tenant).await?;
+    let p = k.get_tx(&ctx, &mut tx, "SocialPublication", publication, true).await?;
+    if at(&p, "sent_at").is_none() {
+        let values =
+            if last { json!({"failed_at": Utc::now().to_rfc3339(), "failure": why}) } else { json!({"failure": format!("Waiting to try again: {why}")}) };
+        k.set_values_tx(&ctx, &mut tx, "SocialPublication", publication, obj(values)).await?;
+        if let Ok(account) = k.get_tx(&ctx, &mut tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await {
+            // A refused sign-in shows on the account at once.
+            let _ = accounts::refresh(k, &ctx, &mut tx, &account).await;
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+enum Step {
+    /// An item went out; the next is looked at.
+    Sent,
+    /// The next item waits this many seconds.
+    Wait(u64),
+    Done(Value),
+}
+
+/// The inputs of a medium's upload.
+#[allow(clippy::too_many_arguments)]
+async fn media_inputs(k: &Kernel, ctx: &Ctx, conn: &Reach, op: &str, r: &Rules, m: &Med, item: usize, index: usize, extra: &Value) -> Result<Value> {
+    // `file` is the stored file's id, for a description that sends it as a part or as the body; its bytes as base64 only
+    // for one that says it takes `data` (a network that wants it inside JSON).
+    let mut inputs = json!({"file": m.file, "name": m.name, "content_type": m.content_type, "alt": if r.media.alt { m.alt.clone().unwrap_or_default() } else { String::new() },
+                            "size": m.bytes, "kind": m.kind, "thumbnail": if r.media.thumbnail { m.thumbnail } else { None }, "width": m.width,
+                            "height": m.height, "seconds": m.seconds, "item": item, "index": index});
+    // The post's own inputs beside the medium's: the post's kind as `post_kind`, the medium's own `kind` kept.
+    for (k2, v) in extra.as_object().into_iter().flatten() {
+        if k2 == "kind" {
+            inputs["post_kind"] = v.clone();
+        } else {
+            inputs[k2] = v.clone();
+        }
+    }
+    let declared = conn.inputs(op);
+    if declared.is_empty() || declared.iter().any(|d| d == "data") {
+        let (_, _, bytes) = k.read_file(&elevated(ctx), m.file).await?;
+        inputs["data"] = json!(base64(&bytes));
+    }
+    Ok(inputs)
+}
+
+/// Sends the publication's next item that is not out, holding its row: one item a transaction.
+async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
+    let ctx = Ctx::system(tenant, k.registry.schema(tenant).await?);
+    let mut tx = k.db.tenant_tx(tenant).await?;
+    // The lock that makes a second send of the same publication wait, and then find what is out.
+    let p = k.get_tx(&ctx, &mut tx, "SocialPublication", publication, true).await?;
+    if at(&p, "sent_at").is_some() {
+        tx.commit().await?;
+        return Ok(Step::Done(json!({"done": "already out"})));
+    }
+    let account = k.get_tx(&ctx, &mut tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
+    let name = s(&account, "account_name").unwrap_or("the account").to_string();
+    let post = k.get_tx(&ctx, &mut tx, "SocialPost", id(&p, "post").unwrap_or_default(), false).await?;
+    let conn: Reach =
+        reach(&mut tx, tenant, s(&account, "connection")).await?.ok_or_else(|| Error::invalid(format!("{name} has no connection here: connect it again")))?;
+    if !conn.enabled {
+        return Err(Error::invalid(format!("the connection {} is turned off", conn.name)));
+    }
+    // What its network takes may have been changed since the post was approved: looked at again.
+    let r = rules_of(k, &ctx, &mut tx, &account).await?.ok_or_else(|| Error::invalid(format!("{name} has no network profile")))?;
+    let v = content::version(k, &ctx, &mut tx, &post, &account).await?;
+    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy_on(k))).next() {
+        return Err(Error::invalid(format!("for {name}: {why}")));
+    }
+    let kind = r.kind(v.kind_on(&r).as_deref()).ok().flatten().map(|k| k.name.clone());
+    let settings = rules::answers(&r, kind.as_deref(), &v.settings).map_err(|w| Error::invalid(format!("for {name}: {}", w.join("; "))))?;
+    let calling = caller(k, &mut tx, tenant, &account, &conn).await?;
+    let mut sent = sent_items(&p);
+    let Some(n) = (0..v.items.len()).find(|n| !sent.iter().any(|s| s["item"].as_u64() == Some(*n as u64))) else {
+        return finish(k, &ctx, tx, publication, &post, &account, &r, &conn, &calling, &sent).await.map(Step::Done);
+    };
+    let mut short = p.get("short_links").and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut shortened = v.items[n].clone();
+    crate::links::shorten(k, &ctx, &mut tx, publication, &mut short, &mut shortened.text, &mut shortened.link).await?;
+    let item = &shortened;
+    if n > 0 && item.delay > 0 {
+        let before = sent
+            .iter()
+            .find(|s| s["item"].as_u64() == Some(n as u64 - 1))
+            .and_then(|s| s["sent_at"].as_str())
+            .and_then(|t| DateTime::parse_from_rfc3339(t).ok());
+        let due = before.map(|b| b.with_timezone(&Utc) + Duration::minutes(item.delay));
+        if let Some(due) = due.filter(|d| *d > Utc::now()) {
+            k.set_values_tx(&ctx, &mut tx, "SocialPublication", publication, obj(json!({"next_at": due.to_rfc3339()}))).await?;
+            tx.commit().await?;
+            return Ok(Step::Wait((due - Utc::now()).num_seconds().max(1) as u64));
+        }
+    }
+    let as_ = follow(&r, &v);
+    // (round five) An item with media goes through `publish_with_media` where the description has it: the operation
+    // that makes the media's public addresses (a text post has no file to make one from).
+    let op = match (n == 0 || as_ == FollowAs::Thread, item.media.is_empty()) {
+        (true, false) if conn.has(r.op("publish_with_media")) => "publish_with_media",
+        (true, _) => "publish",
+        _ => "reply",
+    };
+    let root = sent.first().map(|s| s["id"].clone()).unwrap_or(Value::Null);
+    let before = sent.last().cloned().unwrap_or(Value::Null);
+    let common = json!({"kind": kind, "title": v.title, "settings": settings, "account_id": crate::picker::network_id(&account), "handle": s(&account, "handle"), "item": n, "items": v.items.len()});
+    let call = |operation: &str, inputs: Value, key: String| Call {
+        connection: conn.id.to_string(),
+        operation: r.op(operation).into(),
+        inputs: conn.fit(r.op(operation), inputs),
+        key: Some(key),
+        entity: Some("SocialPublication".into()),
+        record: Some(publication),
+    };
+    // Each medium first, under a key of its own; 0.7.0 kept the first item's picture in `media_ref`.
+    let mut media: Vec<String> = vec![];
+    // A description whose `publish` uploads its media in its own steps has no `publish_media`: it gets the stored files
+    // in `media_items` instead (BD-53 to BD-55).
+    let uploads = conn.has(r.op("publish_media"));
+    for (i, m) in item.media.iter().enumerate().filter(|_| uploads) {
+        if n == 0
+            && i == 0
+            && let Some(kept) = s(&p, "media_ref")
+        {
+            media.push(kept.to_string());
+            continue;
+        }
+        let inputs = media_inputs(k, &ctx, &conn, r.op("publish_media"), &r, m, n, i, &common).await?;
+        let up = connections::call(k, &calling, Some(crate::APP), &call("publish_media", inputs, key(publication, "media", n, Some(i))))
+            .await
+            .map_err(crate::said)?;
+        media.push(text_of(&up["id"]).ok_or_else(|| Error::invalid("the connection's publish_media gives no id: its description maps one under result"))?);
+    }
+    let first = item.media.first();
+    let link = item.link.as_deref();
+    // Stable across attempts: a call's inputs under one key must be the same each time.
+    let created = at(&p, "created_at").unwrap_or_else(Utc::now).to_rfc3339_opts(SecondsFormat::Millis, true);
+    let described: Vec<Value> = item
+        .media
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            json!({"id": media.get(i), "file": m.file.to_string(), "name": m.name, "kind": m.kind, "alt": if r.media.alt { m.alt.clone() } else { None },
+                   "content_type": m.content_type, "size": m.bytes, "width": m.width, "height": m.height, "seconds": m.seconds,
+                   "thumbnail": if r.media.thumbnail { m.thumbnail.map(|t| t.to_string()) } else { None }})
+        })
+        .collect();
+    let mut inputs = json!({"text": item.text, "link": link, "text_with_link": link.map_or_else(|| item.text.clone(), |l| format!("{} {l}", item.text)),
+                            "media": media, "media_id": media.first(), "media_items": described, "alt": first.and_then(|m| m.alt.clone()), "created_at": created,
+                            "picture_type": first.map(|m| m.content_type.clone()), "picture_size": first.map(|m| m.bytes),
+                            "reply_to": text_of(&before["id"]), "root": text_of(&root), "previous": before, "in_reply_to": text_of(&root),
+                            "root_item": sent.first().cloned()});
+    for (k2, val) in common.as_object().into_iter().flatten() {
+        inputs[k2] = val.clone();
+    }
+    let out = connections::call(k, &calling, Some(crate::APP), &call(op, inputs, key(publication, "publish", n, None))).await.map_err(crate::said)?;
+    let external = text_of(&out["id"]).ok_or_else(|| Error::invalid(format!("the connection's {op} gives no id: its description maps one under result")))?;
+    let mut answer = out.as_object().cloned().unwrap_or_default();
+    answer.remove("id");
+    answer.remove("url");
+    sent.push(json!({"item": n, "id": external, "url": text_of(&out["url"]), "media": media, "sent_at": Utc::now().to_rfc3339(), "answer": answer}));
+    let mut values = json!({"sent_items": sent, "next_at": null, "failure": null, "follow_ups": if v.items.len() > 1 { Some(format!("{as_:?}").to_lowercase()) } else { None },
+                            "kind": kind, "short_links": if short.is_empty() { Value::Null } else { Value::Object(short) }});
+    if n == 0 {
+        values["external_id"] = json!(external);
+        values["permalink"] = json!(text_of(&out["url"]));
+        values["media_ref"] = json!(media.first());
+    }
+    k.set_values_tx(&ctx, &mut tx, "SocialPublication", publication, obj(values)).await?;
+    tx.commit().await?;
+    Ok(Step::Sent)
+}
+
+/// Every item out: the first comment where the network takes one and the connection can reply, and the publication
+/// marked out.
+#[allow(clippy::too_many_arguments)]
+async fn finish(
+    k: &Kernel,
+    ctx: &Ctx,
+    mut tx: Tx,
+    publication: Uuid,
+    post: &Doc,
+    account: &Doc,
+    r: &Rules,
+    conn: &Reach,
+    calling: &Ctx,
+    sent: &[Value],
+) -> Result<Value> {
+    let external = sent.first().and_then(|s| text_of(&s["id"])).unwrap_or_default();
+    let mut values = json!({"sent_at": Utc::now().to_rfc3339(), "failed_at": null, "failure": null, "next_at": null});
+    let comment = s(post, "first_comment").filter(|c| !c.trim().is_empty());
+    if let (Some(comment), true, true) = (comment, r.first_comment, conn.has(r.op("reply"))) {
+        let inputs = json!({"text": comment, "in_reply_to": external, "root": external, "account_id": crate::picker::network_id(account), "handle": s(account, "handle"),
+                            "first_comment": true});
+        let call = Call {
+            connection: conn.id.to_string(),
+            operation: r.op("reply").into(),
+            inputs: conn.fit(r.op("reply"), inputs),
+            key: Some(format!("first_comment:{publication}")),
+            entity: Some("SocialPublication".into()),
+            record: Some(publication),
+        };
+        match connections::call(k, calling, Some(crate::APP), &call).await {
+            // Kept, so that it is deleted with the post.
+            Ok(out) => values["first_comment_id"] = json!(text_of(&out["id"])),
+            Err(e) => values["failure"] = json!(format!("It is out, but its first comment was not: {}", crate::said(e))),
+        }
+    }
+    k.set_values_tx(ctx, &mut tx, "SocialPublication", publication, obj(values)).await?;
+    tx.commit().await?;
+    Ok(json!({"id": external, "items": sent.len()}))
+}
+
+/// Posts all of whose publications are settled: published, or failed when any publication ended without going out. A
+/// publication whose job ended without saying so, or left no trace for a day, is marked failed too. Each post is locked
+/// and looked at again first, so two upkeeps at once settle it once (and a repeat makes its next occurrence once).
 pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<Utc>) -> Result<()> {
     for found in k.find_tx(ctx, tx, "SocialPost", &[Filter::eq("status", "Sending")], None, 500).await? {
         let post = id(&found, "id").unwrap_or_default();
@@ -253,39 +763,43 @@ pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<
         let mut failures = Vec::new();
         for p in k.find_tx(ctx, tx, "SocialPublication", &[Filter::eq("post", post.to_string())], None, 100).await? {
             let publication = id(&p, "id").unwrap_or_default();
-            let account = k.get_tx(ctx, tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
-            let name = s(&account, "account_name").unwrap_or("an account");
-            if s(&p, "external_id").is_some() {
+            if at(&p, "sent_at").is_some() {
                 continue;
             }
+            let account = k.get_tx(ctx, tx, "SocialAccount", id(&p, "account").unwrap_or_default(), false).await?;
+            let name = s(&account, "account_name").unwrap_or("an account");
             if at(&p, "failed_at").is_some() {
                 failures.push(format!("{name}: {}", s(&p, "failure").unwrap_or("it did not go out")));
                 continue;
             }
-            let conn = s(&account, "connection").and_then(|c| c.parse().ok()).unwrap_or_default();
-            let why = match sent_as(tx, ctx.tenant, conn, POSTS, publication).await? {
-                Some(external) => {
-                    let values = json!({"external_id": external, "sent_at": Utc::now().to_rfc3339()});
-                    k.set_values_tx(ctx, tx, "SocialPublication", publication, obj(values)).await?;
-                    continue;
-                }
-                None => match delivery(tx, ctx.tenant, conn, POSTS, publication).await? {
-                    Some((status, _)) if status == "queued" || status == "running" => None,
-                    Some((_, error)) => Some(error.unwrap_or_else(|| "the network gave no id for it".into())),
-                    None if at(&p, "created_at").is_some_and(|c| now - c > STALE) => Some("sending it left no trace and it never went out".into()),
-                    None => None,
-                },
+            // ponytail: reads the platform's job table by the publication's key; the platform has no call for a job by key.
+            let job: Option<(String, Option<String>)> = sqlx::query_as(
+                "select status::text, last_error from job where tenant_id = $1 and kind = $2 and dedupe_key = $3 order by created_at desc limit 1",
+            )
+            .bind(ctx.tenant)
+            .bind(PUBLISH)
+            .bind(format!("publish:{publication}"))
+            .fetch_optional(&mut **tx)
+            .await?;
+            let why = match job {
+                Some((status, _)) if status == "queued" || status == "running" => None,
+                Some((_, error)) => Some(error.unwrap_or_else(|| "the network gave no id for it".into())),
+                None if at(&p, "created_at").is_some_and(|c| now - c > STALE) => Some("sending it left no trace and it never went out".into()),
+                None => None,
             };
             match why {
                 None => pending = true,
                 Some(why) => {
-                    let values = json!({"failed_at": Utc::now().to_rfc3339(), "failure": why});
-                    k.set_values_tx(ctx, tx, "SocialPublication", publication, obj(values)).await?;
+                    k.set_values_tx(ctx, tx, "SocialPublication", publication, obj(json!({"failed_at": Utc::now().to_rfc3339(), "failure": why}))).await?;
                     failures.push(format!("{name}: {why}"));
                 }
             }
         }
         if pending {
+            continue;
+        }
+        let doc = k.get_tx(ctx, tx, "SocialPost", post, true).await?;
+        if s(&doc, "status") != Some("Sending") {
             continue;
         }
         let values = if failures.is_empty() {
@@ -294,24 +808,13 @@ pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<
             json!({"status": "Failed", "failure": failures.join("\n")})
         };
         k.set_values_tx(ctx, tx, "SocialPost", post, obj(values)).await?;
+        let to = crate::notices::author(tx, ctx, &doc).await?;
+        if failures.is_empty() {
+            crate::notices::send(k, ctx, tx, "went_out", to, Some(post), json!({})).await?;
+            crate::when::repeat(k, ctx, tx, &doc).await?;
+        } else {
+            crate::notices::send(k, ctx, tx, "failed", to, Some(post), json!({"failures": failures})).await?;
+        }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn what_each_network_takes() {
-        let long = "a".repeat(281);
-        assert!(misfit("X", &long, None, false).is_some_and(|w| w.contains("280")));
-        assert!(misfit("X", &"a".repeat(256), Some("https://example.org/a-very-long-path-that-x-shortens"), false).is_none(), "a link is 23 and a space");
-        assert!(misfit("X", &"a".repeat(257), Some("https://e.org"), false).is_some());
-        assert!(misfit("LinkedIn", &long, None, false).is_none());
-        assert!(misfit("Mastodon", &"a".repeat(490), Some("https://example.org/0123456789"), false).is_some(), "Mastodon counts the link");
-        assert!(misfit("Instagram", "Hello", None, false).is_some_and(|w| w.contains("image or a video")));
-        assert_eq!(misfit("Instagram", "Hello", None, true), None, "with its picture");
-        assert!(misfit("YouTube", "Hello", None, true).is_some_and(|w| w.contains("video")), "a picture is not a video");
-    }
 }

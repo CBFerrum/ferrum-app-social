@@ -1,0 +1,118 @@
+{
+ "label": "Instagram",
+ "note": "meta.social only (needs containers and waiting: connections part three P1-P2). Facts from Postiz instagram.provider.ts and InstagramDto.",
+ "meta": {
+  "social": {
+   "name": "Instagram",
+   "text": {
+    "max": 2200,
+    "fold": 125
+   },
+   "media": {
+    "kinds": [
+     "image",
+     "video"
+    ],
+    "required": true,
+    "max": 10,
+    "alt": true,
+    "alt_max": 1000,
+    "thumbnail": true,
+    "image": {
+     "types": [
+      "image/jpeg",
+      "image/png"
+     ],
+     "min_ratio": 0.8,
+     "max_ratio": 1.91,
+     "max_width": 1920
+    },
+    "video": {
+     "max_bytes": 314572800,
+     "max_width": 1920
+    }
+   },
+   "kinds": [
+    {
+     "name": "post",
+     "label": "Post or carousel"
+    },
+    {
+     "name": "reel",
+     "label": "Reel",
+     "media": {
+      "kinds": [
+       "video"
+      ],
+      "required": true,
+      "max": 1,
+      "thumbnail": true,
+      "alt": false,
+      "video": {
+       "max_seconds": 900
+      }
+     },
+     "text": {
+      "max": 2200,
+      "fold": 55
+     }
+    },
+    {
+     "name": "story",
+     "label": "Story",
+     "media": {
+      "kinds": [
+       "image",
+       "video"
+      ],
+      "required": true,
+      "max": 1,
+      "alt": false
+     },
+     "follow_ups": {
+      "as": "none"
+     }
+    }
+   ],
+   "follow_ups": {
+    "as": "comment",
+    "media": false
+   },
+   "settings": [
+    {
+     "key": "collaborators",
+     "label": "Collaborators",
+     "type": "multi",
+     "max": 3,
+     "when": {
+      "kind": [
+       "post",
+       "reel"
+      ]
+     },
+     "help": "Their handles, without @; private accounts cannot be"
+    },
+    {
+     "key": "trial_reel",
+     "label": "Trial reel",
+     "type": "bool",
+     "default": false,
+     "when": {
+      "kind": [
+       "reel"
+      ]
+     }
+    }
+   ],
+   "accounts": {
+    "operation": "accounts",
+    "items_at": "/data",
+    "value_at": "/instagram_business_account/id",
+    "label_at": "/name",
+    "handle_at": "/instagram_business_account/username",
+    "picture_at": "/instagram_business_account/profile_picture_url"
+   },
+   "first_comment": true
+  }
+ }
+}

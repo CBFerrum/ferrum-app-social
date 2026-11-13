@@ -1,0 +1,358 @@
+{
+  "base": "https://api.tumblr.com/v2",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://www.tumblr.com/oauth2/authorize",
+      "token_url": "https://api.tumblr.com/v2/oauth2/token",
+      "scopes": [
+        "basic",
+        "write",
+        "offline_access"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body",
+      "account_at": "/response/user/name"
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.tumblr.com"
+  ],
+  "timeout_ms": 60000,
+  "limit": {
+    "per": 1000,
+    "every": 3600,
+    "concurrent": 3
+  },
+  "meta": {
+    "label": "Tumblr",
+    "carries": {
+      "network": "Tumblr",
+      "provider": "tumblr"
+    },
+    "social": {
+      "name": "Tumblr",
+      "text": {
+        "format": "plain"
+      },
+      "media": {
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "max": 10,
+        "alt": true,
+        "alt_max": 1000,
+        "image": {
+          "max_bytes": 26214400
+        },
+        "video": {
+          "max_bytes": 26214400,
+          "max_seconds": 600
+        }
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Post"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "tags",
+          "label": "Tags",
+          "type": "text",
+          "help": "Separated by commas"
+        },
+        {
+          "key": "state",
+          "label": "State",
+          "type": "select",
+          "default": "published",
+          "options": [
+            "published",
+            "draft",
+            "queue",
+            "private"
+          ]
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/blogs",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/user/info",
+      "result": {
+        "blogs": {
+          "expr": "answer.response.user.blogs.map(b, {'id': b.name, 'name': b.title != '' ? b.title : b.name, 'handle': b.name, 'picture': 'https://api.tumblr.com/v2/blog/' + b.name + '/avatar/128'})"
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/blog/{{ inputs.account_id }}/info",
+      "result": {
+        "name": "/response/blog/title",
+        "handle": "/response/blog/name",
+        "followers": "/response/blog/followers"
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "account_id"
+      ]
+    },
+    "create_text_post": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "body": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags"
+      ]
+    },
+    "recent_posts": {
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "query": {
+        "npf": "true",
+        "limit": "10"
+      },
+      "result": {
+        "id": {
+          "expr": "inputs.first != '' ? answer.response.posts.filter(p, p.timestamp >= int(timestamp(inputs.after)) && size(p.content) > 0 && p.content[0].type == 'text' && p.content[0].text == inputs.first).map(p, p.id_string).join('') : ''"
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "first",
+        "after"
+      ]
+    },
+    "note_count": {
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "query": {
+        "npf": "true",
+        "id": "{{ inputs.post }}"
+      },
+      "result": {
+        "engagements": "/response/posts/0/note_count"
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "post"
+      ]
+    },
+    "delete_post": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/post/delete",
+      "form": {
+        "id": "{{ inputs.post }}"
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "post"
+      ]
+    },
+    "create_media_post": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f{{ index }}": {
+          "file": "{{ item.file }}",
+          "each": "inputs.media_items",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags"
+      ]
+    },
+    "user_info": {
+      "path": "/user/info",
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "publish": {
+      "inputs": [
+        "account_id",
+        "settings",
+        "text_with_link",
+        "media",
+        "media_items",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "text",
+          "operation": "create_text_post",
+          "when": "not inputs.media_items",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags"
+          },
+          "confirm": {
+            "operation": "recent_posts",
+            "inputs": {
+              "blog": "sent.blog",
+              "first": "sent.paras[0] if sent.paras else ''",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        },
+        {
+          "name": "media",
+          "operation": "create_media_post",
+          "when": "inputs.media_items",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "concat(inputs.account_id, ':', answer.text != null ? answer.text.id : answer.media.id)"
+        },
+        "url": {
+          "expr": "concat('https://', inputs.account_id.contains('.') ? inputs.account_id : inputs.account_id + '.tumblr.com', '/post/', answer.text != null ? answer.text.id : answer.media.id)"
+        }
+      }
+    },
+    "delete": {
+      "inputs": [
+        "id"
+      ],
+      "steps": [
+        {
+          "name": "gone",
+          "operation": "delete_post",
+          "inputs": {
+            "blog": "inputs.id | split(':') | first",
+            "post": "inputs.id | split(':') | last"
+          }
+        }
+      ]
+    },
+    "metrics": {
+      "inputs": [
+        "id"
+      ],
+      "changes": false,
+      "steps": [
+        {
+          "name": "post",
+          "operation": "note_count",
+          "inputs": {
+            "blog": "inputs.id | split(':') | first",
+            "post": "inputs.id | split(':') | last"
+          }
+        }
+      ],
+      "result": {
+        "engagements": "/post/engagements"
+      }
+    }
+  }
+}

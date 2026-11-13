@@ -1,6 +1,6 @@
 id: social
 name: Social
-version: 0.6.13
+version: 0.8.0
 publisher: cbferrum
 summary: "Brands' social accounts: posts approved by someone else and sent at their time within each network's limits, the inbox answered, and what each post did"
 description: README.md
@@ -9,7 +9,7 @@ license: AGPL-3.0-only
 homepage: https://github.com/CBFerrum/ferrum-app-social
 support: https://github.com/CBFerrum/ferrum-app-social/issues
 runtime: native
-platform: ">=0.3.2, <0.4"
+platform: ">=0.3.8, <0.4"
 packages: [social]
 uninstall: ask
 # Its own interface at /social/: the calendar of posts, what waits for approval, the inbox, and what
@@ -27,8 +27,21 @@ contributes:
       roles: [Social Author, Social Approver, Social Manager]
   shell.open:
     - {id: social, package: social, path: "social/e/{entity}/{id}", list: "social/e/{entity}"}
+  # (round five) Rows of the left menu for the app's own pages (BD-63), first in the module, in this order; the
+  # records these pages show are no longer generic rows of the module (package.yaml).
+  shell.menu:
+    - {id: compose, module: social, path: social/compose, label: Compose, icon: square-pen, roles: [Social Author]}
+    - {id: calendar, module: social, path: social/calendar, label: Calendar, icon: calendar, roles: [Social Author, Social Approver, Social Manager]}
+    - {id: queue, module: social, path: social/queue, label: Posting times, icon: clock, roles: [Social Author, Social Approver, Social Manager]}
+    - {id: accounts, module: social, path: social/accounts, label: Accounts, icon: at-sign, roles: [Social Author, Social Approver, Social Manager]}
+    - {id: media, module: social, path: social/media, label: Media, icon: image, roles: [Social Author, Social Approver, Social Manager]}
+    - {id: inbox, module: social, path: social/inbox, label: Inbox, icon: inbox, roles: [Social Author, Social Approver, Social Manager]}
+    - {id: numbers, module: social, path: social/numbers, label: Numbers, icon: chart-column, roles: [Social Author, Social Approver, Social Manager]}
+    - {id: library, module: social, path: social/library, label: Library, icon: library, roles: [Social Author, Social Approver, Social Manager]}
+    - {id: automation, module: social, path: social/automation, label: Automation, icon: workflow, roles: [Social Author, Social Approver, Social Manager]}
+    - {id: notices, module: social, path: social/notices, label: Notices, icon: bell, roles: [Social Author, Social Approver, Social Manager]}
   shell.create:
-    - {id: post, label: Social Post, path: social/e/SocialPost/new, entity: SocialPost}
+    - {id: post, label: Social Post, path: social/compose, entity: SocialPost}
   # What the assistant should know in Social's pages, and what it suggests asking there.
   shell.assistant:
     - id: social

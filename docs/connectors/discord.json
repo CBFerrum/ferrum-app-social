@@ -1,0 +1,391 @@
+{
+  "base": "https://discord.com/api/v10",
+  "auth": {
+    "type": "header",
+    "header": "authorization",
+    "secret": "bot_token",
+    "prefix": "Bot "
+  },
+  "headers": {
+    "user-agent": "DiscordBot (https://ferrum.example, 1.0)"
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "discord.com"
+  ],
+  "timeout_ms": 60000,
+  "limit": {
+    "per": 50,
+    "every": 1,
+    "concurrent": 3
+  },
+  "meta": {
+    "label": "Discord (a bot in a server)",
+    "carries": {
+      "network": "Discord",
+      "provider": "discord"
+    },
+    "social": {
+      "name": "Discord",
+      "text": {
+        "max": 2000,
+        "count": "characters",
+        "format": "markdown"
+      },
+      "media": {
+        "kinds": [
+          "image",
+          "video",
+          "document",
+          "file"
+        ],
+        "max": 10,
+        "alt": true,
+        "alt_max": 1024,
+        "image": {
+          "max_bytes": 10485760
+        },
+        "video": {
+          "max_bytes": 10485760
+        },
+        "document": {
+          "max_bytes": 10485760
+        },
+        "other": {
+          "file": {
+            "max_bytes": 10485760
+          }
+        }
+      },
+      "kinds": [
+        {
+          "name": "message",
+          "label": "Message"
+        }
+      ],
+      "follow_ups": {
+        "as": "thread",
+        "media": true,
+        "max": 20
+      },
+      "first_comment": true,
+      "link_preview": true,
+      "settings": [
+        {
+          "key": "channel",
+          "label": "Channel",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "channels",
+            "inputs": {
+              "guild": "account.id"
+            },
+            "items_at": "/channels",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/servers",
+        "value_at": "/id",
+        "label_at": "/name",
+        "picture_at": "/picture"
+      },
+      "mentions": {
+        "operation": "mentions",
+        "inputs": {
+          "guild": "account.id",
+          "query": "query"
+        },
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "format": "<@{{ value }}>"
+      }
+    }
+  },
+  "operations": {
+    "send_message": {
+      "method": "POST",
+      "path": "/channels/{{ inputs.channel_id }}/messages",
+      "body": "{\"content\": {{ inputs.content | json }}, \"nonce\": {{ key | tid | json }}, \"enforce_nonce\": true, \"allowed_mentions\": {\"parse\": [\"users\"]}{% if inputs.reply_to %}, \"message_reference\": {\"message_id\": {{ inputs.reply_to | json }}, \"fail_if_not_exists\": false}{% endif %}}",
+      "result": {
+        "ref": {
+          "expr": "concat(answer.channel_id, ':', answer.id)"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "idempotency_header": "X-Idempotency-Key",
+      "inputs": [
+        "channel_id",
+        "content",
+        "reply_to"
+      ]
+    },
+    "create_thread": {
+      "method": "POST",
+      "path": "/channels/{{ inputs.channel_id }}/messages/{{ inputs.message_id }}/threads",
+      "body": "{\"name\": {{ inputs.name | json }}, \"auto_archive_duration\": 1440}",
+      "result": {
+        "id": "/id"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel_id",
+        "message_id",
+        "name"
+      ]
+    },
+    "get_channel": {
+      "path": "/channels/{{ inputs.channel_id }}",
+      "result": {
+        "id": "/id"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel_id"
+      ]
+    },
+    "send_files": {
+      "method": "POST",
+      "path": "/channels/{{ inputs.channel_id }}/messages",
+      "form": {
+        "payload_json": "{\"content\": {{ inputs.content | json }}, \"nonce\": {{ key | tid | json }}, \"enforce_nonce\": true, \"allowed_mentions\": {\"parse\": [\"users\"]}, \"attachments\": [{% for m in inputs.media_items %}{% if not loop.first %},{% endif %}{\"id\": {{ loop.index0 }}, \"description\": {{ (m.alt or \"\") | json }}}{% endfor %}]}",
+        "files[{{ index }}]": {
+          "file": "{{ item.file }}",
+          "each": "inputs.media_items",
+          "max_bytes": 10485760
+        }
+      },
+      "result": {
+        "ref": {
+          "expr": "concat(answer.channel_id, ':', answer.id)"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "idempotency_header": "X-Idempotency-Key",
+      "inputs": [
+        "channel_id",
+        "content",
+        "media_items"
+      ]
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "item",
+        "root",
+        "text_with_link",
+        "media",
+        "media_items"
+      ],
+      "steps": [
+        {
+          "name": "thread",
+          "operation": "create_thread",
+          "when": "inputs.item == 1",
+          "inputs": {
+            "channel_id": "inputs.root | split(':') | first",
+            "message_id": "inputs.root | split(':') | last",
+            "name": "'Replies'"
+          },
+          "confirm": {
+            "operation": "get_channel",
+            "inputs": {
+              "channel_id": "sent.message_id"
+            },
+            "proves": "result.id != null"
+          }
+        },
+        {
+          "name": "text",
+          "operation": "send_message",
+          "when": "not inputs.media_items",
+          "inputs": {
+            "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
+            "content": "inputs.text_with_link",
+            "reply_to": "none"
+          }
+        },
+        {
+          "name": "files",
+          "operation": "send_files",
+          "when": "inputs.media_items",
+          "inputs": {
+            "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
+            "content": "inputs.text_with_link",
+            "media_items": "inputs.media_items"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.text != null ? answer.text.ref : answer.files.ref"
+        }
+      }
+    },
+    "me": {
+      "path": "/users/@me",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/channels/{{ inputs.id | split(':') | first }}/messages/{{ inputs.id | split(':') | last }}",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "reply": {
+      "method": "POST",
+      "path": "/channels/{{ inputs.in_reply_to | split(':') | first }}/messages",
+      "body": "{\"content\": {{ inputs.text | json }}, \"nonce\": {{ key | tid | json }}, \"enforce_nonce\": true, \"allowed_mentions\": {\"parse\": [\"users\"]}, \"message_reference\": {\"message_id\": {{ inputs.in_reply_to | split(':') | last | json }}, \"fail_if_not_exists\": false}}",
+      "result": {
+        "id": {
+          "expr": "concat(answer.channel_id, ':', answer.id)"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "idempotency_header": "X-Idempotency-Key",
+      "inputs": [
+        "text",
+        "in_reply_to"
+      ]
+    },
+    "accounts": {
+      "path": "/users/@me/guilds",
+      "changes": false,
+      "result": {
+        "servers": {
+          "expr": "answer.map(g, {'id': g.id, 'name': g.name, 'picture': g.icon != null ? 'https://cdn.discordapp.com/icons/' + g.id + '/' + g.icon + '.png' : null})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/guilds/{{ inputs.account_id }}",
+      "query": {
+        "with_counts": "true"
+      },
+      "result": {
+        "name": "/name",
+        "followers": "/approximate_member_count"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "account_id"
+      ]
+    },
+    "channels": {
+      "path": "/guilds/{{ inputs.guild }}/channels",
+      "result": {
+        "channels": {
+          "expr": "answer.filter(c, c.type == 0 || c.type == 5).map(c, {'id': c.id, 'name': c.name})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "guild"
+      ]
+    },
+    "mentions": {
+      "path": "/guilds/{{ inputs.guild }}/members/search",
+      "query": {
+        "query": "{{ inputs.query }}",
+        "limit": "10"
+      },
+      "result": {
+        "people": {
+          "expr": "answer.map(m, {'id': m.user.id, 'name': m.nick != null ? m.nick : (m.user.global_name != null ? m.user.global_name : m.user.username)})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "guild",
+        "query"
+      ]
+    }
+  }
+}

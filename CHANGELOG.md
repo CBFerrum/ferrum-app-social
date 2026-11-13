@@ -1,5 +1,121 @@
 # Changelog
 
+## 0.8.0
+
+The composer's server. Everything a network takes and asks is one declarative shape, `meta.social` on its connection's
+description (or the same shape in a Network Profile's new Rules field, else the profile's fields as before): text
+limits and how length is counted (characters, graphemes, UTF-16, bytes, X's weights, links at a fixed length), text
+format, media kinds, counts, mixes, sizes, types, dimensions, duration, descriptions and thumbnails, kinds of post
+(post, reel, story, short, article... each with its own rules), what a follow-up is (a thread, comments, none), the
+settings the composer asks (fetched from the network where they are: boards, subreddits, channels), the accounts a
+sign-in reaches and how mentions are looked up. One generic check proves it can express YouTube, Reddit, Pinterest,
+TikTok, Instagram, LinkedIn pages, Discord, Google Business Profile and WordPress (docs/connectors/examples/, their
+operations not written yet). A setting the shape does not declare is refused; a required one missing names the account
+and the field.
+
+A post has an original and per-account versions (an account's own words, link, media and follow-ups), follow-up items
+with delays, and several media per item with descriptions, thumbnails and dimensions. It is sent item by item under a
+key each (`publish:<publication>` for the first, as 0.7.0, `publish:<publication>:<n>` after), each item's network id
+and address kept as it goes; a thread that fails half way resumes where it stopped and Retry sends only what did not go;
+Delete on the network takes every item down. When: Publish Now, Move (keeping an approval), Back to Draft, Duplicate,
+Add to Queue (Posting Times per account or brand, by weekday, on the workspace's clock; two posts queued at once never
+share a time), and repeats every N days, weeks or months until a date or a count, each next one a real post made once
+when the one before goes out. Library: Post Templates, Sets, Snippets, Signatures (one default per account, brand or
+workspace, never added twice) and Variables (`{{name}}`, an account's value before its brand's). Accounts: what a
+sign-in reaches is listed and picked (each pick an account of its own), Check reads the name, handle and picture, and
+mentions and a setting's choices are looked up; usual kind and answers, an order. As Each Account Gets It shows each
+copy's final words and lengths.
+
+Review is the platform's approval policy: the package ships 0.7.0's rule (one step, a Social Approver, never the
+author) for a workspace to change in Customize (steps, approvers by brand, N of M, escalation) without code; approvers
+decide in the platform's approvals, and Approve It still works where no policy can open (nobody holds the role) or a
+post was In Review before the upgrade. A Review Link gives someone outside a signed link (expiry, uses) to read each
+account's copy, comment, and approve or ask for changes; what they say is kept as Reviews and erased with them.
+
+Every writing operation of the four descriptions carries an idempotency header. RetryAfter from the platform is
+treated as "later". New: Posting Time, Post Template, Set, Snippet, Signature, Variable, Review; the message
+`social.review_link`; Social Author may import posts. The interface for all of it is in this release (below);
+docs/interface-notes.md is what its screens are built from.
+
+**Round two.** The media library (assets with description, size, source and credit; stock pictures and GIFs searched
+and taken through sources named in Social Settings, the source told of a download where it asks; media from an
+address through a connection's guard; a post's media line filled from an asset). Links: tracking parameters from the
+most specific Link Template, never doubled nor on excluded hosts; short links through a shortener, once per address and
+publication, their clicks read back. Writing help through a connection (write, rewrite with presets, adapt for each
+account within its rules, hashtags, describe a picture, split into a thread, a picture kept as an asset, a blank start
+from a brand), prompts as editable templates with the brand's voice, answers given back never saved over, each use
+kept and erased with the person, the role Social Writing Help. Plugs (repost, comment, other accounts like, repost or
+comment, once a number is reached or a time has passed), each run kept. Reports by network, by kind, against the period
+before, followers by day, top posts; each brand's week kept on it, a document template and a weekly automation to the
+address it names. Notices as templates (went out, did not, review, reconnect, repeat stopped, a weekly digest), each
+turned off per person. Feeds whose new items become posts, once each, read through a connection answering JSON (XML
+waits on the platform). A draft may be saved with what its networks would refuse, refused when it leaves Draft; a body
+sent to `_calc` with `want_checks` answers what `copies` does without saving; `fold` in a network's text rules; the
+bar's New Social Post opens `social/compose`. Example descriptions for Unsplash, Pexels, GIPHY, Dub, Kutt, the Claude
+Messages API and a JSON feed.
+
+**Round three.** Requires Ferrum's App API 0.3.7 (connections part three). A network's `Retry-After` puts a post's or
+a reply's job back for the seconds it said (at most an hour), and the upkeep's own calls (numbers, plugs, clicks,
+writing help, feeds) leave that connection alone until then. A message's network id is read-only again: the shipped
+descriptions' mappings write as the system (`as: system`), and people no longer create messages. Feeds read RSS 2.0,
+RSS 1.0 and Atom through one shipped `feeds` description (XML answers); a feed is an address. A `publish` made of steps
+uploads its own media (no `publish_media` needed; media come as stored files), and each item gets the root's and the
+previous item's whole results. The account's own posts can be read back as publications without a post, their numbers
+read per item; a mention answering one of the brand's posts is a comment. A notice opt-out is its person's.
+
+**Round four.** Thirty-three networks are described (docs/connectors/README.md, one table each: what it can, cannot yet
+and why, what to set up, what is unverified) and every description ships with the package (written by
+scripts/ship_connections.py, kept the same by a test), offered turned off. Tested against fakes of the networks'
+documented APIs, never against the real networks. The inputs contract grows as the networks asked: a title of the post
+and of each account's version (no network asks it as a setting); `account_id` on every reply; the medium's own kind
+kept in `publish_media` beside `post_kind`; a `url` for a stored file (null until the platform gives public addresses,
+and a plain refusal for media a network takes only by address); `delete` given the account, kind, answers and every
+item, and a first comment's id kept and deleted with the post; reads decided by an operation's `changes`; a kind chosen
+from the media. Every inbox mapping writes as the system. The seeded network profiles are their descriptions' rules.
+
+**Round five.** Requires Ferrum's App API 0.3.8. The app's own pages are rows of the left menu (Compose, Calendar,
+Posting times, Accounts, Media, Inbox, Numbers, Library, Automation, Notices), and the module's generic rows they
+replace are gone. Media a network pulls by address goes: the description makes a short-lived public address for the
+stored file in the operation Social calls (`publish_with_media` for an item with media where a description has one),
+and only a server without `PUBLIC_URL` refuses it, on the post, in plain words; `url` is no longer an input. A review's
+decision shows on the post at once (the platform's `approval_decided`), the upkeep's read-back kept only for a hook that
+failed. Feeds read any public host, and a feeds connection of the earlier shape takes the new description. The
+descriptions lose their workarounds: refusals in a 2xx answer read in the network's words (Slack, Hashnode, VK, Twitch,
+Kick, TikTok Business, Reddit); TikTok's own sign-in; Slack's scopes by commas; Bluesky's permalink; Meta's webhook
+handshake for Instagram comments and Messenger messages; posting limits per operation; one request for all files
+(Discord, Tumblr, Telegram, whose albums take ten); Whop's upload headers; Instagram's upload scheme; Google Business's
+numbers window. Still tested against fakes of the networks' documented APIs, never against the real networks.
+
+**Upgrading from 0.6.13 or 0.7.0.** No step for an administrator. Posts, approvals and publications read and send as
+before (an approval given before keeps holding: its fingerprint is unchanged for a post with only 0.7.0's content); a
+publication under way keeps its key. The review policy applies at once; a workspace where nobody holds Social Approver
+keeps 0.7.0's Approve It until someone does. A connection a workspace copied from a description of before, whose pull
+runs on each person's own sign-in without `as: system`, has its pull refused plainly (people no longer create messages;
+the platform tells the administrators): add `"as": "system"` to its mapping. Pulls on the workspace's own sign-in, and
+inbound addresses, already wrote as the system and go on as they were.
+
+**The interface.** Social has its own pages for all of the above, each a row of the left menu (Ferrum 0.3.8's
+`shell.menu`): Compose (accounts by brand, the original and a version per account, follow-ups, several media with
+descriptions, the kind and the settings form drawn from the network's rules, each account's final copy, lengths and
+problems from the server as you type, a preview per account, templates, snippets, variables and signatures, writing
+help as proposals to accept, when: draft, now, a time, the next free posting time, repeats; review, review links),
+Calendar (month, week, day, an agenda on a phone; move a post by dragging or "Move to"; a quick look), Posting times,
+Accounts (add from the networks the package offers, connect, the picker after a sign-in that reaches several, check,
+disconnect), Media (library, upload, stock pictures and GIFs, from an address), Inbox (a desk with j, k, r and e),
+Numbers (a period against the one before, by network, account and kind, top posts, posts made on the network
+itself), Library, Feeds and plugs, and Notices. No network is named in the interface's code: a new network needs no
+interface change. Every word is in Arabic and Hindi too (written by the model, to be reviewed by native speakers).
+Built with Ferrum-Frontend c134911. Walked in a browser on a local server (the composer's checks, a draft with
+problems, the calendar, each page, a phone width); signing in to a real network, dragging and uploading were not.
+
+## 0.7.0
+
+Social reaches every network through the platform's connections (Ferrum 0.3.5) and names none in code. A network is a connection's description; `docs/connectors/` has working ones for Mastodon and Bluesky (what the earlier built-in connectors did: text posts, a picture, delete, replies, mentions and notifications, numbers, followers), LinkedIn (a post's id read from a response header) and X, each tested end to end against a fake of the network's documented shapes, and the package ships Mastodon's and Bluesky's as data. What a network takes in a post is `meta.capabilities` on its description when it says (a server's own limit lives there), else the account's Network Profile: the seeded profiles (X, Bluesky, Mastodon, Threads, LinkedIn, Facebook, Instagram, YouTube) are the defaults.
+
+**Upgrading from 0.6.x.** The built-in Mastodon and Bluesky connectors are removed and tokens are never copied. The upkeep makes, for each account of those two networks, a connection from the shipped description, turned off, with the server the old connection spoke to, links the account to it, and tells the workspace's administrators once, in the app, which accounts need connecting again and where (add the connection's secrets, turn it on, Connect the account). A post due for an account that cannot be reached (not connected, its sign-in refused, or its connection off) waits, with Waiting For saying which and why, and goes when the account can be reached; it is not failed. An account of another network, or one whose connection is not here, keeps its record, posts and messages and shows Not Connected. The old connections of the hub stay where they are, with their tokens: delete them in Administration once the new ones work.
+
+Accounts are connections (the workspace's sign-in, a person's own, a key, or a session from an app password) with a state (Connected, Needs Reconnecting, Not Connected, Connection Off) and actions Check, Connect and Disconnect. A post is checked per account in plain words before it is scheduled and again when sent, and is one queued job per account, picture first, under keys, once under retries and two workers; the network's id and address are kept, refusals shown in the service's words, Retry, first comment, Delete on the network. The inbox takes comments, mentions and direct messages from an inbound address or a pull (on a person's own connection, run as that person; mapped writes marked as fetched from outside, so nothing is sent back), once each, routed to the account by handle, by the post answered, or by the one account the connection reaches; replies through `reply` or `send_message`; saved replies; optional matching of a sender to a record; erasure of handles and text. Metrics are read into a row a day (a network's likes, boosts and replies added by the description's expression); reports by account, by post and by tag. Social Author, Approver and Manager may now create a message (the pull of a person's own connection writes as her). New: Network Profile, Metric, Saved Reply and Social Settings records, Waiting For on a post, the message `social.reconnect`; the account's own screens need Connect, Check and Disconnect buttons (the interface is not rebuilt in this release). Requires platform 0.3.5.
+
 ## 0.6.13
 
 Rebuilt with Ferrum-Frontend 45dad7f, the design system as tuned after the landed build was reviewed. The left menu's icons are chosen so that none repeats on more than three rows and each fits its row; their drawings load beside the first page instead of inside it, so the page starts lighter; a row that scrolls sideways fades at the edge where there is more, in every browser and with reduced motion; a printed record leaves out empty fields and keeps its totals with the table; menus and popovers sit inside the page's landmarks for assistive technology; a selection bar folds what does not fit into More on a narrow screen. Nothing else changes.

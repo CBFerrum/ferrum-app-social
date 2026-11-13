@@ -1,0 +1,167 @@
+{
+  "base": "https://api.kick.com/public/v1",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://id.kick.com/oauth/authorize",
+      "token_url": "https://id.kick.com/oauth/token",
+      "revoke_url": "https://id.kick.com/oauth/revoke",
+      "scopes": [
+        "user:read",
+        "channel:read",
+        "chat:write",
+        "moderation:chat_message:manage"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body"
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.kick.com"
+  ],
+  "timeout_ms": 30000,
+  "meta": {
+    "label": "Kick",
+    "carries": {
+      "network": "Kick",
+      "provider": "kick"
+    },
+    "social": {
+      "name": "Kick",
+      "text": {
+        "max": 500,
+        "count": "characters",
+        "format": "plain"
+      },
+      "media": {
+        "kinds": []
+      },
+      "kinds": [
+        {
+          "name": "message",
+          "label": "Chat message"
+        }
+      ],
+      "follow_ups": {
+        "as": "thread",
+        "media": false,
+        "max": 20
+      },
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/users",
+      "result": {
+        "people": {
+          "expr": "answer.data.map(u, {'id': string(u.user_id), 'name': u.name, 'handle': u.name, 'picture': has(u.profile_picture) ? u.profile_picture : null})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "refused_if": "has(answer.data) && has(answer.data.is_sent) && !answer.data.is_sent",
+      "error": "'Kick did not send the message, and says no more'"
+    },
+    "account": {
+      "path": "/users",
+      "result": {
+        "name": "/data/0/name",
+        "handle": "/data/0/name",
+        "picture": "/data/0/profile_picture"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "refused_if": "has(answer.data) && has(answer.data.is_sent) && !answer.data.is_sent",
+      "error": "'Kick did not send the message, and says no more'"
+    },
+    "send_chat": {
+      "method": "POST",
+      "path": "/chat",
+      "body": "{\"broadcaster_user_id\": {{ inputs.channel | int | json }}, \"content\": {{ inputs.message | json }}, \"type\": \"user\"{% if inputs.reply_to %}, \"reply_to_message_id\": {{ inputs.reply_to | json }}{% endif %}}",
+      "result": {
+        "id": {
+          "expr": "answer.data.is_sent ? answer.data.message_id : null",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel",
+        "message",
+        "reply_to"
+      ],
+      "refused_if": "has(answer.data) && has(answer.data.is_sent) && !answer.data.is_sent",
+      "error": "'Kick did not send the message, and says no more'"
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/chat/{{ inputs.id }}",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ],
+      "refused_if": "has(answer.data) && has(answer.data.is_sent) && !answer.data.is_sent",
+      "error": "'Kick did not send the message, and says no more'"
+    },
+    "publish": {
+      "inputs": [
+        "account_id",
+        "text_with_link",
+        "reply_to"
+      ],
+      "steps": [
+        {
+          "name": "message",
+          "operation": "send_chat",
+          "inputs": {
+            "channel": "inputs.account_id",
+            "message": "inputs.text_with_link",
+            "reply_to": "inputs.reply_to"
+          }
+        }
+      ],
+      "result": {
+        "id": "/message/id"
+      }
+    }
+  }
+}

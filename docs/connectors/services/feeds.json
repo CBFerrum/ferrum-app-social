@@ -1,0 +1,83 @@
+{
+  "base": "https://feeds.example",
+  "auth": {
+    "type": "none"
+  },
+  "apps": [
+    "social"
+  ],
+  "any_host": true,
+  "operations": {
+    "feed": {
+      "url": "{{ inputs.address }}",
+      "answer": "xml",
+      "lists": [
+        "item",
+        "entry",
+        "link",
+        "category",
+        "enclosure",
+        "media:content"
+      ],
+      "error_at": "/error",
+      "inputs": [
+        "address"
+      ]
+    },
+    "fetch_media": {
+      "url": "{{ inputs.url }}",
+      "result": {
+        "file": {
+          "file": {
+            "max_bytes": 10485760
+          }
+        }
+      },
+      "inputs": [
+        "url"
+      ]
+    }
+  },
+  "meta": {
+    "label": "Feeds: RSS and Atom",
+    "feed": {
+      "items_at": [
+        "/rss/channel/item",
+        "/feed/entry",
+        "/rdf:RDF/item"
+      ],
+      "id_at": [
+        "/guid/#text",
+        "/guid",
+        "/id"
+      ],
+      "link_at": [
+        "/link/0/@href",
+        "/link/0"
+      ],
+      "title_at": [
+        "/title/#text",
+        "/title"
+      ],
+      "text_at": [
+        "/description",
+        "/summary/#text",
+        "/summary",
+        "/content/#text",
+        "/content"
+      ],
+      "picture_at": [
+        "/enclosure/0/@url",
+        "/media:content/0/@url",
+        "/media:thumbnail/@url"
+      ],
+      "published_at": [
+        "/pubDate",
+        "/published",
+        "/updated",
+        "/dc:date"
+      ]
+    },
+    "note": "RSS 2.0, RSS 1.0 and Atom feeds, one description: each feed's address is the feed record's. It reads any public host (any_host, BD-65), so a feed is only an address: no administrator step per site. It carries no secret and only reads."
+  }
+}

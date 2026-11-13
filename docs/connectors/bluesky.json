@@ -1,0 +1,563 @@
+{
+  "base": "https://bsky.social/xrpc",
+  "auth": {
+    "type": "session",
+    "login": "create_session",
+    "refresh": "refresh_session",
+    "token_at": "/accessJwt",
+    "refresh_at": "/refreshJwt",
+    "keep": [
+      "did"
+    ],
+    "not_secret": [
+      "did"
+    ]
+  },
+  "apps": [
+    "social"
+  ],
+  "limit": {
+    "per": 3000,
+    "every": 300,
+    "concurrent": 6
+  },
+  "meta": {
+    "label": "Bluesky",
+    "carries": {
+      "network": "Bluesky",
+      "provider": "bluesky",
+      "server": "service",
+      "placeholder": "https://bsky.social"
+    },
+    "capabilities": {
+      "name": "Bluesky",
+      "max_text": 300,
+      "images": true,
+      "max_media": 4,
+      "max_image_bytes": 1000000,
+      "alt_text": true,
+      "first_comment": true
+    },
+    "social": {
+      "name": "Bluesky",
+      "text": {
+        "max": 300,
+        "count": "graphemes",
+        "format": "plain"
+      },
+      "media": {
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "max": 4,
+        "mixes": [
+          {
+            "image": 4
+          },
+          {
+            "video": 1
+          }
+        ],
+        "alt": true,
+        "alt_max": 2000,
+        "image": {
+          "max_bytes": 1000000,
+          "types": [
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/gif"
+          ]
+        },
+        "video": {
+          "max_bytes": 26214400,
+          "types": [
+            "video/mp4"
+          ],
+          "max_seconds": 180
+        }
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Post"
+        }
+      ],
+      "follow_ups": {
+        "as": "thread",
+        "media": true,
+        "max": 24
+      },
+      "settings": [
+        {
+          "key": "language",
+          "label": "Language (ISO 639)",
+          "type": "text",
+          "max": 3
+        }
+      ],
+      "mentions": {
+        "operation": "mentions",
+        "inputs": {
+          "q": "query"
+        },
+        "items_at": "/actors",
+        "value_at": "/handle",
+        "label_at": "/displayName",
+        "picture_at": "/avatar",
+        "format": "@{{ value }}"
+      },
+      "first_comment": true,
+      "link_preview": true
+    }
+  },
+  "operations": {
+    "create_session": {
+      "method": "POST",
+      "path": "/com.atproto.server.createSession",
+      "changes": false,
+      "body": "{\"identifier\": {{ secret.handle | json }}, \"password\": {{ secret.app_password | json }}}",
+      "error_at": "/message"
+    },
+    "refresh_session": {
+      "method": "POST",
+      "path": "/com.atproto.server.refreshSession",
+      "body": "{}",
+      "changes": false,
+      "headers": {
+        "authorization": "Bearer {{ inputs.refresh_token }}"
+      },
+      "error_at": "/message"
+    },
+    "profiles": {
+      "path": "/app.bsky.actor.getProfiles?{% for h in inputs.handles %}actors={{ h }}&{% endfor %}",
+      "inputs": [
+        "handles"
+      ],
+      "result": {
+        "profiles": "/profiles"
+      },
+      "error_at": "/message"
+    },
+    "create_post": {
+      "method": "POST",
+      "path": "/com.atproto.repo.createRecord",
+      "body": "{\"repo\": {{ secret.handle | json }}, \"collection\": \"app.bsky.feed.post\", \"rkey\": {{ inputs.rkey | json }}, \"record\": {\"$type\": \"app.bsky.feed.post\", \"text\": {{ inputs.text | json }}, \"createdAt\": {{ inputs.created_at | json }}, \"facets\": {% set ents = inputs.text | entities(\"bytes\") %}{% set plain = ents | rejectattr(\"type\", \"equalto\", \"mention\") | list %}[{% for e in plain %}{% if not loop.first %}, {% endif %}{\"index\": {\"byteStart\": {{ e.start }}, \"byteEnd\": {{ e.end }}}, \"features\": [{% if e.type == \"link\" %}{\"$type\": \"app.bsky.richtext.facet#link\", \"uri\": {{ e.value | json }}}{% else %}{\"$type\": \"app.bsky.richtext.facet#tag\", \"tag\": {{ e.value | json }}}{% endif %}]}{% endfor %}{% for e in ents if e.type == \"mention\" %}{% for p in (inputs.profiles or []) if p.handle == e.value %}{% if plain or not loop.first %}, {% endif %}{\"index\": {\"byteStart\": {{ e.start }}, \"byteEnd\": {{ e.end }}}, \"features\": [{\"$type\": \"app.bsky.richtext.facet#mention\", \"did\": {{ p.did | json }}}]}{% endfor %}{% endfor %}]{% if inputs.langs %}, \"langs\": {{ inputs.langs | json }}{% endif %}{% set images = (inputs.items or []) | selectattr(\"content_type\", \"startingwith\", \"image/\") | list %}{% set videos = (inputs.items or []) | selectattr(\"content_type\", \"startingwith\", \"video/\") | list %}{% if images %}, \"embed\": {\"$type\": \"app.bsky.embed.images\", \"images\": [{% for m in images %}{% if not loop.first %}, {% endif %}{\"alt\": {{ (m.alt or \"\") | json }}, \"image\": {\"$type\": \"blob\", \"ref\": {\"$link\": {{ m.id | json }}}, \"mimeType\": {{ m.content_type | json }}, \"size\": {{ m.size | json }}}{% if m.width and m.height %}, \"aspectRatio\": {\"width\": {{ m.width }}, \"height\": {{ m.height }}}{% endif %}}{% endfor %}]}{% elif videos %}, \"embed\": {\"$type\": \"app.bsky.embed.video\", \"alt\": {{ (videos[0].alt or \"\") | json }}, \"video\": {\"$type\": \"blob\", \"ref\": {\"$link\": {{ videos[0].id | json }}}, \"mimeType\": {{ videos[0].content_type | json }}, \"size\": {{ videos[0].size | json }}}}{% elif inputs.card %}, \"embed\": {\"$type\": \"app.bsky.embed.external\", \"external\": {\"uri\": {{ inputs.card | json }}, \"title\": {{ inputs.card | json }}, \"description\": \"\"}}{% endif %}{% if inputs.parent_uri %}, \"reply\": {\"root\": {\"uri\": {{ inputs.root_uri | json }}, \"cid\": {{ inputs.root_cid | json }}}, \"parent\": {\"uri\": {{ inputs.parent_uri | json }}, \"cid\": {{ inputs.parent_cid | json }}}}{% endif %}}}",
+      "inputs": [
+        "rkey",
+        "text",
+        "created_at",
+        "langs",
+        "items",
+        "card",
+        "profiles",
+        "root_uri",
+        "root_cid",
+        "parent_uri",
+        "parent_cid"
+      ],
+      "result": {
+        "uri": {
+          "at": "/uri",
+          "required": true
+        },
+        "cid": "/cid",
+        "rkey": {
+          "expr": "inputs.rkey"
+        }
+      },
+      "error_at": "/message"
+    },
+    "get_record": {
+      "path": "/com.atproto.repo.getRecord",
+      "query": {
+        "repo": "{{ secret.handle }}",
+        "collection": "{{ inputs.collection or 'app.bsky.feed.post' }}",
+        "rkey": "{{ inputs.rkey }}"
+      },
+      "inputs": [
+        "rkey",
+        "collection"
+      ],
+      "result": {
+        "uri": "/uri",
+        "cid": "/cid",
+        "rkey": {
+          "expr": "inputs.rkey"
+        }
+      },
+      "error_at": "/message"
+    },
+    "get_post": {
+      "path": "/app.bsky.feed.getPosts",
+      "query": {
+        "uris": "{{ inputs.uri }}"
+      },
+      "inputs": [
+        "uri"
+      ],
+      "result": {
+        "uri": "/posts/0/uri",
+        "cid": {
+          "at": "/posts/0/cid",
+          "required": true
+        },
+        "root_uri": {
+          "expr": "has(answer.posts[0].record.reply) ? answer.posts[0].record.reply.root.uri : answer.posts[0].uri"
+        },
+        "root_cid": {
+          "expr": "has(answer.posts[0].record.reply) ? answer.posts[0].record.reply.root.cid : answer.posts[0].cid"
+        }
+      },
+      "error_at": "/message"
+    },
+    "publish_media": {
+      "method": "POST",
+      "path": "/com.atproto.repo.uploadBlob",
+      "body": {
+        "file": "{{ inputs.file }}",
+        "max_bytes": 26214400
+      },
+      "result": {
+        "id": "/blob/ref/$link"
+      },
+      "error_at": "/message",
+      "inputs": [
+        "file"
+      ],
+      "idempotency_header": "X-Ferrum-Upload-Key"
+    },
+    "create_subject": {
+      "method": "POST",
+      "path": "/com.atproto.repo.createRecord",
+      "body": "{\"repo\": {{ secret.handle | json }}, \"collection\": {{ inputs.collection | json }}, \"rkey\": {{ inputs.rkey | json }}, \"record\": {\"$type\": {{ inputs.collection | json }}, \"subject\": {\"uri\": {{ inputs.uri | json }}, \"cid\": {{ inputs.cid | json }}}, \"createdAt\": {{ inputs.created_at | json }}}}",
+      "inputs": [
+        "collection",
+        "rkey",
+        "uri",
+        "cid",
+        "created_at"
+      ],
+      "result": {
+        "uri": "/uri"
+      },
+      "error_at": "/message"
+    },
+    "delete": {
+      "method": "POST",
+      "path": "/com.atproto.repo.deleteRecord",
+      "body": "{\"repo\": {{ secret.handle | json }}, \"collection\": \"app.bsky.feed.post\", \"rkey\": {{ inputs.id | split(\"/\") | last | json }}}",
+      "error_at": "/message",
+      "inputs": [
+        "id"
+      ],
+      "idempotency_header": "Idempotency-Key"
+    },
+    "metrics": {
+      "path": "/app.bsky.feed.getPosts",
+      "query": {
+        "uris": "{{ inputs.id }}"
+      },
+      "result": {
+        "engagements": {
+          "expr": "answer.posts[0].likeCount + answer.posts[0].repostCount + answer.posts[0].replyCount + answer.posts[0].quoteCount"
+        }
+      },
+      "error_at": "/message",
+      "inputs": [
+        "id"
+      ]
+    },
+    "account": {
+      "path": "/app.bsky.actor.getProfile",
+      "query": {
+        "actor": "{{ secret.handle }}"
+      },
+      "result": {
+        "followers": "/followersCount",
+        "name": "/displayName",
+        "handle": "/handle",
+        "picture": "/avatar"
+      },
+      "error_at": "/message"
+    },
+    "mentions": {
+      "path": "/app.bsky.actor.searchActorsTypeahead",
+      "query": {
+        "q": "{{ inputs.q }}",
+        "limit": "8"
+      },
+      "inputs": [
+        "q"
+      ],
+      "error_at": "/message"
+    },
+    "messages": {
+      "path": "/app.bsky.notification.listNotifications?reasons=reply&reasons=mention&reasons=quote",
+      "query": {
+        "limit": "50"
+      },
+      "error_at": "/message"
+    },
+    "convo": {
+      "path": "/chat.bsky.convo.getConvoForMembers",
+      "query": {
+        "members": "{{ inputs.did }}"
+      },
+      "headers": {
+        "atproto-proxy": "did:web:api.bsky.chat#bsky_chat"
+      },
+      "inputs": [
+        "did"
+      ],
+      "result": {
+        "id": {
+          "at": "/convo/id",
+          "required": true
+        }
+      },
+      "error_at": "/message"
+    },
+    "chat": {
+      "method": "POST",
+      "path": "/chat.bsky.convo.sendMessage",
+      "headers": {
+        "atproto-proxy": "did:web:api.bsky.chat#bsky_chat"
+      },
+      "body": "{\"convoId\": {{ inputs.convo | json }}, \"message\": {\"text\": {{ inputs.text | json }}}}",
+      "inputs": [
+        "convo",
+        "text"
+      ],
+      "result": {
+        "id": "/id"
+      },
+      "error_at": "/message"
+    },
+    "publish": {
+      "inputs": [
+        "text",
+        "link",
+        "text_with_link",
+        "media_items",
+        "media",
+        "created_at",
+        "reply_to",
+        "root",
+        "previous",
+        "settings"
+      ],
+      "steps": [
+        {
+          "name": "profiles",
+          "operation": "profiles",
+          "when": "(inputs.text if (inputs.link and not inputs.media) else inputs.text_with_link) | entities('bytes') | selectattr('type', 'equalto', 'mention') | list",
+          "inputs": {
+            "handles": "(inputs.text if (inputs.link and not inputs.media) else inputs.text_with_link) | entities('bytes') | selectattr('type', 'equalto', 'mention') | map(attribute='value') | list"
+          }
+        },
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "rkey": "key | tid",
+            "text": "inputs.text if (inputs.link and not inputs.media) else inputs.text_with_link",
+            "created_at": "inputs.created_at",
+            "langs": "[inputs.settings.language] if inputs.settings and inputs.settings.language else none",
+            "items": "inputs.media_items or []",
+            "card": "inputs.link if not inputs.media else none",
+            "profiles": "steps.profiles.profiles if steps.profiles else none",
+            "root_uri": "inputs.root",
+            "root_cid": "inputs.previous.answer.root_cid if inputs.previous else none",
+            "parent_uri": "inputs.reply_to",
+            "parent_cid": "inputs.previous.answer.cid if inputs.previous else none"
+          },
+          "confirm": {
+            "operation": "get_record",
+            "inputs": {
+              "rkey": "sent.rkey"
+            },
+            "proves": "result.uri"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/uri",
+        "cid": "/post/cid",
+        "root_cid": {
+          "expr": "has(inputs.previous) && inputs.previous != null ? inputs.previous.answer.root_cid : answer.post.cid"
+        },
+        "url": {
+          "expr": "concat('https://bsky.app/profile/', auth.did, '/post/', answer.post.rkey)"
+        }
+      }
+    },
+    "reply": {
+      "inputs": [
+        "text",
+        "in_reply_to",
+        "thread",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "parent",
+          "operation": "get_post",
+          "when": "not inputs.thread",
+          "inputs": {
+            "uri": "inputs.in_reply_to"
+          }
+        },
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "rkey": "key | tid",
+            "text": "inputs.text",
+            "created_at": "inputs.created_at or now",
+            "root_uri": "(inputs.thread | split(' ') | list)[0] if inputs.thread else steps.parent.root_uri",
+            "root_cid": "(inputs.thread | split(' ') | list)[1] if inputs.thread else steps.parent.root_cid",
+            "parent_uri": "inputs.in_reply_to",
+            "parent_cid": "(inputs.thread | split(' ') | list)[2] if inputs.thread else steps.parent.cid"
+          },
+          "confirm": {
+            "operation": "get_record",
+            "inputs": {
+              "rkey": "sent.rkey"
+            },
+            "proves": "result.uri"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/uri"
+      }
+    },
+    "like": {
+      "inputs": [
+        "id"
+      ],
+      "steps": [
+        {
+          "name": "subject",
+          "operation": "get_post",
+          "inputs": {
+            "uri": "inputs.id"
+          }
+        },
+        {
+          "name": "made",
+          "operation": "create_subject",
+          "inputs": {
+            "collection": "'app.bsky.feed.like'",
+            "rkey": "key | tid",
+            "uri": "inputs.id",
+            "cid": "steps.subject.cid",
+            "created_at": "now"
+          },
+          "confirm": {
+            "operation": "get_record",
+            "inputs": {
+              "rkey": "sent.rkey",
+              "collection": "sent.collection"
+            },
+            "proves": "result.uri"
+          }
+        }
+      ],
+      "result": {
+        "id": "/made/uri"
+      }
+    },
+    "repost": {
+      "inputs": [
+        "id"
+      ],
+      "steps": [
+        {
+          "name": "subject",
+          "operation": "get_post",
+          "inputs": {
+            "uri": "inputs.id"
+          }
+        },
+        {
+          "name": "made",
+          "operation": "create_subject",
+          "inputs": {
+            "collection": "'app.bsky.feed.repost'",
+            "rkey": "key | tid",
+            "uri": "inputs.id",
+            "cid": "steps.subject.cid",
+            "created_at": "now"
+          },
+          "confirm": {
+            "operation": "get_record",
+            "inputs": {
+              "rkey": "sent.rkey",
+              "collection": "sent.collection"
+            },
+            "proves": "result.uri"
+          }
+        }
+      ],
+      "result": {
+        "id": "/made/uri"
+      }
+    },
+    "send_message": {
+      "inputs": [
+        "to",
+        "text"
+      ],
+      "steps": [
+        {
+          "name": "convo",
+          "operation": "convo",
+          "inputs": {
+            "did": "inputs.to"
+          }
+        },
+        {
+          "name": "sent",
+          "operation": "chat",
+          "inputs": {
+            "convo": "steps.convo.id",
+            "text": "inputs.text"
+          }
+        }
+      ],
+      "result": {
+        "id": "/sent/id"
+      }
+    }
+  },
+  "pulls": [
+    {
+      "name": "notifications",
+      "operation": "messages",
+      "every_minutes": 15,
+      "items_at": "/notifications",
+      "cursor": "time",
+      "max_pages": 1,
+      "map": {
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "/uri"
+        },
+        "set": {
+          "kind": "item.reason == 'reply' ? 'Comment' : 'Mention'",
+          "author": "/author/handle",
+          "author_id": "/author/did",
+          "text": "/record/text",
+          "post_external_id": "/reasonSubject",
+          "thread": "has(item.record.reply) ? item.record.reply.root.uri + ' ' + item.record.reply.root.cid + ' ' + item.cid : item.uri + ' ' + item.cid + ' ' + item.cid",
+          "via_connection": "connection.id"
+        },
+        "as": "system"
+      }
+    }
+  ]
+}

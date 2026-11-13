@@ -1,0 +1,333 @@
+{
+  "base": "https://dev.to/api",
+  "auth": {
+    "type": "header",
+    "header": "api-key",
+    "secret": "api_key"
+  },
+  "headers": {
+    "accept": "application/vnd.forem.api-v1+json"
+  },
+  "apps": [
+    "social"
+  ],
+  "timeout_ms": 30000,
+  "meta": {
+    "label": "DEV Community",
+    "carries": {
+      "network": "DEV Community",
+      "provider": "devto"
+    },
+    "social": {
+      "name": "DEV Community",
+      "text": {
+        "format": "markdown",
+        "min": 1
+      },
+      "media": {
+        "kinds": []
+      },
+      "kinds": [
+        {
+          "name": "article",
+          "label": "Article"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "tags",
+          "label": "Tags",
+          "type": "multi",
+          "max": 4,
+          "help": "Up to four",
+          "choices": {
+            "operation": "tags",
+            "items_at": "/tags",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "cover",
+          "label": "Cover picture address",
+          "type": "text",
+          "help": "A web address of a picture (DEV takes no upload through its API)"
+        },
+        {
+          "key": "canonical",
+          "label": "Original address",
+          "type": "text"
+        },
+        {
+          "key": "description",
+          "label": "Summary",
+          "type": "text",
+          "max": 170
+        },
+        {
+          "key": "series",
+          "label": "Series",
+          "type": "text"
+        },
+        {
+          "key": "organization",
+          "label": "Organisation",
+          "type": "select",
+          "choices": {
+            "operation": "organizations",
+            "items_at": "/orgs",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "published",
+          "label": "Publish now",
+          "type": "bool",
+          "default": true,
+          "help": "Off: saved as a draft"
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      },
+      "title": {
+        "required": true,
+        "max": 128
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/users/me",
+      "result": {
+        "people": {
+          "expr": "[{'id': string(answer.id), 'name': answer.name, 'handle': answer.username, 'picture': answer.profile_image}]"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/users/me",
+      "result": {
+        "name": "/name",
+        "handle": "/username",
+        "picture": "/profile_image"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "tags": {
+      "path": "/tags",
+      "query": {
+        "per_page": "1000"
+      },
+      "result": {
+        "tags": {
+          "expr": "answer.map(t, {'id': t.name, 'name': t.name})"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "own_articles": {
+      "path": "/articles/me/all",
+      "query": {
+        "per_page": "1000"
+      },
+      "result": {
+        "usernames": {
+          "expr": "answer.filter(a, has(a.organization) && a.organization != null).map(a, a.organization.username)"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "get_organization": {
+      "path": "/organizations/{{ inputs.username }}",
+      "result": {
+        "id": "/id",
+        "name": "/name"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "username"
+      ]
+    },
+    "create_article": {
+      "method": "POST",
+      "path": "/articles",
+      "body": "{\"article\": {\"title\": {{ inputs.title | json }}, \"body_markdown\": {{ inputs.content | json }}, \"published\": {{ (inputs.published if inputs.published is not none else true) | json }}{% if inputs.tags %}, \"tags\": {{ inputs.tags | json }}{% endif %}{% if inputs.cover %}, \"main_image\": {{ inputs.cover | json }}{% endif %}{% if inputs.canonical %}, \"canonical_url\": {{ inputs.canonical | json }}{% endif %}{% if inputs.description %}, \"description\": {{ inputs.description | json }}{% endif %}{% if inputs.series %}, \"series\": {{ inputs.series | json }}{% endif %}{% if inputs.organization %}, \"organization_id\": {{ inputs.organization | int | json }}{% endif %}}}",
+      "result": {
+        "id": {
+          "expr": "string(answer.id)",
+          "required": true
+        },
+        "url": "/url"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "title",
+        "content",
+        "published",
+        "tags",
+        "cover",
+        "canonical",
+        "description",
+        "series",
+        "organization"
+      ]
+    },
+    "recent_articles": {
+      "path": "/articles/me/all",
+      "query": {
+        "per_page": "15"
+      },
+      "result": {
+        "id": {
+          "expr": "answer.filter(a, a.title == inputs.title && has(a.published_timestamp) && a.published_timestamp >= inputs.after.substring(0, 19)).map(a, string(a.id)).join('')"
+        },
+        "url": {
+          "expr": "answer.filter(a, a.title == inputs.title && has(a.published_timestamp) && a.published_timestamp >= inputs.after.substring(0, 19)).map(a, a.url).join('')"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "title",
+        "after"
+      ]
+    },
+    "delete": {
+      "method": "PUT",
+      "path": "/articles/{{ inputs.id }}",
+      "body": "{\"article\": {\"published\": false}}",
+      "result": {
+        "id": "/id"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "organizations": {
+      "changes": false,
+      "steps": [
+        {
+          "name": "list",
+          "operation": "own_articles"
+        },
+        {
+          "name": "details",
+          "operation": "get_organization",
+          "for_each": "steps.list.usernames | unique | list",
+          "inputs": {
+            "username": "item"
+          }
+        }
+      ],
+      "result": {
+        "orgs": {
+          "expr": "answer.details.map(o, {'id': string(o.id), 'name': o.name})"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text_with_link",
+        "created_at",
+        "title"
+      ],
+      "steps": [
+        {
+          "name": "article",
+          "operation": "create_article",
+          "inputs": {
+            "title": "inputs.title",
+            "content": "inputs.text_with_link",
+            "published": "inputs.settings.published",
+            "tags": "inputs.settings.tags",
+            "cover": "inputs.settings.cover",
+            "canonical": "inputs.settings.canonical",
+            "description": "inputs.settings.description",
+            "series": "inputs.settings.series",
+            "organization": "inputs.settings.organization"
+          },
+          "confirm": {
+            "operation": "recent_articles",
+            "inputs": {
+              "title": "sent.title",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/article/id",
+        "url": "/article/url"
+      }
+    }
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "base": "https://api.neynar.com/v2/farcaster",
+  "auth": {
+    "type": "header",
+    "header": "x-api-key",
+    "secret": "api_key"
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.neynar.com"
+  ],
+  "timeout_ms": 30000,
+  "meta": {
+    "label": "Farcaster (through Neynar)",
+    "carries": {
+      "network": "Farcaster",
+      "provider": "farcaster"
+    },
+    "social": {
+      "name": "Farcaster",
+      "text": {
+        "max": 320,
+        "count": "bytes",
+        "format": "plain"
+      },
+      "media": {
+        "kinds": []
+      },
+      "kinds": [
+        {
+          "name": "cast",
+          "label": "Cast"
+        }
+      ],
+      "follow_ups": {
+        "as": "thread",
+        "media": false,
+        "max": 20
+      },
+      "link_preview": true,
+      "settings": [
+        {
+          "key": "channel",
+          "label": "Channel",
+          "type": "select",
+          "choices": {
+            "operation": "channels",
+            "inputs": {
+              "query": "query"
+            },
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "embeds",
+          "label": "Pictures or links to show",
+          "type": "text",
+          "help": "Up to two web addresses, separated by commas (a stored picture has no public address yet)"
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "signer": {
+      "path": "/signer",
+      "query": {
+        "signer_uuid": "{{ secret.signer_uuid }}"
+      },
+      "result": {
+        "fid": {
+          "expr": "answer.status == 'approved' ? string(answer.fid) : null",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "users": {
+      "path": "/user/bulk",
+      "query": {
+        "fids": "{{ inputs.fid }}"
+      },
+      "result": {
+        "name": "/users/0/display_name",
+        "handle": "/users/0/username",
+        "picture": "/users/0/pfp_url",
+        "followers": "/users/0/follower_count",
+        "id": "/users/0/fid"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "fid"
+      ]
+    },
+    "channels": {
+      "path": "/channel/search",
+      "query": {
+        "q": "{{ inputs.query }}",
+        "limit": "10"
+      },
+      "result": {
+        "items": {
+          "expr": "answer.channels.map(c, {'id': c.id, 'name': c.name})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "query"
+      ]
+    },
+    "cast": {
+      "method": "POST",
+      "path": "/cast",
+      "body": "{\"signer_uuid\": {{ secret.signer_uuid | json }}, \"text\": {{ inputs.text | json }}, \"idem\": {{ key | tid | json }}{% if inputs.embeds %}, \"embeds\": [{% for e in inputs.embeds %}{% if not loop.first %}, {% endif %}{\"url\": {{ e | json }}}{% endfor %}]{% endif %}{% if inputs.parent %}, \"parent\": {{ inputs.parent | json }}{% endif %}{% if inputs.channel %}, \"channel_id\": {{ inputs.channel | json }}{% endif %}}",
+      "result": {
+        "hash": {
+          "expr": "answer.success ? answer.cast.hash : null",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "idempotency_header": "X-Idempotency-Key",
+      "inputs": [
+        "text",
+        "embeds",
+        "parent",
+        "channel"
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/cast",
+      "body": "{\"signer_uuid\": {{ secret.signer_uuid | json }}, \"target_hash\": {{ inputs.id | json }}}",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "cast_numbers": {
+      "path": "/cast",
+      "query": {
+        "identifier": "{{ inputs.id }}",
+        "type": "hash"
+      },
+      "result": {
+        "engagements": {
+          "expr": "answer.cast.reactions.likes_count + answer.cast.reactions.recasts_count + answer.cast.replies.count"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "accounts": {
+      "changes": false,
+      "steps": [
+        {
+          "name": "signer",
+          "operation": "signer"
+        },
+        {
+          "name": "user",
+          "operation": "users",
+          "inputs": {
+            "fid": "steps.signer.fid"
+          }
+        }
+      ],
+      "result": {
+        "people": {
+          "expr": "[{'id': string(answer.user.id), 'name': answer.user.name, 'handle': answer.user.handle, 'picture': answer.user.picture}]"
+        }
+      }
+    },
+    "account": {
+      "changes": false,
+      "steps": [
+        {
+          "name": "signer",
+          "operation": "signer"
+        },
+        {
+          "name": "user",
+          "operation": "users",
+          "inputs": {
+            "fid": "steps.signer.fid"
+          }
+        }
+      ],
+      "result": {
+        "name": "/user/name",
+        "handle": "/user/handle",
+        "picture": "/user/picture",
+        "followers": "/user/followers"
+      }
+    },
+    "metrics": {
+      "changes": false,
+      "inputs": [
+        "id"
+      ],
+      "steps": [
+        {
+          "name": "n",
+          "operation": "cast_numbers",
+          "inputs": {
+            "id": "inputs.id"
+          }
+        }
+      ],
+      "result": {
+        "engagements": "/n/engagements"
+      }
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text_with_link",
+        "reply_to"
+      ],
+      "steps": [
+        {
+          "name": "cast",
+          "operation": "cast",
+          "inputs": {
+            "text": "inputs.text_with_link",
+            "embeds": "(inputs.settings.embeds or '') | split(',') | map('trim') | reject('equalto', '') | list",
+            "parent": "inputs.reply_to",
+            "channel": "inputs.settings.channel if not inputs.reply_to else none"
+          }
+        }
+      ],
+      "result": {
+        "id": "/cast/hash"
+      }
+    }
+  }
+}

@@ -1,0 +1,414 @@
+{
+  "base": "https://wordpress.example/wp-json/wp/v2",
+  "auth": {
+    "type": "basic",
+    "username": "REPLACE-WITH-THE-WORDPRESS-USER",
+    "secret": "application_password"
+  },
+  "apps": [
+    "social"
+  ],
+  "timeout_ms": 60000,
+  "meta": {
+    "label": "WordPress (your site)",
+    "carries": {
+      "network": "WordPress",
+      "provider": "wordpress",
+      "server": "site",
+      "placeholder": "https://wordpress.example"
+    },
+    "social": {
+      "name": "WordPress",
+      "text": {
+        "format": "html"
+      },
+      "media": {
+        "kinds": [
+          "image"
+        ],
+        "max": 1,
+        "alt": true,
+        "alt_max": 500,
+        "image": {
+          "max_bytes": 10485760
+        }
+      },
+      "kinds": [
+        {
+          "name": "article",
+          "label": "Article"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "post_type",
+          "label": "Kind of content",
+          "type": "select",
+          "default": "posts",
+          "choices": {
+            "operation": "post_types",
+            "items_at": "/types",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "default": "publish",
+          "options": [
+            "publish",
+            "draft",
+            "pending",
+            "private"
+          ]
+        },
+        {
+          "key": "categories",
+          "label": "Categories",
+          "type": "multi",
+          "choices": {
+            "operation": "categories",
+            "inputs": {
+              "query": "query"
+            },
+            "items_at": "/terms",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "tags",
+          "label": "Tags",
+          "type": "multi",
+          "choices": {
+            "operation": "tags",
+            "inputs": {
+              "query": "query"
+            },
+            "items_at": "/terms",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "slug",
+          "label": "Address name",
+          "type": "text",
+          "help": "The last part of the article's address; WordPress makes one from the title when empty"
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/sites",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle"
+      },
+      "title": {
+        "required": true,
+        "max": 200
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "url": "https://wordpress.example/wp-json/",
+      "changes": false,
+      "result": {
+        "sites": {
+          "expr": "[{'id': answer.url, 'name': answer.name, 'handle': answer.home}]"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "url": "https://wordpress.example/wp-json/",
+      "changes": false,
+      "result": {
+        "name": "/name"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "post_types": {
+      "path": "/types",
+      "result": {
+        "types": {
+          "expr": "sortBy(answer.filter(k, !(k in ['attachment', 'nav_menu_item', 'wp_block', 'wp_template', 'wp_template_part', 'wp_navigation', 'wp_global_styles', 'wp_font_family', 'wp_font_face'])).map(k, {'id': answer[k].rest_base, 'name': answer[k].name}), 'name')"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "categories": {
+      "path": "/categories",
+      "query": {
+        "per_page": "100",
+        "search": "{{ inputs.query }}"
+      },
+      "result": {
+        "terms": {
+          "expr": "answer.map(c, {'id': string(c.id), 'name': c.name})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "query"
+      ]
+    },
+    "tags": {
+      "path": "/tags",
+      "query": {
+        "per_page": "100",
+        "search": "{{ inputs.query }}"
+      },
+      "result": {
+        "terms": {
+          "expr": "answer.map(c, {'id': string(c.id), 'name': c.name})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "query"
+      ]
+    },
+    "upload": {
+      "method": "POST",
+      "path": "/media",
+      "headers": {
+        "content-disposition": "attachment; filename=\"{{ inputs.name }}\""
+      },
+      "body": {
+        "file": "{{ inputs.file }}",
+        "max_bytes": 10485760
+      },
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "file",
+        "name"
+      ]
+    },
+    "describe": {
+      "method": "POST",
+      "path": "/media/{{ inputs.id }}",
+      "body": "{\"alt_text\": {{ inputs.alt | json }}}",
+      "changes": false,
+      "result": {
+        "id": "/id"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id",
+        "alt"
+      ]
+    },
+    "create_post": {
+      "method": "POST",
+      "path": "/{{ inputs.rest_base }}",
+      "body": "{\"title\": {{ inputs.title | json }}, \"content\": {{ inputs.content | json }}, \"status\": {{ inputs.status | json }}, \"categories\": {{ (inputs.categories or []) | map(\"int\") | list | json }}, \"tags\": {{ (inputs.tags or []) | map(\"int\") | list | json }}{% if inputs.featured %}, \"featured_media\": {{ inputs.featured | int | json }}{% endif %}{% if inputs.slug %}, \"slug\": {{ inputs.slug | json }}{% endif %}}",
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        },
+        "url": "/link"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "rest_base",
+        "title",
+        "content",
+        "status",
+        "categories",
+        "tags",
+        "featured",
+        "slug"
+      ]
+    },
+    "recent_posts": {
+      "path": "/{{ inputs.rest_base }}",
+      "query": {
+        "status": "any",
+        "context": "edit",
+        "after": "{{ inputs.after }}",
+        "per_page": "20",
+        "search": "{{ inputs.title }}"
+      },
+      "result": {
+        "id": {
+          "expr": "answer.filter(p, p.title.raw == inputs.title).map(p, string(p.id)).join('')"
+        },
+        "url": {
+          "expr": "answer.filter(p, p.title.raw == inputs.title).map(p, p.link).join('')"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "rest_base",
+        "title",
+        "after"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file",
+        "name",
+        "alt"
+      ],
+      "steps": [
+        {
+          "name": "file",
+          "operation": "upload",
+          "inputs": {
+            "file": "inputs.file",
+            "name": "inputs.name"
+          }
+        },
+        {
+          "name": "alt",
+          "operation": "describe",
+          "when": "inputs.alt",
+          "inputs": {
+            "id": "steps.file.id",
+            "alt": "inputs.alt"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "string(answer.file.id)"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text_with_link",
+        "media",
+        "created_at",
+        "title"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "rest_base": "inputs.settings.post_type or 'posts'",
+            "title": "inputs.title",
+            "content": "inputs.text_with_link",
+            "status": "inputs.settings.status or 'publish'",
+            "categories": "inputs.settings.categories",
+            "tags": "inputs.settings.tags",
+            "featured": "inputs.media[0] if inputs.media else none",
+            "slug": "inputs.settings.slug"
+          },
+          "confirm": {
+            "operation": "recent_posts",
+            "inputs": {
+              "rest_base": "sent.rest_base",
+              "title": "sent.title",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "concat(has(inputs.settings.post_type) ? inputs.settings.post_type : 'posts', ':', string(answer.post.id))"
+        },
+        "url": "/post/url"
+      }
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/{{ inputs.id | split(':') | first }}/{{ inputs.id | split(':') | last }}",
+      "result": {
+        "id": "/id"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    }
+  }
+}

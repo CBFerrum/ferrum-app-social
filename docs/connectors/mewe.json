@@ -1,0 +1,248 @@
+{
+  "base": "https://mewe.com/api/dev",
+  "auth": {
+    "type": "bearer",
+    "secret": "api_token"
+  },
+  "headers": {
+    "x-app-id": "{{ secret.app_id }}",
+    "x-api-key": "{{ secret.api_key }}"
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "mewe.com"
+  ],
+  "timeout_ms": 60000,
+  "meta": {
+    "label": "MeWe",
+    "carries": {
+      "network": "MeWe",
+      "provider": "mewe"
+    },
+    "social": {
+      "name": "MeWe",
+      "text": {
+        "max": 63206,
+        "format": "plain"
+      },
+      "media": {
+        "kinds": [
+          "image"
+        ],
+        "max": 10,
+        "image": {
+          "max_bytes": 10485760
+        }
+      },
+      "kinds": [
+        {
+          "name": "timeline",
+          "label": "My timeline"
+        },
+        {
+          "name": "group",
+          "label": "A group"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "group",
+          "label": "Group",
+          "type": "select",
+          "required": true,
+          "when": {
+            "kind": [
+              "group"
+            ]
+          },
+          "choices": {
+            "operation": "groups",
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/me",
+      "result": {
+        "people": {
+          "expr": "[{'id': answer.userId, 'name': has(answer.name) && answer.name != null ? answer.name : (answer.firstName + ' ' + answer.lastName), 'handle': has(answer.handle) ? answer.handle : null}]"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/me",
+      "result": {
+        "name": {
+          "expr": "has(answer.name) && answer.name != null ? answer.name : (answer.firstName + ' ' + answer.lastName)"
+        },
+        "handle": "/handle"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "groups": {
+      "path": "/groups",
+      "result": {
+        "items": {
+          "expr": "answer.groups.map(g, {'id': string(g.groupId), 'name': g.name})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "upload_photo": {
+      "method": "POST",
+      "path": "/photo/upload",
+      "form": {
+        "file": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 10485760
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "file"
+      ]
+    },
+    "post_timeline": {
+      "method": "POST",
+      "path": "/me/post",
+      "body": "{\"text\": {{ inputs.text | json }}{% if inputs.photos %}, \"uploadedPhotoIds\": {{ inputs.photos | json }}{% endif %}}",
+      "answer": "text",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "text",
+        "photos"
+      ]
+    },
+    "post_group": {
+      "method": "POST",
+      "path": "/group/{{ inputs.group }}/post",
+      "body": "{\"text\": {{ inputs.text | json }}{% if inputs.photos %}, \"uploadedPhotoIds\": {{ inputs.photos | json }}{% endif %}}",
+      "answer": "text",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "group",
+        "text",
+        "photos"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file"
+      ],
+      "steps": [
+        {
+          "name": "photo",
+          "operation": "upload_photo",
+          "inputs": {
+            "file": "inputs.file"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.photo.id"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "kind",
+        "settings",
+        "text_with_link",
+        "media"
+      ],
+      "steps": [
+        {
+          "name": "timeline",
+          "operation": "post_timeline",
+          "when": "inputs.kind != 'group'",
+          "inputs": {
+            "text": "inputs.text_with_link",
+            "photos": "inputs.media"
+          }
+        },
+        {
+          "name": "group",
+          "operation": "post_group",
+          "when": "inputs.kind == 'group'",
+          "inputs": {
+            "group": "inputs.settings.group",
+            "text": "inputs.text_with_link",
+            "photos": "inputs.media"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "'mewe-' + now"
+        }
+      }
+    }
+  }
+}
