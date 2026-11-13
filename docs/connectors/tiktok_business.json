@@ -1,0 +1,415 @@
+{
+  "base": "https://business-api.tiktok.com/open_api/v1.3",
+  "auth": {
+    "type": "session",
+    "login": "create_session",
+    "refresh": "refresh_session",
+    "token_at": "/data/access_token",
+    "refresh_at": "/data/refresh_token",
+    "expires_at": "/data/expires_in",
+    "header": "access-token",
+    "prefix": ""
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "business-api.tiktok.com"
+  ],
+  "timeout_ms": 30000,
+  "meta": {
+    "carries": {
+      "network": "TikTok Business",
+      "provider": "tiktok_business"
+    },
+    "social": {
+      "name": "TikTok Business",
+      "text": {
+        "max": 2200,
+        "count": "utf16",
+        "format": "plain"
+      },
+      "media": {
+        "kinds": [
+          "video"
+        ],
+        "required": true,
+        "min": 1,
+        "max": 1,
+        "video": {
+          "types": [
+            "video/mp4",
+            "video/quicktime",
+            "video/webm"
+          ],
+          "max_seconds": 600
+        }
+      },
+      "kinds": [
+        {
+          "name": "video",
+          "label": "Video"
+        },
+        {
+          "name": "photo",
+          "label": "Photo carousel",
+          "text": {
+            "max": 4000,
+            "count": "utf16",
+            "format": "plain"
+          },
+          "media": {
+            "kinds": [
+              "image"
+            ],
+            "required": true,
+            "min": 1,
+            "max": 35,
+            "image": {
+              "types": [
+                "image/jpeg",
+                "image/webp"
+              ]
+            }
+          }
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "max": 90,
+          "when": {
+            "kind": [
+              "photo"
+            ]
+          }
+        },
+        {
+          "key": "privacy",
+          "label": "Who can see it",
+          "type": "select",
+          "default": "PUBLIC_TO_EVERYONE",
+          "options": [
+            "PUBLIC_TO_EVERYONE",
+            "MUTUAL_FOLLOW_FRIENDS",
+            "FOLLOWER_OF_CREATOR",
+            "SELF_ONLY"
+          ],
+          "when": {
+            "kind": [
+              "photo"
+            ]
+          }
+        },
+        {
+          "key": "disable_comment",
+          "label": "Turn comments off",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "disable_duet",
+          "label": "Turn duets off",
+          "type": "bool",
+          "default": false,
+          "when": {
+            "kind": [
+              "video"
+            ]
+          }
+        },
+        {
+          "key": "disable_stitch",
+          "label": "Turn stitches off",
+          "type": "bool",
+          "default": false,
+          "when": {
+            "kind": [
+              "video"
+            ]
+          }
+        },
+        {
+          "key": "brand_organic",
+          "label": "Promotes my own brand",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "branded_content",
+          "label": "Paid partnership",
+          "type": "bool",
+          "default": false
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "create_session": {
+      "method": "POST",
+      "path": "/tt_user/oauth2/refresh_token/",
+      "changes": false,
+      "body": "{\"client_id\": {{ secret.client_id | json }}, \"client_secret\": {{ secret.client_secret | json }}, \"grant_type\": \"refresh_token\", \"refresh_token\": {{ secret.refresh_token | json }}}",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "refresh_session": {
+      "method": "POST",
+      "path": "/tt_user/oauth2/refresh_token/",
+      "changes": false,
+      "body": "{\"client_id\": {{ secret.client_id | json }}, \"client_secret\": {{ secret.client_secret | json }}, \"grant_type\": \"refresh_token\", \"refresh_token\": {{ inputs.refresh_token | json }}}",
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "video_publish": {
+      "method": "POST",
+      "path": "/business/video/publish/",
+      "body": "{\"business_id\": {{ secret.business_id | json }}, \"video_url\": {{ inputs.video_url | json }}, \"post_info\": {\"caption\": {{ inputs.caption | json }}, \"disable_comment\": {{ (inputs.disable_comment or false) | json }}, \"is_brand_organic\": {{ (inputs.brand_organic or false) | json }}, \"is_branded_content\": {{ (inputs.branded_content or false) | json }}{% if inputs.disable_duet is not none %}, \"disable_duet\": {{ inputs.disable_duet | json }}{% endif %}{% if inputs.disable_stitch is not none %}, \"disable_stitch\": {{ inputs.disable_stitch | json }}{% endif %}}}",
+      "result": {
+        "share_id": {
+          "expr": "answer.code == 0 ? answer.data.share_id : null",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "video_url",
+        "caption",
+        "disable_comment",
+        "disable_duet",
+        "disable_stitch",
+        "brand_organic",
+        "branded_content"
+      ]
+    },
+    "photo_publish": {
+      "method": "POST",
+      "path": "/business/photo/publish/",
+      "body": "{\"business_id\": {{ secret.business_id | json }}, \"photo_images\": {{ inputs.photo_urls | json }}, \"photo_cover_index\": 0, \"post_info\": {\"caption\": {{ inputs.caption | json }}, \"disable_comment\": {{ (inputs.disable_comment or false) | json }}, \"is_brand_organic\": {{ (inputs.brand_organic or false) | json }}, \"is_branded_content\": {{ (inputs.branded_content or false) | json }}, \"privacy_level\": {{ (inputs.privacy or \"PUBLIC_TO_EVERYONE\") | json }}, \"title\": {{ (inputs.title or \"\") | json }}}}",
+      "result": {
+        "share_id": {
+          "expr": "answer.code == 0 ? answer.data.share_id : null",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "photo_urls",
+        "caption",
+        "title",
+        "privacy",
+        "disable_comment",
+        "brand_organic",
+        "branded_content"
+      ]
+    },
+    "publish_status": {
+      "path": "/business/publish/status/",
+      "query": {
+        "business_id": "{{ secret.business_id }}",
+        "publish_id": "{{ inputs.share_id }}"
+      },
+      "result": {
+        "status": {
+          "expr": "answer.code == 0 ? answer.data.status : 'ERROR'"
+        },
+        "post_id": {
+          "expr": "answer.code == 0 && has(answer.data.post_ids) && size(answer.data.post_ids) > 0 ? string(answer.data.post_ids[0]) : ''"
+        },
+        "reason": {
+          "expr": "answer.code == 0 && has(answer.data.fail_reason) ? answer.data.fail_reason : answer.message"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "share_id"
+      ]
+    },
+    "accounts": {
+      "path": "/business/get/",
+      "query": {
+        "business_id": "{{ secret.business_id }}",
+        "fields": "[\"username\",\"display_name\",\"profile_image\",\"followers_count\"]"
+      },
+      "result": {
+        "people": {
+          "expr": "answer.code == 0 ? [{'id': answer.data.username, 'name': answer.data.display_name, 'handle': answer.data.username, 'picture': answer.data.profile_image}] : []"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/business/get/",
+      "query": {
+        "business_id": "{{ secret.business_id }}",
+        "fields": "[\"username\",\"display_name\",\"profile_image\",\"followers_count\"]"
+      },
+      "result": {
+        "name": "/data/display_name",
+        "handle": "/data/username",
+        "picture": "/data/profile_image",
+        "followers": "/data/followers_count"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "metrics": {
+      "path": "/business/video/list/",
+      "query": {
+        "business_id": "{{ secret.business_id }}",
+        "fields": "[\"item_id\",\"likes\",\"comments\",\"shares\",\"video_views\"]",
+        "filters": "{\"video_ids\": [\"{{ inputs.id }}\"]}"
+      },
+      "result": {
+        "impressions": "/data/videos/0/video_views",
+        "engagements": {
+          "expr": "answer.data.videos[0].likes + answer.data.videos[0].comments + answer.data.videos[0].shares"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file"
+      ],
+      "changes": false,
+      "steps": [
+        {
+          "name": "me",
+          "operation": "account"
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "inputs.file"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "kind",
+        "settings",
+        "text_with_link",
+        "media_items"
+      ],
+      "steps": [
+        {
+          "name": "video",
+          "operation": "video_publish",
+          "when": "inputs.kind != 'photo'",
+          "inputs": {
+            "video_url": "inputs.media_items[0].url if inputs.media_items else none",
+            "caption": "inputs.text_with_link",
+            "disable_comment": "inputs.settings.disable_comment",
+            "disable_duet": "inputs.settings.disable_duet",
+            "disable_stitch": "inputs.settings.disable_stitch",
+            "brand_organic": "inputs.settings.brand_organic",
+            "branded_content": "inputs.settings.branded_content"
+          }
+        },
+        {
+          "name": "photo",
+          "operation": "photo_publish",
+          "when": "inputs.kind == 'photo'",
+          "inputs": {
+            "photo_urls": "inputs.media_items | map(attribute='url') | list",
+            "caption": "inputs.text_with_link",
+            "title": "inputs.settings.title",
+            "privacy": "inputs.settings.privacy",
+            "disable_comment": "inputs.settings.disable_comment",
+            "brand_organic": "inputs.settings.brand_organic",
+            "branded_content": "inputs.settings.branded_content"
+          }
+        },
+        {
+          "name": "status",
+          "operation": "publish_status",
+          "inputs": {
+            "share_id": "(steps.video.share_id if steps.video else steps.photo.share_id)"
+          },
+          "wait": {
+            "until": "result.status in ['PUBLISH_COMPLETE', 'SEND_TO_USER_INBOX']",
+            "fail_if": "result.status in ['FAILED', 'ERROR']",
+            "every_secs": 3,
+            "within_secs": 900
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.status.status == 'PUBLISH_COMPLETE' && answer.status.post_id != '' ? answer.status.post_id : null",
+          "required": true
+        }
+      }
+    }
+  }
+}

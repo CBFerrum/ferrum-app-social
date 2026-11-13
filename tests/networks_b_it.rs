@@ -560,6 +560,9 @@ async fn scenario() {
     if wanted("moltbook") {
         moltbook(&t).await;
     }
+    if wanted("tiktok_business") {
+        tiktok_business(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -2733,4 +2736,148 @@ async fn moltbook(t: &T) {
         ["DELETE /api/v1/comments/c1", "DELETE /api/v1/posts/p1"],
         "the follow-up, then the post; Social keeps no id for a first comment, so it stays"
     );
+}
+
+// ───────────── TikTok Business ─────────────
+
+async fn tiktok_business(t: &T) {
+    // Business API v1.3 (business-api.tiktok.com): an `Access-Token` header, tokens from the refresh-token call, answers
+    // 200 with a `code`, /business/get/, /business/video/publish/ and /photo/publish/ (media pulled by address, a
+    // `share_id` back), /business/publish/status/ polled, /business/video/list/.
+    let refreshes: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let published: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let polls: Arc<Mutex<usize>> = Arc::default();
+    let (r2, p2, q2) = (refreshes.clone(), published.clone(), polls.clone());
+    let net = fake(move |r| {
+        let fail = |code: i64, m: &str| ok(json!({"code": code, "message": m, "data": {}}));
+        let mut refreshes = r2.lock().unwrap();
+        if r.path() == "/open_api/v1.3/tt_user/oauth2/refresh_token/" {
+            let b = r.json();
+            let n = refreshes.len();
+            if b["client_id"] != "tt-app" || b["client_secret"] != "tt-secret" || b["grant_type"] != "refresh_token" || b["refresh_token"] != format!("RT-{n}") {
+                return fail(40102, "refresh_token is invalid or expired");
+            }
+            refreshes.push(b);
+            return ok(json!({"code": 0, "message": "OK", "data": {"access_token": format!("TT-{}", n + 1), "refresh_token": format!("RT-{}", n + 1), "expires_in": if n == 0 { 1 } else { 86400 }, "open_id": "BIZ1"}}));
+        }
+        if r.header("access-token") != format!("TT-{}", refreshes.len()) {
+            return fail(40104, "Access token is incorrect or has expired");
+        }
+        let mut published = p2.lock().unwrap();
+        let q = r.query();
+        match (r.method.as_str(), r.path().trim_start_matches("/open_api/v1.3")) {
+            ("GET", "/business/get/") => {
+                assert_eq!(q["business_id"], "BIZ1");
+                ok(json!({"code": 0, "message": "OK", "data": {"username": "northwind", "display_name": "Northwind", "profile_image": "https://p16.tiktok.test/a.jpg", "followers_count": 2048}}))
+            }
+            ("POST", p @ ("/business/video/publish/" | "/business/photo/publish/")) => {
+                let b = r.json();
+                assert_eq!(b["business_id"], "BIZ1");
+                if p.contains("video") && b["video_url"].is_null() {
+                    return fail(40002, "video_url: A video address is needed");
+                }
+                published.push(json!({"via": p, "body": b}));
+                ok(json!({"code": 0, "message": "OK", "data": {"share_id": format!("share-{}", published.len())}}))
+            }
+            ("GET", "/business/publish/status/") => {
+                let mut n = q2.lock().unwrap();
+                *n += 1;
+                let done = *n % 2 == 0;
+                ok(json!({"code": 0, "message": "OK", "data": {"status": if done { "PUBLISH_COMPLETE" } else { "PROCESSING" }, "post_ids": if done { json!(["7300000001"]) } else { json!([]) }}}))
+            }
+            ("GET", "/business/video/list/") => ok(json!({"code": 0, "message": "OK", "data": {"videos": [{"item_id": "7300000001", "likes": 10, "comments": 2, "shares": 3, "video_views": 640}]}})),
+            _ => fail(40001, "no such route"),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "tiktok_north",
+            "tiktok_business",
+            &[("https://business-api.tiktok.com", &net.base)],
+            json!({"client_id": "tt-app", "client_secret": "tt-secret", "refresh_token": "RT-0", "business_id": "BIZ1"}),
+            |_| {},
+        )
+        .await;
+    // Connecting: a session from the first refresh token; the next call finds the token run out and renews it with the
+    // refresh token the last answer gave, not the one in the secrets.
+    let me = t.account("Northwind TikTok", "northwind", conn, "northwind").await;
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!(
+        (checked["read"]["display_name"].as_str(), checked["read"]["picture"].as_str()),
+        (Some("Northwind"), Some("https://p16.tiktok.test/a.jpg")),
+        "{checked}"
+    );
+    assert!(refreshes.lock().unwrap().len() >= 2, "renewed: {:?}", refreshes.lock().unwrap());
+    assert_eq!(refreshes.lock().unwrap()[1]["refresh_token"], "RT-1", "the rotated refresh token");
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["kinds"][1]["media"]["max"].as_u64()), (Some("TikTok Business"), Some(35)));
+
+    // The publish call with the addresses TikTok pulls from. Social does not give them yet (see the notes), so this is
+    // the platform's own call with the input the description reads: `media_items[].url`.
+    let call = |op: &str, inputs: Value, key: &str| {
+        let (k, admin, conn) = (t.k.clone(), t.admin.clone(), conn);
+        let (op, key) = (op.to_string(), key.to_string());
+        async move {
+            ferrum_kernel::connections::call(
+                &k,
+                &admin,
+                Some("social"),
+                &ferrum_kernel::connections::Call { connection: conn.to_string(), operation: op, inputs, key: Some(key), entity: None, record: None },
+            )
+            .await
+        }
+    };
+    let video = call(
+        "publish",
+        json!({"kind": "video", "settings": {"disable_comment": true, "disable_duet": false, "disable_stitch": false, "brand_organic": true, "branded_content": false}, "text_with_link": "Spring is here",
+               "media_items": [{"id": "f1", "kind": "video", "url": "https://media.northwind.example/spring.mp4"}]}),
+        "tt-video",
+    )
+    .await
+    .unwrap();
+    assert_eq!(video["id"], "7300000001", "the public id, after the status said it was done");
+    {
+        let p = published.lock().unwrap()[0].clone();
+        assert_eq!(p["via"], "/business/video/publish/");
+        assert_eq!(p["body"]["video_url"], "https://media.northwind.example/spring.mp4");
+        assert_eq!(
+            (
+                p["body"]["post_info"]["caption"].as_str(),
+                p["body"]["post_info"]["disable_comment"].as_bool(),
+                p["body"]["post_info"]["is_brand_organic"].as_bool()
+            ),
+            (Some("Spring is here"), Some(true), Some(true))
+        );
+    }
+    assert_eq!(net.to("GET", "publish/status").len(), 2, "polled until it was done");
+    let photos = call(
+        "publish",
+        json!({"kind": "photo", "settings": {"title": "Gallery", "privacy": "SELF_ONLY"}, "text_with_link": "Two views",
+               "media_items": [{"id": "f1", "kind": "image", "url": "https://media.northwind.example/a.jpg"}, {"id": "f2", "kind": "image", "url": "https://media.northwind.example/b.jpg"}]}),
+        "tt-photos",
+    )
+    .await
+    .unwrap();
+    assert_eq!(photos["id"], "7300000001");
+    let p = published.lock().unwrap()[1].clone();
+    assert_eq!(p["body"]["photo_images"], json!(["https://media.northwind.example/a.jpg", "https://media.northwind.example/b.jpg"]));
+    assert_eq!(
+        (p["body"]["post_info"]["title"].as_str(), p["body"]["post_info"]["privacy_level"].as_str(), p["body"]["post_info"]["caption"].as_str()),
+        (Some("Gallery"), Some("SELF_ONLY"), Some("Two views"))
+    );
+    // The same call again under the same key: nothing is sent again.
+    let again = call("publish", json!({"kind": "video", "settings": {}, "text_with_link": "Spring is here", "media_items": [{"id": "f1", "kind": "video", "url": "https://media.northwind.example/spring.mp4"}]}), "tt-video").await;
+    let _ = again;
+    assert_eq!(published.lock().unwrap().len(), 2);
+    // Numbers of a video, by its public id.
+    let n = call("metrics", json!({"id": "7300000001"}), "tt-n").await.unwrap();
+    assert_eq!((n["impressions"].as_i64(), n["engagements"].as_i64()), (Some(640), Some(15)));
+
+    // Through Social, today: the stored video goes with no address, TikTok refuses (its words are in its answer's `message`;
+    // the platform shows "the answer has no share_id": see the notes) and nothing is posted.
+    let p = t.post("A clip", vec![target_with(me, "video", json!({}))], json!({"media": [json!({"item": 1, "file": t.mp4["url"]})]})).await;
+    t.upkeep().await;
+    assert_eq!(t.get("SocialPost", p).await["status"], "Failed");
+    assert_eq!(published.lock().unwrap().len(), 2);
 }
