@@ -7,11 +7,51 @@ provider code (AGPL, read only).
 
 ## Needed from Social
 
-(see the end of this file for the full list; filled in as the networks were written)
+1. **A public address for each stored file** (`media_items[].url`, signed or on a verified domain): TikTok Business pulls
+   media from an address (the description reads `inputs.media_items[].url`, so its publish is proved only by a platform
+   call with that input); DEV, Hashnode and Farcaster take a cover or embeds by address (today a typed setting).
+2. **The title as a first-class input** (and `subtitle`): WordPress, Medium, DEV, Hashnode, Lemmy, Dribbble, Whop, Moltbook and
+   Listmonk's subject are each a `title` setting; the composer asks it per account.
+3. **`publish_media` is given the post's `kind` under the name `kind`**, which overwrites the medium's own (`media_inputs`
+   merges `common` over it). Give the medium's another name (`media_kind`); VK reads `content_type` instead.
+4. **`delete` is given only `id`, `item`, `follow_up`, `root`**: add `account_id`, `settings` and `kind`. Telegram, Discord, Slack,
+   Tumblr, Twitch and WordPress put the chat, channel or blog into the id they return (`<chat>:<message>`) so that a
+   delete can name it; that works but makes the stored `external_id` the description's, not the network's.
+5. **`check` and `metrics` read only through an operation that is a GET** (`Reach::reads` looks at `method`): a GraphQL
+   query (Hashnode), VK's POST methods, TikTok Business, Farcaster's and Listmonk's counts each wrap their read in a
+   one-step operation without a method. Ask the operation's `changes` instead.
+6. **A first comment's id is not kept**, so it is not deleted with the post (Moltbook, Lemmy, Discord).
+7. **`media_items` has no file name or file id for `publish`**: networks that take the file inside the post call (Telegram,
+   Discord, Tumblr, Dribbble) get the stored file's id as the "media id" through a read-only `publish_media` (one extra call
+   a medium). A `file` field in `media_items`, and a way to say "no upload step", would remove it.
+8. **A kind has to be chosen to attach media** where captions differ (Telegram `message` / `media`, Slack `message` /
+   `images`): a post with a picture on the default kind is refused ("takes no pictures"). A rule that picks the kind by the
+   media would fix it.
+9. `connectors_it.rs` (the lead's): its shape test reads every `.json` under `docs/connectors` as one of four and asks
+   `meta.capabilities`; the nineteen files here have `meta.social` and no `capabilities`, so it fails until it skips them
+   (or reads `meta.social`). I could not edit it.
 
 ## Needed from the platform
 
-(same)
+1. **A 2xx answer that is a refusal.** Slack (`ok: false`), Hashnode (GraphQL `errors`), VK (`error`), Twitch (`is_sent:
+   false`), Kick (`is_sent: false`) and TikTok Business (`code != 0`) answer 200; `error_at` is read only on a failing
+   status. The descriptions make the missing id fail the call (`required`), so the person sees "the answer has no id", not
+   the network's words. Wanted: `fail_if` (an expression over the answer) with the text at a pointer.
+2. **Sign-ins that are not the code exchange the platform makes**: VK ID needs the callback's `device_id` in the exchange and in
+   every refresh, and the `refresh` operation is not given `auth.*` (it is `bare`); TikTok Business wants `client_key`, a JSON
+   body with `auth_code` and tokens under `data`; MeWe exchanges a `loginRequestToken` by a GET with the app's headers.
+   Wanted: `provider.callback_params`, `auth.*` in `refresh` and `after`, and an exchange described as an operation.
+3. **More than 12 steps, or a form part repeated for a list of files.** A form has a fixed set of parts, so Discord,
+   Tumblr and Telegram have an operation for each file count (1 to 10); Telegram's publish uses all 12 steps and stops
+   at 9 files in an album (Telegram takes 10).
+4. **Headers named by an answer** (Whop's `upload_headers`), and `scope` separators (Slack wants commas; `params` may not
+   set `scope`).
+5. **Signing and sockets for Nostr** (see its verdict).
+6. **Stack**: parsing the larger descriptions (Tumblr: 14 operations with long templates) overflowed a 2 MB thread's stack in
+   the test (the scenario runs on 16 MB); worth a check that saving one on a server worker cannot do the same.
+7. Small: a map's order in a `result` expression is arbitrary (WordPress content types come back in any order; no `sort`);
+   an operation of steps with no method counts as one that changes something (say `"changes": false` on reads); the
+   expression of `proves` and `wait` is minijinja while `result`'s is CEL (documented, but easy to mix up).
 
 ## How these descriptions work around two things in the contract
 
