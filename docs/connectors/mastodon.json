@@ -1,173 +1,456 @@
 {
-  "base": "https://mastodon.example",
-  "auth": {
-    "type": "oauth",
-    "owner": "workspace",
-    "provider": {
-      "authorize_url": "https://mastodon.example/oauth/authorize",
-      "token_url": "https://mastodon.example/oauth/token",
-      "revoke_url": "https://mastodon.example/oauth/revoke",
-      "scopes": [
-        "read",
-        "write"
-      ],
-      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
-      "client_secret": "client_secret",
-      "client_auth": "body"
-    }
+ "base": "https://mastodon.example",
+ "auth": {
+  "type": "oauth",
+  "owner": "workspace",
+  "provider": {
+   "authorize_url": "https://mastodon.example/oauth/authorize",
+   "token_url": "https://mastodon.example/oauth/token",
+   "revoke_url": "https://mastodon.example/oauth/revoke",
+   "scopes": [
+    "read",
+    "write"
+   ],
+   "client_auth": "body",
+   "registration": "register_app",
+   "never_expires": true,
+   "after": [
+    "verify"
+   ],
+   "keep": [
+    "account_id"
+   ],
+   "account_at": "/acct"
+  }
+ },
+ "apps": [
+  "social"
+ ],
+ "limit": {
+  "per": 300,
+  "every": 300,
+  "concurrent": 10
+ },
+ "meta": {
+  "carries": {
+   "network": "Mastodon",
+   "provider": "mastodon",
+   "server": "instance",
+   "placeholder": "https://mastodon.example"
   },
-  "apps": [
-    "social"
-  ],
-  "meta": {
-    "carries": {
-      "network": "Mastodon",
-      "provider": "mastodon",
-      "server": "instance",
-      "placeholder": "https://mastodon.example"
-    },
-    "capabilities": {
-      "name": "Mastodon",
-      "max_text": 500,
-      "images": true,
-      "max_media": 4,
-      "alt_text": true,
-      "first_comment": true,
-      "html_text": true
-    }
+  "capabilities": {
+   "name": "Mastodon",
+   "max_text": 500,
+   "images": true,
+   "max_media": 4,
+   "alt_text": true,
+   "first_comment": true,
+   "html_text": true
   },
-  "operations": {
-    "publish": {
-      "method": "POST",
-      "path": "/api/v1/statuses",
-      "body": "{\"status\": {{ inputs.text_with_link | json }}, \"media_ids\": {{ inputs.media | json }}}",
-      "result": {
-        "id": "/id",
-        "url": "/url"
-      },
-      "error_at": "/error",
-      "idempotency_header": "Idempotency-Key",
-      "inputs": [
-        "text_with_link",
-        "media"
-      ]
+  "social": {
+   "name": "Mastodon",
+   "text": {
+    "max": 500,
+    "count": "characters",
+    "link_counts": 23,
+    "format": "plain"
+   },
+   "media": {
+    "kinds": [
+     "image",
+     "video"
+    ],
+    "max": 4,
+    "mixes": [
+     {
+      "image": 4
+     },
+     {
+      "video": 1
+     }
+    ],
+    "alt": true,
+    "alt_max": 1500,
+    "image": {
+     "max_bytes": 16777216
     },
-    "publish_media": {
-      "method": "POST",
-      "path": "/api/v2/media",
-      "form": {
-        "file": {
-          "file": "{{ inputs.file }}",
-          "name": "{{ inputs.name }}"
-        },
-        "description": "{{ inputs.alt }}"
-      },
-      "result": {
-        "id": "/id"
-      },
-      "error_at": "/error",
-      "inputs": [
-        "file",
-        "name",
-        "alt"
-      ],
-      "idempotency_header": "Idempotency-Key"
-    },
-    "delete": {
-      "method": "DELETE",
-      "path": "/api/v1/statuses/{{ inputs.id }}",
-      "error_at": "/error",
-      "inputs": [
-        "id"
-      ],
-      "idempotency_header": "Idempotency-Key"
-    },
-    "reply": {
-      "method": "POST",
-      "path": "/api/v1/statuses",
-      "body": "{\"status\": {% if inputs.author and ('@' ~ inputs.author) not in inputs.text %}{{ ('@' ~ inputs.author ~ ' ' ~ inputs.text) | json }}{% else %}{{ inputs.text | json }}{% endif %}, \"in_reply_to_id\": {{ inputs.in_reply_to | json }}{% if inputs.thread %}, \"visibility\": {{ inputs.thread | json }}{% endif %}}",
-      "result": {
-        "id": "/id"
-      },
-      "error_at": "/error",
-      "idempotency_header": "Idempotency-Key",
-      "inputs": [
-        "text",
-        "in_reply_to",
-        "author",
-        "thread"
-      ]
-    },
-    "send_message": {
-      "method": "POST",
-      "path": "/api/v1/statuses",
-      "body": "{\"status\": {{ ('@' ~ inputs.author ~ ' ' ~ inputs.text) | json }}, \"visibility\": \"direct\", \"in_reply_to_id\": {{ inputs.in_reply_to | json }}}",
-      "result": {
-        "id": "/id"
-      },
-      "error_at": "/error",
-      "idempotency_header": "Idempotency-Key",
-      "inputs": [
-        "text",
-        "in_reply_to",
-        "author"
-      ]
-    },
-    "metrics": {
-      "path": "/api/v1/statuses/{{ inputs.id }}",
-      "result": {
-        "engagements": {
-          "expr": "answer.favourites_count + answer.reblogs_count + answer.replies_count"
-        }
-      },
-      "error_at": "/error",
-      "inputs": [
-        "id"
-      ]
-    },
-    "account": {
-      "path": "/api/v1/accounts/verify_credentials",
-      "result": {
-        "followers": "/followers_count"
-      },
-      "error_at": "/error"
-    },
-    "messages": {
-      "path": "/api/v1/notifications",
-      "query": {
-        "types[]": "mention",
-        "limit": "40"
-      },
-      "error_at": "/error"
+    "video": {
+     "max_bytes": 26214400
     }
-  },
-  "pulls": [
+   },
+   "kinds": [
     {
-      "name": "mentions",
-      "operation": "messages",
-      "every_minutes": 15,
-      "items_at": "",
-      "cursor": "token",
-      "next_at": {
-        "link": "prev"
-      },
-      "max_pages": 3,
-      "map": {
-        "entity": "SocialMessage",
-        "outside": true,
-        "by": {
-          "external_id": "/status/id"
-        },
-        "set": {
-          "kind": "item.status.visibility == 'direct' ? 'Direct' : 'Mention'",
-          "author": "/account/acct",
-          "author_id": "/account/id",
-          "text": "/status/content",
-          "thread": "/status/visibility",
-          "post_external_id": "/status/in_reply_to_id",
-          "via_connection": "connection.id"
-        }
-      }
+     "name": "status",
+     "label": "Post"
     }
-  ]
+   ],
+   "follow_ups": {
+    "as": "thread",
+    "media": true,
+    "max": 24
+   },
+   "settings": [
+    {
+     "key": "visibility",
+     "label": "Who can see it",
+     "type": "select",
+     "default": "public",
+     "options": [
+      {
+       "value": "public",
+       "label": "Public"
+      },
+      {
+       "value": "unlisted",
+       "label": "Quiet public"
+      },
+      {
+       "value": "private",
+       "label": "Followers only"
+      }
+     ]
+    },
+    {
+     "key": "sensitive",
+     "label": "Sensitive media",
+     "type": "bool",
+     "default": false
+    },
+    {
+     "key": "spoiler",
+     "label": "Content warning",
+     "type": "text",
+     "max": 500
+    },
+    {
+     "key": "language",
+     "label": "Language (ISO 639)",
+     "type": "text",
+     "max": 3
+    },
+    {
+     "key": "poll_options",
+     "label": "Poll choices",
+     "type": "multi",
+     "max": 4,
+     "help": "Two to four; a post with a poll carries no media"
+    },
+    {
+     "key": "poll_expires_in",
+     "label": "Poll open for",
+     "type": "select",
+     "default": "86400",
+     "options": [
+      {
+       "value": "300",
+       "label": "5 minutes"
+      },
+      {
+       "value": "3600",
+       "label": "1 hour"
+      },
+      {
+       "value": "86400",
+       "label": "1 day"
+      },
+      {
+       "value": "604800",
+       "label": "7 days"
+      }
+     ]
+    },
+    {
+     "key": "poll_multiple",
+     "label": "Several choices",
+     "type": "bool",
+     "default": false
+    }
+   ],
+   "mentions": {
+    "operation": "mentions",
+    "inputs": {
+     "q": "query"
+    },
+    "items_at": "/accounts",
+    "value_at": "/acct",
+    "label_at": "/display_name",
+    "picture_at": "/avatar",
+    "format": "@{{ value }}"
+   },
+   "first_comment": true,
+   "link_preview": true,
+   "inbox_format": "html"
+  }
+ },
+ "operations": {
+  "register_app": {
+   "method": "POST",
+   "path": "/api/v1/apps",
+   "credentials": false,
+   "form": {
+    "client_name": "{{ inputs.client_name }}",
+    "redirect_uris": "{{ inputs.redirect_uri }}",
+    "scopes": "{{ inputs.scopes }}"
+   },
+   "inputs": [
+    "redirect_uri",
+    "scopes",
+    "client_name"
+   ],
+   "result": {
+    "client_id": "/client_id",
+    "client_secret": "/client_secret"
+   },
+   "error_at": "/error"
+  },
+  "verify": {
+   "path": "/api/v1/accounts/verify_credentials",
+   "credentials": false,
+   "headers": {
+    "authorization": "Bearer {{ inputs.access_token }}"
+   },
+   "inputs": [
+    "access_token",
+    "refresh_token",
+    "client_id"
+   ],
+   "result": {
+    "account_id": "/id",
+    "acct": "/acct"
+   },
+   "error_at": "/error"
+  },
+  "publish": {
+   "method": "POST",
+   "path": "/api/v1/statuses",
+   "body": "{\"status\": {{ inputs.text_with_link | json }}{% if inputs.media %}, \"media_ids\": {{ inputs.media | json }}{% endif %}{% if inputs.reply_to %}, \"in_reply_to_id\": {{ inputs.reply_to | json }}{% endif %}, \"visibility\": {{ (inputs.settings.visibility or \"public\") | json }}, \"sensitive\": {{ (inputs.settings.sensitive or false) | json }}{% if inputs.settings.spoiler %}, \"spoiler_text\": {{ inputs.settings.spoiler | json }}{% endif %}{% if inputs.settings.language %}, \"language\": {{ inputs.settings.language | json }}{% endif %}{% if inputs.settings.poll_options and not inputs.media %}, \"poll\": {\"options\": {{ inputs.settings.poll_options | json }}, \"expires_in\": {{ (inputs.settings.poll_expires_in or 86400) | int }}, \"multiple\": {{ (inputs.settings.poll_multiple or false) | json }}}{% endif %}}",
+   "inputs": [
+    "text_with_link",
+    "media",
+    "reply_to",
+    "settings"
+   ],
+   "result": {
+    "id": "/id",
+    "url": "/url"
+   },
+   "error_at": "/error",
+   "idempotency_header": "Idempotency-Key"
+  },
+  "upload": {
+   "method": "POST",
+   "path": "/api/v2/media",
+   "form": {
+    "file": {
+     "file": "{{ inputs.file }}",
+     "name": "{{ inputs.name }}",
+     "max_bytes": 26214400
+    },
+    "description": "{{ inputs.alt }}"
+   },
+   "inputs": [
+    "file",
+    "name",
+    "alt"
+   ],
+   "result": {
+    "id": {
+     "at": "/id",
+     "required": true
+    },
+    "url": "/url"
+   },
+   "error_at": "/error",
+   "idempotency_header": "X-Ferrum-Upload-Key"
+  },
+  "media_status": {
+   "path": "/api/v1/media/{{ inputs.id }}",
+   "inputs": [
+    "id"
+   ],
+   "result": {
+    "id": "/id",
+    "url": "/url"
+   },
+   "error_at": "/error"
+  },
+  "delete": {
+   "method": "DELETE",
+   "path": "/api/v1/statuses/{{ inputs.id }}",
+   "error_at": "/error",
+   "inputs": [
+    "id"
+   ],
+   "idempotency_header": "Idempotency-Key"
+  },
+  "reply": {
+   "method": "POST",
+   "path": "/api/v1/statuses",
+   "body": "{\"status\": {% if inputs.author and ('@' ~ inputs.author) not in inputs.text %}{{ ('@' ~ inputs.author ~ ' ' ~ inputs.text) | json }}{% else %}{{ inputs.text | json }}{% endif %}, \"in_reply_to_id\": {{ inputs.in_reply_to | json }}{% if inputs.thread %}, \"visibility\": {{ inputs.thread | json }}{% endif %}}",
+   "result": {
+    "id": "/id"
+   },
+   "error_at": "/error",
+   "idempotency_header": "Idempotency-Key",
+   "inputs": [
+    "text",
+    "in_reply_to",
+    "author",
+    "thread"
+   ]
+  },
+  "send_message": {
+   "method": "POST",
+   "path": "/api/v1/statuses",
+   "body": "{\"status\": {{ ('@' ~ inputs.author ~ ' ' ~ inputs.text) | json }}, \"visibility\": \"direct\", \"in_reply_to_id\": {{ inputs.in_reply_to | json }}}",
+   "result": {
+    "id": "/id"
+   },
+   "error_at": "/error",
+   "idempotency_header": "Idempotency-Key",
+   "inputs": [
+    "text",
+    "in_reply_to",
+    "author"
+   ]
+  },
+  "like": {
+   "method": "POST",
+   "path": "/api/v1/statuses/{{ inputs.id }}/favourite",
+   "body": "{}",
+   "inputs": [
+    "id"
+   ],
+   "error_at": "/error",
+   "idempotency_header": "Idempotency-Key"
+  },
+  "repost": {
+   "method": "POST",
+   "path": "/api/v1/statuses/{{ inputs.id }}/reblog",
+   "body": "{}",
+   "inputs": [
+    "id"
+   ],
+   "error_at": "/error",
+   "idempotency_header": "Idempotency-Key"
+  },
+  "metrics": {
+   "path": "/api/v1/statuses/{{ inputs.id }}",
+   "result": {
+    "engagements": {
+     "expr": "answer.favourites_count + answer.reblogs_count + answer.replies_count"
+    }
+   },
+   "error_at": "/error",
+   "inputs": [
+    "id"
+   ]
+  },
+  "account": {
+   "path": "/api/v1/accounts/verify_credentials",
+   "result": {
+    "followers": "/followers_count",
+    "name": "/display_name",
+    "handle": "/acct",
+    "picture": "/avatar"
+   },
+   "error_at": "/error"
+  },
+  "mentions": {
+   "path": "/api/v2/search",
+   "query": {
+    "q": "{{ inputs.q }}",
+    "type": "accounts",
+    "limit": "5",
+    "resolve": "false"
+   },
+   "inputs": [
+    "q"
+   ],
+   "error_at": "/error"
+  },
+  "messages": {
+   "path": "/api/v1/notifications",
+   "query": {
+    "types[]": "mention",
+    "limit": "10"
+   },
+   "error_at": "/error"
+  },
+  "me": {
+   "path": "/api/v1/accounts/verify_credentials",
+   "result": {
+    "id": "/id"
+   },
+   "error_at": "/error"
+  },
+  "publish_media": {
+   "inputs": [
+    "file",
+    "name",
+    "alt"
+   ],
+   "steps": [
+    {
+     "name": "upload",
+     "operation": "upload",
+     "inputs": {
+      "file": "inputs.file",
+      "name": "inputs.name",
+      "alt": "inputs.alt"
+     }
+    },
+    {
+     "name": "ready",
+     "operation": "media_status",
+     "when": "not steps.upload.url",
+     "inputs": {
+      "id": "steps.upload.id"
+     },
+     "wait": {
+      "until": "result.url",
+      "every_secs": 2,
+      "within_secs": 600
+     }
+    }
+   ],
+   "result": {
+    "id": "/upload/id"
+   }
+  }
+ },
+ "pulls": [
+  {
+   "name": "mentions",
+   "operation": "messages",
+   "every_minutes": 15,
+   "items_at": "",
+   "cursor": "token",
+   "next_at": {
+    "link": "prev"
+   },
+   "max_pages": 3,
+   "each": {
+    "operation": "me",
+    "as": "me",
+    "max": 10
+   },
+   "map": {
+    "entity": "SocialMessage",
+    "outside": true,
+    "by": {
+     "external_id": "/status/id"
+    },
+    "set": {
+     "kind": "item.status.visibility == 'direct' ? 'Direct' : (item.status.in_reply_to_account_id == item.me.id ? 'Comment' : 'Mention')",
+     "author": "/account/acct",
+     "author_id": "/account/id",
+     "text": "/status/content",
+     "thread": "/status/visibility",
+     "post_external_id": "/status/in_reply_to_id",
+     "via_connection": "connection.id"
+    }
+   }
+  }
+ ]
 }
