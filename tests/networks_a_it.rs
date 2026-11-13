@@ -39,7 +39,7 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads"];
+const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -199,6 +199,7 @@ fn handler(net: &str) -> Option<Handler> {
         "fb" | "fbv" | "fbr" => fake_facebook,
         "igf" | "igs" | "igt" | "igr" => fake_instagram,
         "th" => fake_threads,
+        "yt" | "yto" => fake_youtube,
         _ => return None,
     })
 }
@@ -503,6 +504,7 @@ async fn scenario() {
     instagram(&t).await;
     instagram_standalone(&t).await;
     threads(&t).await;
+    youtube(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -1911,4 +1913,207 @@ async fn threads(t: &T) {
     let tm2 = t.messages(json!({"external_id": "TM2"})).await;
     assert_eq!((tm2[0]["kind"].as_str(), tm2[0]["post_external_id"].as_str()), (Some("Comment"), Some("TP0")));
     assert_eq!(t.messages(json!({"external_id": "TM1"})).await[0]["kind"], "Mention");
+}
+
+// ───────────── YouTube ─────────────
+
+fn fake_youtube(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, m: &str, reason: &str| status(code, json!({"error": {"code": code, "message": m, "errors": [{"reason": reason, "message": m}]}}));
+    let base = n.base.clone();
+    if r.path == "/token" {
+        let f = r.form();
+        if f.get("client_id").map(String::as_str) != Some("yt-client") || f.get("client_secret").map(String::as_str) != Some("yt-secret") {
+            return status(401, json!({"error": "invalid_client"}));
+        }
+        let fine = match f.get("grant_type").map(String::as_str) {
+            Some("authorization_code") => f.contains_key("code_verifier") && f.get("code").map(String::as_str) == Some("CODE-yt"),
+            Some("refresh_token") => f.get("refresh_token").map(String::as_str) == Some("YR-1"),
+            _ => false,
+        };
+        if !fine {
+            return status(400, json!({"error": "invalid_grant", "error_description": "Bad Request"}));
+        }
+        let i = n.next();
+        n.tokens("yt").push(json!(format!("YA-{i}")));
+        let mut out = json!({"access_token": format!("YA-{i}"), "expires_in": 3599, "token_type": "Bearer"});
+        if f.get("grant_type").map(String::as_str) == Some("authorization_code") {
+            out["refresh_token"] = json!("YR-1");
+        }
+        return ok(out);
+    }
+    if !n.valid("yt", r) {
+        return err(401, "Request had invalid authentication credentials.", "authError");
+    }
+    match (r.method.as_str(), r.path.as_str()) {
+        ("GET", "/youtube/v3/channels") => ok(
+            json!({"items": [{"id": "UC1", "snippet": {"title": "Northwind TV", "customUrl": "@northwindtv", "thumbnails": {"default": {"url": "https://yt3.test/n.jpg"}}},
+                                                           "statistics": {"subscriberCount": "2500", "viewCount": "100000"}}]}),
+        ),
+        ("GET", "/youtube/v3/videoCategories") => {
+            ok(json!({"items": [{"id": "22", "snippet": {"title": "People & Blogs"}}, {"id": "26", "snippet": {"title": "Howto & Style"}}]}))
+        }
+        ("POST", "/upload/youtube/v3/videos") => {
+            let b = r.json();
+            if r.query.get("uploadType").map(String::as_str) != Some("resumable") || r.header("x-upload-content-length").is_none() {
+                return err(400, "uploadType=resumable and the content length are required", "badRequest");
+            }
+            if b["snippet"]["title"].as_str().is_none_or(str::is_empty) {
+                return err(400, "The request metadata specifies an invalid or empty video title.", "invalidTitle");
+            }
+            let i = n.next();
+            let mut ses = n.get("yt:sessions");
+            if ses.is_null() {
+                ses = json!({});
+            }
+            ses[format!("U{i}")] = json!({"meta": b, "total": r.header("x-upload-content-length").unwrap().parse::<u64>().unwrap(), "held": 0, "done": null});
+            n.set("yt:sessions", ses);
+            Resp(200, vec![("location".into(), format!("{base}/yt/upload/youtube/v3/videos?uploadType=resumable&upload_id=U{i}"))], b"{}".to_vec())
+        }
+        ("PUT", "/upload/youtube/v3/videos") => {
+            let id = r.query.get("upload_id").cloned().unwrap_or_default();
+            let mut ses = n.get("yt:sessions");
+            let s = &mut ses[&id];
+            let range = r.header("content-range").unwrap_or_default().trim_start_matches("bytes ").to_string();
+            let total = s["total"].as_u64().unwrap();
+            let mut held = s["held"].as_u64().unwrap();
+            if !range.starts_with('*') {
+                let start: u64 = range.split('-').next().unwrap().parse().unwrap();
+                if start != held || !range.ends_with(&format!("/{total}")) {
+                    return err(400, "Wrong offset", "badRequest");
+                }
+                held += r.body.len() as u64;
+                s["held"] = json!(held);
+            }
+            let out = if held == total {
+                if s["done"].is_null() {
+                    let vid = format!("vid{:08}", n.n + 1);
+                    s["done"] = json!(vid);
+                    let meta = s["meta"].clone();
+                    n.list("yt:videos").push(json!({"id": vid, "meta": meta, "bytes": held}));
+                }
+                ok(json!({"kind": "youtube#video", "id": s["done"]}))
+            } else if held == 0 {
+                empty(308)
+            } else {
+                Resp(308, vec![("range".into(), format!("bytes=0-{}", held - 1))], vec![])
+            };
+            n.n += 1;
+            n.set("yt:sessions", ses);
+            out
+        }
+        ("POST", "/upload/youtube/v3/thumbnails/set") => {
+            n.list("yt:thumbs").push(json!([r.query.get("videoId"), r.body.len()]));
+            ok(json!({"items": [{"default": {"url": "https://i.ytimg.test/t.jpg"}}]}))
+        }
+        ("POST", "/youtube/v3/commentThreads") => {
+            let b = r.json();
+            let id = format!("Ug{}", n.next());
+            n.list("yt:comments").push(json!({"id": id, "video": b["snippet"]["videoId"], "text": b["snippet"]["topLevelComment"]["snippet"]["textOriginal"]}));
+            ok(json!({"id": id}))
+        }
+        ("POST", "/youtube/v3/comments") => {
+            let id = format!("Uc{}", n.next());
+            n.list("yt:comments").push(json!({"id": id, "parent": r.json()["snippet"]["parentId"]}));
+            ok(json!({"id": id}))
+        }
+        ("GET", "/youtube/v3/commentThreads") => {
+            if r.query.get("allThreadsRelatedToChannelId").map(String::as_str) != Some("UC1") {
+                return err(400, "allThreadsRelatedToChannelId is required", "badRequest");
+            }
+            ok(
+                json!({"items": [{"id": "Ug-fan", "snippet": {"videoId": "vidX", "topLevelComment": {"snippet": {"authorDisplayName": "Fan", "authorChannelId": {"value": "UCfan"}, "textOriginal": "Great video"}}}}]}),
+            )
+        }
+        ("GET", "/youtube/v3/videos") => {
+            ok(json!({"items": [{"id": r.query.get("id"), "statistics": {"viewCount": "1500", "likeCount": "40", "commentCount": "6"}}]}))
+        }
+        ("DELETE", "/youtube/v3/videos") => {
+            let id = r.query.get("id").cloned().unwrap_or_default();
+            n.list("yt:videos").retain(|v| v["id"] != json!(id));
+            empty(204)
+        }
+        _ => err(404, "Not Found", "notFound"),
+    }
+}
+
+async fn youtube(t: &T) {
+    let conn = t
+        .connect("youtube", "yt", &["www.googleapis.com"], json!({"client_secret": "yt-secret"}), |d| {
+            let text = d.to_string().replace("https://oauth2.googleapis.com", &format!("{}/yto", t.base));
+            *d = serde_json::from_str(&text).unwrap();
+        })
+        .await;
+    let q = t.sign_in(conn, "CODE-yt").await;
+    assert_eq!((q["access_type"].as_str(), q["prompt"].as_str()), ("offline", "consent"), "a refresh token is asked for");
+    let account = t.account("Northwind YouTube", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "YouTube");
+    t.action(account, "choose", json!({"picked": ["UC1"]})).await.unwrap();
+    let cats = t.action(account, "choices", json!({"setting": "category"})).await.unwrap();
+    assert_eq!(cats["choices"][0], json!({"value": "22", "label": "People & Blogs"}));
+    // A video larger than a chunk: the session started with its title and settings, sent 8 MiB at a time, its
+    // thumbnail set.
+    let video: Vec<u8> = (0..(8388608 + 1000)).map(|i| (i % 97) as u8).collect();
+    let mut m = t.medium("clip.mp4", "video/mp4", &video, Some("video"), json!({}), Some("UC1")).await;
+    let thumb = t.k.store_file(&t.admin, None, "thumb.jpg", "image/jpeg", b"JPEG-THUMB").await.unwrap();
+    m["thumbnail"] = thumb["id"].clone();
+    let key = format!("publish:{}", Uuid::now_v7());
+    let id = t.call("youtube", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let settings = json!({"title": "Baking day", "type": "unlisted", "tags": ["bread"], "category": "22", "made_for_kids": false});
+    let mut v = post_in("How we bake", None, &[("clip.mp4", "video/mp4", video.len() as i64)], std::slice::from_ref(&id));
+    v["kind"] = json!("video");
+    v["settings"] = settings.clone();
+    let out = t.call("youtube", "publish", v.clone(), Some(&key)).await.unwrap();
+    {
+        let mut n = t.net();
+        let made = n.list("yt:videos")[0].clone();
+        assert_eq!(
+            (made["bytes"].as_u64(), made["meta"]["snippet"]["title"].as_str(), made["meta"]["status"]["privacyStatus"].as_str()),
+            (Some(video.len() as u64), Some("Baking day"), Some("unlisted"))
+        );
+        assert_eq!((made["meta"]["snippet"]["categoryId"].as_str(), made["meta"]["status"]["selfDeclaredMadeForKids"].as_bool()), (Some("22"), Some(false)));
+        assert_eq!(n.list("yt:thumbs")[0], json!([out["id"], 10]));
+        assert_eq!(n.asked("yt").iter().filter(|a| a.starts_with("PUT /upload")).count(), 2, "two chunks");
+    }
+    assert_eq!(out["url"], format!("https://www.youtube.com/watch?v={}", out["id"].as_str().unwrap()));
+    // The last chunk's answer lost: the session is asked what it holds, and it is complete; one video.
+    t.net().lose.insert("PUT /yt/upload/youtube/v3/videos".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let small = t.medium("short.mp4", "video/mp4", b"SHORT-VIDEO", Some("short"), json!({}), Some("UC1")).await;
+    let sid = t.call("youtube", "publish_media", small, Some(&format!("media:{lost}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let mut s = post_in("A short", None, &[("short.mp4", "video/mp4", 11)], &[sid]);
+    s["kind"] = json!("short");
+    s["settings"] = json!({"title": "Short", "type": "public"});
+    let before = t.net().list("yt:videos").len();
+    assert!(t.call("youtube", "publish", s.clone(), Some(&lost)).await.is_err());
+    let got = t.call("youtube", "publish", s, Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("yt:videos").len(), before + 1, "one video");
+    assert!(got["url"].as_str().unwrap().contains("/shorts/"));
+    // A refusal in YouTube's words.
+    let mut bad = v.clone();
+    bad["settings"]["title"] = json!("");
+    let e = t.call("youtube", "publish", bad, Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(e.to_string().contains("invalid or empty video title"), "{e}");
+    // The first comment opens a thread under the video; an answer in the inbox answers a comment.
+    t.call("youtube", "reply", json!({"text": "Recipe below", "in_reply_to": out["id"], "root": out["id"]}), Some(&format!("first_comment:{key}")))
+        .await
+        .unwrap();
+    t.call("youtube", "reply", json!({"text": "Thanks!", "in_reply_to": "Ug-fan-thread", "author": "Fan"}), Some("reply:yt1")).await.unwrap();
+    {
+        let mut n = t.net();
+        let c = n.list("yt:comments").clone();
+        assert_eq!((c[0]["video"].clone(), c[1]["parent"].clone()), (out["id"].clone(), json!("Ug-fan-thread")));
+    }
+    // Comments pulled from the channel kept at sign-in.
+    t.pull(conn, "comments").await;
+    let got = t.messages(json!({"external_id": "Ug-fan"})).await;
+    assert_eq!((got[0]["kind"].as_str(), got[0]["post_external_id"].as_str()), (Some("Comment"), Some("vidX")));
+    // Numbers after a refresh, the channel, delete.
+    t.expire(conn).await;
+    let m = t.call("youtube", "metrics", json!({"id": out["id"], "account_id": "UC1", "handle": null}), None).await.unwrap();
+    assert_eq!((m["impressions"].as_i64(), m["engagements"].as_i64()), (Some(1500), Some(46)));
+    assert_eq!(t.net().last("yto", "POST", "/token").form()["grant_type"], "refresh_token");
+    let a = t.call("youtube", "account", json!({"account_id": "UC1", "handle": null}), None).await.unwrap();
+    assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(2500), Some("@northwindtv")));
+    t.call("youtube", "delete", json!({"id": out["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
+    assert!(!t.net().list("yt:videos").iter().any(|v| v["id"] == out["id"]));
 }
