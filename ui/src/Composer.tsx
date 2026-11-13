@@ -11,11 +11,12 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { api, docPath, formatMoment, isolate, refusal, t } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, confirmDialog, Dialog, Field, FormSkeleton, Menu, MenuItem, PageHead, PageSplit, PageStack, StatusBadge, TabPanel, Tabs, toast, useDebounced, useUnsavedGuard } from "@ferrum/kit";
 import { change, make, POST_TONES, type Row, remove, rows, run, statusWord, text, record } from "./data";
-import { contentFor, customise, type Draft, dropVersion, emptyDraft, fromRecord, removeAccount, toRecord } from "./draft";
+import { blankItem, contentFor, customise, mediumOfAsset, type Draft, dropVersion, emptyDraft, fromRecord, removeAccount, toRecord } from "./draft";
 import { AccountOptions } from "./composer/Settings";
 import { Items, type Insertable } from "./composer/Items";
 import { Pick } from "./composer/Pick";
 import { Preview, type ServerCopy } from "./composer/Preview";
+import { Writing, type Adapted } from "./composer/Writing";
 import { ReviewPanel } from "./composer/Review";
 import { type Mode, modeOf, When } from "./composer/When";
 import { effective, followWord, NO_RULES, type Rules } from "./model";
@@ -472,6 +473,17 @@ export function ComposerRoute() {
           <div className="stack">
             <h2 className="section-title">{t("Preview")}</h2>
             {chosen.length === 0 && <p className="muted">{t("Choose an account to see how the post looks there.")}</p>}
+            {!locked && (
+              <Writing postId={postId} brandId={brand} draft={draft} accounts={all} dirty={dirty} onSave={() => void onSave()}
+                take={{
+                  words: (words, account) => set((d) => { const x = account ? customise(d, account) : d; return account ? { ...x, versions: { ...x.versions, [account]: { items: x.versions[account].items.map((it, n) => (n ? it : { ...it, text: words })) } } } : { ...x, original: { items: x.original.items.map((it, n) => (n ? it : { ...it, text: words })) } }; }),
+                  versions: (list: Adapted[]) => set((d) => list.reduce((acc, v) => { const x = customise(acc, v.account); return { ...x, versions: { ...x.versions, [v.account]: { items: x.versions[v.account].items.map((it, n) => (n ? it : { ...it, text: v.text })) } } }; }, d)),
+                  thread: (parts) => set((d) => ({ ...d, original: { items: parts.map((p, n) => (n === 0 ? { ...d.original.items[0], text: p } : { ...blankItem(), text: p })) } })),
+                  hashtags: (tags, account) => set((d) => { const x = account ? customise(d, account) : d; const c = contentFor(x, account); const first = { ...c.items[0], text: `${c.items[0].text.trimEnd()}\n\n${tags.join(" ")}`.trim() }; const items = [first, ...c.items.slice(1)]; return account ? { ...x, versions: { ...x.versions, [account]: { items } } } : { ...x, original: { items } }; }),
+                  alt: (key, alt) => set((d) => { const f = (c: { items: typeof d.original.items }) => ({ items: c.items.map((it) => ({ ...it, media: it.media.map((m) => (m.key === key ? { ...m, alt } : m)) })) }); return { ...d, original: f(d.original), versions: Object.fromEntries(Object.entries(d.versions).map(([a, c]) => [a, f(c)])) }; }),
+                  picture: async (assetId) => { const a = await record("SocialMediaAsset", assetId); set((d) => ({ ...d, original: { items: d.original.items.map((it, n) => (n ? it : { ...it, media: [...it.media, mediumOfAsset(a)] })) } })); },
+                }} />
+            )}
             {calc.isError && <Alert tone="error">{refusal(calc.error)}</Alert>}
             {chosen.map((a) => (
               <Preview key={a} account={accountRow(a)} copy={copies.find((c) => c.account === a)} media={contentFor(draft, a).items.map((i) => i.media)} dimmed={dimmed} />
