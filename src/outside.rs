@@ -8,7 +8,43 @@ use ferrum_domain::util::{elevated, s};
 use ferrum_kernel::connections::{self, Call};
 use ferrum_kernel::{Ctx, Doc, Error, Kernel, Result, Tx};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 use uuid::Uuid;
+
+/// The longest a service's `Retry-After` is heeded; past it Social asks again anyway.
+pub(crate) const MOST_WAIT: u64 = 3600;
+
+/// When each connection asked to be left alone until, by workspace (the upkeep's callers: numbers, plugs, clicks,
+/// writing help, feeds; a job is put back by the jobs' runner instead).
+// ponytail: kept in this process only; another replica may ask once more before it hears the service's own answer.
+static WAITS: LazyLock<Mutex<HashMap<(Uuid, Uuid), Instant>>> = LazyLock::new(Mutex::default);
+
+/// Seconds connection `conn` still asked to be left alone for, if it did.
+pub(crate) fn waiting(tenant: Uuid, conn: Uuid) -> Option<u64> {
+    let left = WAITS.lock().ok()?.get(&(tenant, conn)).and_then(|until| until.checked_duration_since(Instant::now()))?;
+    Some(left.as_secs().max(1))
+}
+
+/// A call's outcome heeded: a `RetryAfter` (bounded by [`MOST_WAIT`]) keeps the connection's callers away until then.
+pub(crate) fn heed<T>(tenant: Uuid, conn: Uuid, r: Result<T>) -> Result<T> {
+    match r {
+        Err(Error::RetryAfter(why, secs)) => {
+            let secs = secs.clamp(1, MOST_WAIT);
+            if let Ok(mut w) = WAITS.lock() {
+                w.insert((tenant, conn), Instant::now() + Duration::from_secs(secs));
+            }
+            Err(Error::RetryAfter(why, secs))
+        }
+        other => other,
+    }
+}
+
+/// Whether an error means "later" (a timeout, a limit, a 5xx, a service's Retry-After), not a refusal.
+pub(crate) fn later(e: &Error) -> bool {
+    matches!(e, Error::Unavailable(_) | Error::Wait(..) | Error::RetryAfter(..))
+}
 
 /// Social Settings, as the workspace holds them (empty when never saved).
 pub(crate) async fn settings(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<Doc> {
@@ -58,6 +94,9 @@ pub(crate) async fn call(k: &Kernel, ctx: &Ctx, conn: &Reach, name: &str, inputs
     if !conn.enabled {
         return Err(Error::invalid(format!("the connection {} is turned off", conn.name)));
     }
+    if let Some(left) = waiting(ctx.tenant, conn.id) {
+        return Err(Error::RetryAfter(format!("{} asked to wait", conn.name), left));
+    }
     let system = Ctx::system(ctx.tenant, ctx.schema.clone());
     let c = Call {
         connection: conn.id.to_string(),
@@ -67,7 +106,7 @@ pub(crate) async fn call(k: &Kernel, ctx: &Ctx, conn: &Reach, name: &str, inputs
         entity: about.map(|(e, _)| e.to_string()),
         record: about.map(|(_, r)| r),
     };
-    connections::call(k, &system, Some(crate::APP), &c).await.map_err(crate::said)
+    heed(ctx.tenant, conn.id, connections::call(k, &system, Some(crate::APP), &c).await.map_err(crate::said))
 }
 
 /// A JSON pointer's value, `""` the whole.

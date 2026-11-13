@@ -238,9 +238,12 @@ impl JobHandler for ReplyJob {
         match send(k, job.tenant_id, reply).await {
             Ok(done) => Ok(done),
             Err(e) => {
-                let last = !matches!(e, Error::Unavailable(_) | Error::Wait(..)) || job.attempts >= job.max_attempts;
+                let last = !crate::outside::later(&e) || job.attempts >= job.max_attempts;
                 let _ = fail(k, job.tenant_id, reply, &e.to_string(), last).await;
-                Err(e)
+                Err(match e {
+                    Error::RetryAfter(why, secs) => Error::RetryAfter(why, secs.clamp(1, crate::outside::MOST_WAIT)),
+                    other => other,
+                })
             }
         }
     }

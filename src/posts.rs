@@ -458,10 +458,14 @@ impl JobHandler for PublishJob {
                 // An item's delay: the job is put back for then, which costs no attempt.
                 Ok(Step::Wait(secs)) => return Err(Error::Wait(format!("the next item goes in {secs} seconds"), secs)),
                 Err(e) => {
-                    // Said on the publication as it happens: a refusal ends it, "later" is shown as waiting.
-                    let last = !matches!(e, Error::Unavailable(_) | Error::Wait(..) | Error::RetryAfter(..)) || job.attempts >= job.max_attempts;
+                    // Said on the publication as it happens: a refusal ends it, "later" is shown as waiting; a service
+                    // that said when is asked again then (the jobs' runner puts the job back for those seconds, bounded).
+                    let last = !crate::outside::later(&e) || job.attempts >= job.max_attempts;
                     let _ = fail(k, job.tenant_id, publication, &e.to_string(), last).await;
-                    return Err(e);
+                    return Err(match e {
+                        Error::RetryAfter(why, secs) => Error::RetryAfter(why, secs.clamp(1, crate::outside::MOST_WAIT)),
+                        other => other,
+                    });
                 }
             }
         }
