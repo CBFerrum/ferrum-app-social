@@ -336,6 +336,30 @@ impl DocHook for PublicationHook {
         "social.publication.actions"
     }
 
+    fn fills(&self) -> &'static [&'static str] {
+        &["account"]
+    }
+
+    /// A post read back from the network (a pull's mapping, as the system, `native` set when it makes one): its account
+    /// is the one the connection it came through reaches, else the one its handle names.
+    async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        if id(doc, "account").is_some() {
+            return Ok(());
+        }
+        let system = elevated(hc.ctx);
+        if let Some(conn) = s(doc, "via_connection").filter(|c| !c.is_empty()) {
+            let found = hc.kernel.find_tx(&system, hc.tx, "SocialAccount", &[Filter::eq("connection", conn)], None, 50).await?;
+            let found: Vec<&Doc> = match s(doc, "account_handle").map(|h| h.trim().trim_start_matches('@').to_string()) {
+                Some(h) => found.iter().filter(|a| s(a, "handle").is_some_and(|x| x.eq_ignore_ascii_case(&h))).collect(),
+                None => found.iter().collect(),
+            };
+            if let [one] = found.as_slice() {
+                doc.insert("account".into(), json!(s(one, "id")));
+            }
+        }
+        Ok(())
+    }
+
     /// `delete_remote`: every item taken down on the network, last first, where the connection offers `delete`.
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
         if name != "delete_remote" {

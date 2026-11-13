@@ -264,6 +264,9 @@
     - {name: next_at, type: datetime, read_only: true, no_copy: true, label: Next Item At, description: "When the next item of a thread goes, while it waits its delay"}
     - {name: follow_ups, type: data, read_only: true, no_copy: true, hidden: true, description: "thread or comment: what its items after the first are on the network"}
     - {name: kind, type: data, read_only: true, no_copy: true, in_filter: true, description: "(round two) The kind of post it went as"}
+    - {name: native, type: check, default: false, read_only: true, no_copy: true, in_filter: true, label: Made on the Network, description: "(round three) Read back from the network, not sent from here: it has no post"}
+    - {name: via_connection, type: data, read_only: true, no_copy: true, hidden: true, description: "(round three) The connection it was read through: its account is the one that connection reaches"}
+    - {name: account_handle, type: data, read_only: true, no_copy: true, hidden: true, description: "(round three) The account it is on, as the network names it, where a connection reaches several"}
     - {name: short_links, type: json, read_only: true, no_copy: true, label: Short Links, description: "(round two) Each address it carried and its short link: made once, used again on a retry"}
     - {name: clicks_read_at, type: datetime, read_only: true, no_copy: true, hidden: true}
   actions:

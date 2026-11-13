@@ -63,6 +63,8 @@ struct Net {
     written: Vec<String>,
     /// The feed's items.
     feed: Vec<Value>,
+    /// The account's own posts, as the network lists them.
+    own: Vec<Value>,
     /// Answer 429 with Retry-After (seconds) this many times to a post, and to every read of numbers while set.
     posts_retry: usize,
     /// The fake's own address, for answers that name one.
@@ -187,6 +189,7 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
             (200, json!(people.into_iter().filter(|p| p["name"].as_str().unwrap().to_lowercase().contains(&q)).collect::<Vec<_>>()))
         }
         ("GET", "/v1/boards") => (200, json!({"items": [{"id": "b-1", "name": "Spring"}, {"id": "b-2", "name": "Summer"}], "for": path.split("for=").nth(1)})),
+        ("GET", "/v1/own") => (200, json!({"items": n.own.clone()})),
         ("GET", "/v1/me") | ("GET", _) if n.stats_retry.is_some() && (route == "/v1/me" || route.ends_with("/stats")) => {
             n.reads += 1;
             (429, json!({"error": {"message": "Stats are rate limited"}, "__retry_after": n.stats_retry}))
@@ -1704,6 +1707,39 @@ async fn scenario() {
     let said = t.get("SocialFeed", uid(&elsewhere["id"])).await["last_error"].as_str().unwrap_or_default().to_string();
     assert!(said.contains("elsewhere.example") && said.contains("allowed hosts"), "{said}");
 
+    // ───────────── (round three) the account's own posts read back, each with its numbers; a mention of ours is a comment ─────────────
+    let mut native_desc = description(&base, key_auth2.clone(), &["publish", "metrics"], false);
+    native_desc["operations"]["own_posts"] = json!({"path": "/own", "error_at": "/error/message"});
+    native_desc["operations"]["numbers"] = json!({"path": "/posts/{{ inputs.id }}/stats", "error_at": "/error/message", "inputs": ["id"]});
+    native_desc["pulls"] = json!([{"name": "own", "operation": "own_posts", "every_minutes": 15, "items_at": "/items", "cursor": "time", "max_pages": 1,
+        "each": {"operation": "numbers", "inputs": {"id": "item.id"}, "as": "numbers", "max": 10},
+        "map": {"entity": "SocialPublication", "as": "system", "outside": true, "by": {"external_id": "/id"},
+                "set": {"text": "/text", "permalink": "/url", "sent_at": "/created_at", "impressions": "item.numbers.views",
+                        "engagements": "item.numbers.likes + item.numbers.shares + item.numbers.replies"},
+                "create": {"native": "true", "via_connection": "connection.id"}}}]);
+    native_desc["meta"] = json!({"social": {"name": "Chirp Native", "text": {"max": 100}}});
+    let on_native = save("chirp_native", native_desc, json!({"key": KEY})).await;
+    let nw_native = uid(&t.insert(&manager, "SocialAccount", threaded("Northwind Native", "nw_native", on_native)).await["id"]);
+    t.net.lock().unwrap().own = vec![json!({"id": "n-1", "text": "Made on the app", "url": "https://chirp.test/p/n-1", "created_at": Utc::now().to_rfc3339()})];
+    t.k.pull_now(&t.admin, on_native, "own").await.unwrap();
+    t.work().await;
+    t.k.pull_now(&t.admin, on_native, "own").await.unwrap();
+    t.work().await;
+    let native = t.rows("SocialPublication", json!({"external_id": "n-1"})).await;
+    assert_eq!(native.len(), 1, "read back once");
+    assert_eq!(
+        (
+            native[0]["native"].clone(),
+            native[0]["account"].clone(),
+            native[0]["post"].clone(),
+            native[0]["impressions"].as_i64(),
+            native[0]["engagements"].as_i64()
+        ),
+        (json!(true), json!(nw_native.to_string()), Value::Null, Some(500), Some(6)),
+        "{:?}",
+        native[0]
+    );
+
     // ───────────── (round three) a publish made of steps: it uploads its own media, so no publish_media is asked for ─────────────
     let mut steps_desc = description(&base, key_auth2.clone(), &["publish"], false);
     steps_desc["operations"] = json!({
@@ -1785,7 +1821,8 @@ async fn scenario() {
         h.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
         h
     };
-    let one = json!({"id": "delivery-1", "items": [item("c-1", "comment", "ivy@chirp.test", None, Some(&spring_external), "t-1", "Love the colours!"),
+    // (round three) Sent as a mention: it answers one of the brand's posts, so it is a comment.
+    let one = json!({"id": "delivery-1", "items": [item("c-1", "mention", "ivy@chirp.test", None, Some(&spring_external), "t-1", "Love the colours!"),
                                                    item("m-1", "mention", "bo", Some("northwind_words"), None, "t-2", "@northwind_words see this")]});
     t.k.connection_inbound(on_key, &hook_headers(&[]), one.to_string().as_bytes()).await.unwrap();
     // Not accepted: unsigned, wrong token, a replay.

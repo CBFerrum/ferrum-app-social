@@ -70,10 +70,18 @@ impl DocHook for MessageHook {
         {
             doc.insert("text".into(), json!(plain(text)));
         }
+        let system = elevated(hc.ctx);
+        // A mention that answers one of the brand's own posts (sent from here or read back) is a comment on it: a
+        // mapping need not tell them apart, it sets what the item answers (`post_external_id`).
+        if s(doc, "kind") == Some("Mention")
+            && let Some(post) = s(doc, "post_external_id").filter(|p| !p.is_empty())
+            && !hc.kernel.find_tx(&system, hc.tx, "SocialPublication", &[Filter::eq("external_id", post)], None, 1).await?.is_empty()
+        {
+            doc.insert("kind".into(), json!("Comment"));
+        }
         if id(doc, "account").is_some() {
             return Ok(());
         }
-        let system = elevated(hc.ctx);
         // The account its handle names; a handle two accounts share says nothing of which one.
         if let Some(handle) = s(doc, "account_handle").map(bare).filter(|h| !h.is_empty()) {
             let found = hc.kernel.find_tx(&system, hc.tx, "SocialAccount", &[Filter::eq("handle", handle)], None, 2).await?;
