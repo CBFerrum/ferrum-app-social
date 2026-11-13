@@ -5,6 +5,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, docPath, errorMessage, formatDecimal, t as tr, isolate } from "@ferrum/client";
+import { STATE_TONES, stateWord } from "./data";
+import { Nav } from "./ui";
 import { Button, ButtonLink, toast, HomeSection, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, StatePanel, StatusBadge, type Tone } from "@ferrum/kit";
 
 export interface Row {
@@ -42,7 +44,7 @@ function FailedPost({ post }: { post: Row }) {
   };
   return (
     <QueueItem
-      to={`/e/SocialPost/${post.id}`}
+      to={`/compose/${post.id}`}
       title={isolate(String(post.headline))}
       meta={isolate(reasons(post.failure) || tr("No reason given"))}
       action={<Button size="sm" loading={busy} onClick={() => void retry()}>{tr("Retry")}</Button>}
@@ -88,13 +90,22 @@ export function Home() {
   const waiting = useQuery({ queryKey: ["social", "waiting"], queryFn: () => list("SocialPost", [["status", "=", "In Review"]], { sort: "scheduled_at asc" }) });
   const failedPosts = useQuery({ queryKey: ["social", "failed"], queryFn: () => list("SocialPost", [["status", "=", "Failed"]], { sort: "scheduled_at asc" }) });
   const coming = useQuery({ queryKey: ["social", "coming"], queryFn: () => list("SocialPost", [["status", "in", ["Approved", "Sending"]]], { sort: "scheduled_at asc" }) });
+  // What the platform's approvals ask of this person (a post In Review that they are to decide) beside the posts In Review.
+  const toDecide = useQuery({ queryKey: ["approvals"], queryFn: () => api.get<{ to_decide: { entity: string; record: string; title: string; requester_name?: string | null }[] }>("/api/approvals").then((r) => r.to_decide.filter((i) => i.entity === "SocialPost")).catch(() => []) });
+  const drafts = useQuery({ queryKey: ["social", "drafts"], queryFn: () => list("SocialPost", [["status", "in", ["Draft", "Rejected"]], ["scheduled_at", "is", "not set"]], { sort: "created_at desc" }) });
+  const waitingFor = useQuery({ queryKey: ["social", "waiting-for"], queryFn: () => list("SocialPost", [["status", "=", "Approved"]], { sort: "scheduled_at asc" }).then((r) => r.filter((p) => String(p.waiting_for ?? "").trim())) });
   const inbox = useQuery({ queryKey: ["social", "inbox"], queryFn: () => list("SocialMessage", [["status", "in", ["New", "Assigned"]]]) });
   const brands = useQuery({ queryKey: ["social", "brands"], queryFn: () => list("SocialBrand", [], { sort: "brand_name asc" }) });
   const accounts = useQuery({ queryKey: ["social", "accounts"], queryFn: () => list("SocialAccount") });
   const publications = useQuery({ queryKey: ["social", "publications"], queryFn: () => list("SocialPublication") });
-  const all = [waiting, failedPosts, coming, inbox, brands, accounts, publications];
+  const all = [waiting, failedPosts, coming, inbox, brands, accounts, publications, toDecide, drafts, waitingFor];
   const failed = all.find((q) => q.isError);
-  const head = <PageHead title={tr("Social")} actions={<ButtonLink to="/e/SocialPost/new" variant="primary" icon="plus">{tr("New post")}</ButtonLink>} />;
+  const head = (
+    <>
+      <Nav />
+      <PageHead title={tr("Social")} actions={<ButtonLink to="/compose" variant="primary" icon="plus">{tr("New post")}</ButtonLink>} />
+    </>
+  );
   if (failed) return <PageStack>{head}<LoadFailed error={failed.error} onRetry={() => void failed.refetch()} /></PageStack>;
   if (all.some((q) => !q.data)) return <PageStack>{head}<HomeSkeleton queues={3} /></PageStack>;
   if (!brands.data!.length && !waiting.data!.length && !failedPosts.data!.length && !coming.data!.length && !inbox.data!.length)
@@ -107,6 +118,10 @@ export function Home() {
       </PageStack>
     );
   const sums = totals(publications.data!, accounts.data!);
+  // The posts In Review, and those the platform's approvals ask this person to decide that the list did not hold.
+  const review = [...waiting.data!, ...toDecide.data!.filter((d) => !waiting.data!.some((p) => p.id === d.record)).map((d) => ({ id: d.record, headline: d.title, author: d.requester_name ?? "" }))];
+  const decide = new Set(toDecide.data!.map((d) => d.record));
+  const reconnect = accounts.data!.filter((a) => a.active !== false && String(a.state ?? "Connected") !== "Connected");
   const upcoming = byDay(coming.data!).flatMap(([, posts]) => posts);
   const count = (n: number) => formatDecimal(n, 0);
   return (
@@ -120,21 +135,40 @@ export function Home() {
             ))}
           </Queue>
         )}
-        <Queue title={tr("Waiting for approval")} count={waiting.data!.length} tone={waiting.data!.length ? "attention" : "default"} empty={tr("Nothing waits.")} more={{ to: "/e/SocialPost", count: waiting.data!.length - LIMIT }}>
-          {waiting.data!.slice(0, LIMIT).map((p) => (
-            <QueueItem key={p.id} to={`/e/SocialPost/${p.id}`} title={isolate(String(p.headline))} meta={isolate(tr("by {value}", { value: String(p.author ?? "") }))} />
+        <Queue title={tr("Waiting for approval")} count={review.length} tone={review.length ? "attention" : "default"} empty={tr("Nothing waits.")} more={{ to: "/e/SocialPost", count: review.length - LIMIT }}>
+          {review.slice(0, LIMIT).map((p) => (
+            <QueueItem key={p.id} to={`/compose/${p.id}`} title={isolate(String(p.headline))} meta={isolate(tr("by {value}", { value: String(p.author ?? "") }))} trailing={decide.has(p.id) ? <StatusBadge value="To decide" label={tr("Yours to decide")} tones={{ "To decide": "amber" }} /> : undefined} />
           ))}
         </Queue>
-        <Queue title={tr("Coming")} count={coming.data!.length} empty={tr("Nothing is scheduled.")} more={{ to: "/e/SocialPost", count: upcoming.length - LIMIT }}>
+        {waitingFor.data!.length > 0 && (
+          <Queue title={tr("Approved, but waiting")} count={waitingFor.data!.length} tone="attention" link={{ to: "/accounts", label: tr("Accounts") }} more={{ to: "/calendar", count: waitingFor.data!.length - LIMIT }}>
+            {waitingFor.data!.slice(0, LIMIT).map((p) => (
+              <QueueItem key={p.id} to={`/compose/${p.id}`} title={isolate(String(p.headline))} meta={isolate(String(p.waiting_for))} />
+            ))}
+          </Queue>
+        )}
+        {reconnect.length > 0 && (
+          <Queue title={tr("Accounts to reconnect")} count={reconnect.length} tone="attention" link={{ to: "/accounts", label: tr("Accounts") }} more={{ to: "/accounts", count: reconnect.length - LIMIT }}>
+            {reconnect.slice(0, LIMIT).map((a) => (
+              <QueueItem key={a.id} to="/accounts" title={isolate(String(a.account_name))} meta={isolate(String(a.state_note ?? ""))} trailing={<StatusBadge value={a.state} label={stateWord(String(a.state))} tones={STATE_TONES} />} />
+            ))}
+          </Queue>
+        )}
+        <Queue title={tr("Coming")} count={coming.data!.length} link={{ to: "/calendar", label: tr("Calendar") }} empty={tr("Nothing is scheduled.")} more={{ to: "/calendar", count: upcoming.length - LIMIT }}>
           {upcoming.slice(0, LIMIT).map((p) => (
             <QueueItem
               key={p.id}
-              to={`/e/SocialPost/${p.id}`}
+              to={`/compose/${p.id}`}
               title={isolate(String(p.headline))}
               lead={isolate(String(p.scheduled_at ?? "").slice(11, 16))}
               meta={isolate(String(p.scheduled_at ?? "").slice(0, 10))}
               trailing={<StatusBadge value={p.status} tones={POST_TONES} />}
             />
+          ))}
+        </Queue>
+        <Queue title={tr("Drafts without a time")} count={drafts.data!.length} link={{ to: "/queue", label: tr("Posting times") }} empty={tr("No draft is waiting for a time.")} more={{ to: "/e/SocialPost", count: drafts.data!.length - LIMIT }}>
+          {drafts.data!.slice(0, LIMIT).map((p) => (
+            <QueueItem key={p.id} to={`/compose/${p.id}`} title={isolate(String(p.headline))} meta={isolate(String(p.status))} />
           ))}
         </Queue>
         <Queue title={tr("Inbox")} count={inbox.data!.length} link={{ to: "/e/SocialMessage", label: tr("All messages") }} empty={tr("Every message is answered.")} more={{ to: "/e/SocialMessage", count: inbox.data!.length - LIMIT }}>
@@ -143,6 +177,15 @@ export function Home() {
           ))}
         </Queue>
       </QueueGrid>
+      <HomeSection title={tr("Elsewhere in Social")}>
+        <div className="row">
+          <ButtonLink to="/numbers">{tr("Numbers")}</ButtonLink>
+          <ButtonLink to="/media">{tr("Media")}</ButtonLink>
+          <ButtonLink to="/library">{tr("Library")}</ButtonLink>
+          <ButtonLink to="/automation">{tr("Feeds and plugs")}</ButtonLink>
+          <ButtonLink to="/notices">{tr("Which notices reach you")}</ButtonLink>
+        </div>
+      </HomeSection>
       <HomeSection
         title={tr("What posts did")}
         actions={
