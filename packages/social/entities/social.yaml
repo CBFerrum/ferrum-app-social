@@ -88,8 +88,38 @@
 - name: SocialTarget
   label: Account
   kind: child
+  description: "An account the post goes to, with what is its own there: its own words (a version of the post), the kind of post and the answers to what its network asks."
   fields:
     - {name: account, type: link, to: SocialAccount, required: true, in_list: true}
+    - {name: kind, type: data, in_list: true, description: "The kind of post on its network (post, reel, story...: what its network's rules name); empty: the account's default, else the network's first"}
+    - {name: text, type: text, in_list: true, label: Its Own Words, description: "Words for this account only. When given, this account gets a version of its own: these words and link, the media lines naming it and the follow-ups naming it, nothing of the original"}
+    - {name: link, type: data, label: Its Own Link}
+    - {name: settings, type: json, label: Answers, description: "What its network asks (a board, a title, who can see it...), by the keys its rules give"}
+
+- name: SocialItem
+  label: Follow-up
+  kind: child
+  description: "An item after the post: the next post of a thread, or a comment under it, as the network takes follow-ups. Lines naming no account are the original's; lines naming an account are that account's version's."
+  fields:
+    - {name: account, type: link, to: SocialAccount, in_list: true, description: "Empty: the original's"}
+    - {name: text, type: text, in_list: true}
+    - {name: link, type: data}
+    - {name: delay_minutes, type: int, min: 0, label: Wait (Minutes), description: "How long after the item before it goes"}
+
+- name: SocialMedia
+  label: Medium
+  kind: child
+  description: "A picture, video or document a post carries. Item 1 is the post itself, item 2 its first follow-up, and so on."
+  fields:
+    - {name: account, type: link, to: SocialAccount, in_list: true, description: "Empty: the original's"}
+    - {name: item, type: int, default: 1, min: 1, in_list: true}
+    - {name: file, type: attach, required: true, in_list: true}
+    - {name: kind, type: data, description: "image, video, document, or a kind the network names; empty: from the file's type"}
+    - {name: alt, type: data, label: Description, description: "What it shows, for people who cannot see it"}
+    - {name: thumbnail, type: attach, description: "A video's picture, where the network takes one"}
+    - {name: width, type: int, min: 0, description: "In pixels, when known: checked against what the network takes"}
+    - {name: height, type: int, min: 0}
+    - {name: seconds, type: decimal, min: 0, label: Length (Seconds)}
 
 - name: SocialPost
   label: Post
@@ -107,7 +137,9 @@
     - {name: image_alt, type: data, label: Image Description, description: "What the picture shows, for people who cannot see it"}
     - {name: first_comment, type: text, description: "Added under the post right after it goes out, to the networks that take one"}
     - {name: targets, type: table, of: SocialTarget, required: true}
-    - {name: scheduled_at, type: datetime, required: true, in_list: true, label: Goes Out At}
+    - {name: items, type: table, of: SocialItem, label: Follow-ups, description: "Items after the post: a thread, or comments under it"}
+    - {name: media, type: table, of: SocialMedia, description: "Pictures, video and documents, for the post (item 1) and its follow-ups"}
+    - {name: scheduled_at, type: datetime, in_list: true, label: Goes Out At, description: "Empty: not yet given a time (a draft, or one to put in the queue)"}
     - {name: author, type: email, read_only: true, no_copy: true, in_list: true}
     - {name: status, type: select, options: [Draft, In Review, Approved, Rejected, Sending, Published, Failed], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: approved_by, type: email, read_only: true, no_copy: true}
@@ -147,6 +179,9 @@
     - {name: permalink, type: data, read_only: true, no_copy: true}
     - {name: media_ref, type: data, read_only: true, no_copy: true, hidden: true, description: "The network's id of the picture once uploaded"}
     - {name: deleted_at, type: datetime, read_only: true, no_copy: true, description: "When it was deleted on the network"}
+    - {name: sent_items, type: json, read_only: true, no_copy: true, label: Items Out, description: "Each item out on the network: its number from 0, the network's id and address, its media's ids, when"}
+    - {name: next_at, type: datetime, read_only: true, no_copy: true, label: Next Item At, description: "When the next item of a thread goes, while it waits its delay"}
+    - {name: follow_ups, type: data, read_only: true, no_copy: true, hidden: true, description: "thread or comment: what its items after the first are on the network"}
   actions:
     - {name: delete_remote, label: Delete on the Network, permission: write, condition: "!isEmpty(doc.external_id) && isEmpty(doc.deleted_at)", confirm: "Delete this post from the network? It cannot be put back from here."}
   list: {columns: [post, account, external_id, impressions, engagements], sort: sent_at desc}

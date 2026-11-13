@@ -55,6 +55,8 @@ struct Net {
     replies: Vec<(String, Value)>,
     dms: Vec<(String, Value)>,
     reject_replies: bool,
+    /// A post whose words hold this is refused.
+    refuse_text: Option<String>,
     inbox: Vec<Value>,
     stats_down: bool,
     /// Calls to /me and /posts/*/stats.
@@ -113,6 +115,9 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
             (200, json!({"media": {"id": format!("m-{}", n.media.len())}}))
         }
         ("POST", "/v1/posts") => {
+            if n.refuse_text.as_ref().is_some_and(|r| json_body["text"].as_str().unwrap_or_default().contains(r.as_str())) {
+                return (422, json!({"error": {"message": "That item is not allowed"}}));
+            }
             if n.mode == "reject" {
                 return (422, json!({"error": {"message": "That text is not allowed"}}));
             }
@@ -240,13 +245,13 @@ impl ferrum_kernel::files::FileStore for MemFiles {
 fn description(base: &str, auth: Value, ops: &[&str], inbound: bool) -> Value {
     let err = "/error/message";
     let all = json!({
-        "publish": {"method": "POST", "path": "/posts", "body": "{\"text\": {{ inputs.text_with_link | json }}, \"media_ids\": {{ inputs.media | json }}}",
-                    "result": {"id": "/post/id", "url": "/post/url"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["text_with_link", "media"]},
+        "publish": {"method": "POST", "path": "/posts", "body": "{\"text\": {{ inputs.text_with_link | json }}, \"media_ids\": {{ inputs.media | json }}{% if inputs.reply_to %}, \"reply_to\": {{ inputs.reply_to | json }}{% endif %}{% if inputs.settings %}, \"settings\": {{ inputs.settings | json }}, \"kind\": {{ inputs.kind | json }}{% endif %}}",
+                    "result": {"id": "/post/id", "url": "/post/url"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["text_with_link", "media", "reply_to", "settings", "kind"]},
         "publish_media": {"method": "POST", "path": "/media", "body": "{\"name\": {{ inputs.name | json }}, \"alt\": {{ inputs.alt | json }}, \"type\": {{ inputs.content_type | json }}, \"size\": {{ inputs.size | json }}, \"data\": {{ inputs.data | json }}}",
                           "result": {"id": "/media/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["name", "alt", "content_type", "size", "data"]},
         "delete": {"method": "DELETE", "path": "/posts/{{ inputs.id }}", "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["id"]},
-        "reply": {"method": "POST", "path": "/replies", "body": "{\"text\": {{ inputs.text | json }}, \"in_reply_to\": {{ inputs.in_reply_to | json }}}",
-                  "result": {"id": "/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["text", "in_reply_to"]},
+        "reply": {"method": "POST", "path": "/replies", "body": "{\"text\": {{ inputs.text | json }}, \"in_reply_to\": {{ inputs.in_reply_to | json }}{% if inputs.item %}, \"item\": {{ inputs.item | json }}{% endif %}}",
+                  "result": {"id": "/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["text", "in_reply_to", "item"]},
         "send_message": {"method": "POST", "path": "/dm", "body": "{\"to\": {{ inputs.to | json }}, \"text\": {{ inputs.text | json }}}",
                          "result": {"id": "/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["to", "text"]},
         "metrics": {"path": "/posts/{{ inputs.id }}/stats", "result": {"impressions": "/views", "reach": "/unique", "engagements": {"expr": "answer.likes + answer.shares + answer.replies"}, "clicks": "/taps"},
@@ -308,9 +313,10 @@ impl T {
         let q = ListQuery { filters: ferrum_kernel::query::parse_filters(&filters).unwrap(), limit: Some(200), ..Default::default() };
         self.k.list(&self.admin, entity, &q).await.unwrap().rows
     }
-    /// Jobs run, time passing between attempts, until none is left.
+    /// Jobs run, time passing between attempts, until none is left (a job put back for a later hour, a thread's delay,
+    /// is run again a bounded number of times).
     async fn work(&self) {
-        loop {
+        for _ in 0..40 {
             let mut tx = self.k.db.system_tx().await.unwrap();
             sqlx::query("update job set run_at = now() where status = 'queued'").execute(&mut *tx).await.unwrap();
             tx.commit().await.unwrap();
@@ -785,6 +791,155 @@ async fn scenario() {
     let wp = t.rows("SocialPublication", json!({"post": uid(&words_pub["id"]).to_string()})).await;
     refused(t.act(&manager, "SocialPublication", uid(&wp[0]["id"]), "delete_remote", json!({})).await, "invalid", "does not offer to delete a post");
     refused(t.act(&author, "SocialPublication", key_pub, "delete_remote", json!({})).await, "forbidden", "");
+
+    // ───────────── content: versions per account, threads, several media, what a network asks ─────────────
+    // What this network takes and asks is on its description (meta.social): no profile, no Rust.
+    let social = json!({"name": "Chirp Threads", "text": {"max": 100},
+        "media": {"kinds": ["image"], "max": 4, "alt": true},
+        "kinds": [{"name": "post"}, {"name": "story", "follow_ups": {"as": "none"}}],
+        "follow_ups": {"as": "thread", "media": true, "max": 5},
+        "settings": [{"key": "audience", "label": "Audience", "type": "select", "options": ["everyone", "followers"], "required": true},
+                     {"key": "pin", "label": "Pin it", "type": "bool", "default": false}]});
+    let mut threads_desc = description(&base, json!({"type": "header", "header": "x-api-key", "secret": "key"}), &everything, false);
+    threads_desc["meta"] = json!({"social": social.clone()});
+    let on_threads = save("chirp_threads", threads_desc, json!({"key": KEY})).await;
+    let mut comments_social = social.clone();
+    comments_social["name"] = json!("Chirp Comments");
+    comments_social["follow_ups"] = json!({"as": "comment", "media": false});
+    comments_social["settings"] = json!([]);
+    let mut comments_desc = description(&base, json!({"type": "header", "header": "x-api-key", "secret": "key"}), &everything, false);
+    comments_desc["meta"] = json!({"social": comments_social});
+    let on_comments = save("chirp_comments", comments_desc, json!({"key": KEY})).await;
+    let threaded =
+        |name: &str, handle: &str, conn: Uuid| json!({"account_name": name, "brand": northwind.to_string(), "handle": handle, "connection": conn.to_string()});
+    let nw_threads = uid(&t.insert(&manager, "SocialAccount", threaded("Northwind Threads", "nw_threads", on_threads)).await["id"]);
+    let nw_comments = uid(&t.insert(&manager, "SocialAccount", threaded("Northwind Comments", "nw_comments", on_comments)).await["id"]);
+    let target = |a: Uuid, extra: Value| {
+        let mut row = json!({"account": a.to_string()});
+        for (k, v) in extra.as_object().unwrap() {
+            row[k] = v.clone();
+        }
+        row
+    };
+    let answered = json!({"settings": {"audience": "followers"}});
+    // Settings: what the network asks is answered per account, refused when missing or not asked, passed on.
+    let mut asked = tagged("Hello threads", &[], "Settings");
+    asked["targets"] = json!([target(nw_threads, json!({}))]);
+    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "for Northwind Threads: Audience is needed");
+    asked["targets"] = json!([target(nw_threads, json!({"settings": {"audience": "followers", "colour": "red"}}))]);
+    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Chirp Threads asks nothing called colour");
+    asked["targets"] = json!([target(nw_threads, json!({"settings": {"audience": "nobody"}}))]);
+    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Audience is one of everyone, followers");
+    asked["targets"] = json!([target(nw_threads, json!({"kind": "reel", "settings": {"audience": "followers"}}))]);
+    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Chirp Threads has no kind of post called reel");
+    // Versions: the original to one account, the account's own words to another.
+    let mut versions = tagged("The original words", &[nw_key], "Versions");
+    versions["targets"] =
+        json!([target(nw_key, json!({})), target(nw_threads, json!({"text": "Threads get their own words", "settings": {"audience": "everyone"}}))]);
+    let versions = t.insert(&author, "SocialPost", versions).await;
+    go(uid(&versions["id"])).await;
+    let before = t.net.lock().unwrap().posts.len();
+    t.upkeep(due + Duration::hours(11)).await;
+    {
+        let n = t.net.lock().unwrap();
+        let made: Vec<&Value> = n.posts[before..].iter().map(|p| &p.1).collect();
+        assert_eq!(made.len(), 2, "{made:?}");
+        assert!(made.iter().any(|b| b["text"].as_str().unwrap().starts_with("The original words")), "{made:?}");
+        let own = made.iter().find(|b| b["text"].as_str().unwrap().starts_with("Threads get")).expect("the version");
+        assert_eq!((own["settings"].clone(), own["kind"].as_str()), (json!({"audience": "everyone", "pin": false}), Some("post")), "answers, with defaults");
+    }
+    assert_eq!(t.get("SocialPost", uid(&versions["id"])).await["status"], "Published");
+    // A three-item thread with several media; the third is refused, the first two stay out; Retry sends the third alone.
+    let pics = [
+        t.k.store_file(&author, None, "one.png", "image/png", b"\x89PNG\r\n\x1a\none").await.unwrap(),
+        t.k.store_file(&author, None, "two.png", "image/png", b"\x89PNG\r\n\x1a\ntwo").await.unwrap(),
+        t.k.store_file(&author, None, "three.png", "image/png", b"\x89PNG\r\n\x1a\nthree").await.unwrap(),
+    ];
+    let mut thread = tagged("One of three", &[], "Thread");
+    thread["targets"] = json!([target(nw_threads, answered.clone())]);
+    thread["items"] = json!([{"text": "Two of three"}, {"text": "BOOM three of three"}]);
+    thread["media"] = json!([{"item": 1, "file": pics[0]["url"], "alt": "First"}, {"item": 1, "file": pics[1]["url"], "alt": "Second"},
+                             {"item": 2, "file": pics[2]["url"], "alt": "Third"}]);
+    let mut too_many = thread.clone();
+    too_many["media"] = json!([{"item": 4, "file": pics[0]["url"]}]);
+    refused(t.k.insert(&author, "SocialPost", obj(too_many)).await, "invalid", "a medium is for item 4, and Northwind Threads has 3");
+    let thread = t.insert(&author, "SocialPost", thread).await;
+    let thread_id = uid(&thread["id"]);
+    go(thread_id).await;
+    t.net.lock().unwrap().refuse_text = Some("BOOM".into());
+    let (posts_before, media_before) = {
+        let n = t.net.lock().unwrap();
+        (n.posts.len(), n.media.len())
+    };
+    t.upkeep(due + Duration::hours(12)).await;
+    let ended = t.get("SocialPost", thread_id).await;
+    assert!(ended["status"] == "Failed" && ended["failure"].as_str().unwrap().contains("That item is not allowed"), "{ended:?}");
+    let thread_pub = t.rows("SocialPublication", json!({"post": thread_id.to_string()})).await.remove(0);
+    assert_eq!(thread_pub["sent_items"].as_array().unwrap().len(), 2, "the first two are out and kept: {thread_pub:?}");
+    {
+        let n = t.net.lock().unwrap();
+        assert_eq!(n.posts.len(), posts_before + 2);
+        assert_eq!(n.media.len(), media_before + 3, "each medium uploaded once");
+        let (first, second) = (&n.posts[posts_before], &n.posts[posts_before + 1]);
+        assert_eq!(first.1["media_ids"].as_array().unwrap().len(), 2, "two pictures on the first item");
+        assert_eq!(second.1["reply_to"], json!(first.0), "the second answers the first");
+        assert!(first.3.starts_with("publish:") && second.3.ends_with(":1"), "keys by item: {} {}", first.3, second.3);
+    }
+    t.net.lock().unwrap().refuse_text = None;
+    t.act(&author, "SocialPost", thread_id, "retry", Value::Null).await.unwrap();
+    t.upkeep(due + Duration::hours(12)).await;
+    assert_eq!(t.get("SocialPost", thread_id).await["status"], "Published");
+    let thread_pub = t.get("SocialPublication", uid(&thread_pub["id"])).await;
+    let items = thread_pub["sent_items"].as_array().unwrap().clone();
+    {
+        let n = t.net.lock().unwrap();
+        assert_eq!(n.posts.len(), posts_before + 3, "items one and two were not sent again");
+        assert_eq!(n.media.len(), media_before + 3);
+        assert_eq!(n.posts.last().unwrap().1["reply_to"], items[1]["id"], "the third answers the second");
+    }
+    assert_eq!(items.len(), 3);
+    assert!(items.iter().all(|i| i["url"].as_str().is_some_and(|u| u.starts_with("https://chirp.test/p/"))), "each item's address: {items:?}");
+    // Delete on the network takes every item down, the last first.
+    let deleted_before = t.net.lock().unwrap().deleted.len();
+    assert_eq!(t.act(&manager, "SocialPublication", uid(&thread_pub["id"]), "delete_remote", json!({})).await.unwrap()["deleted"], 3);
+    let gone: Vec<String> = t.net.lock().unwrap().deleted[deleted_before..].to_vec();
+    assert_eq!(gone, items.iter().rev().map(|i| i["id"].as_str().unwrap().to_string()).collect::<Vec<_>>());
+    // Comments as follow-ups: the network's reply, under the first item; with media where it takes none, refused.
+    let mut commented = tagged("Post with comments", &[nw_comments], "Comments");
+    commented["items"] = json!([{"text": "A comment", "delay_minutes": 0}]);
+    commented["media"] = json!([{"item": 2, "file": pics[0]["url"]}]);
+    refused(t.k.insert(&author, "SocialPost", obj(commented.clone())).await, "invalid", "Chirp Comments takes no media after the post");
+    commented["media"] = json!([]);
+    let commented = t.insert(&author, "SocialPost", commented).await;
+    go(uid(&commented["id"])).await;
+    t.upkeep(due + Duration::hours(13)).await;
+    let cpub = t.rows("SocialPublication", json!({"post": uid(&commented["id"]).to_string()})).await.remove(0);
+    {
+        let n = t.net.lock().unwrap();
+        let (k, r) = n.replies.last().unwrap();
+        assert!(k.ends_with(":1") && r["text"] == "A comment" && r["in_reply_to"] == cpub["external_id"] && r["item"] == 1, "{k} {r}");
+    }
+    // A wait between items: the job is put back, nothing is lost.
+    let mut waits = tagged("First, then wait", &[], "Wait");
+    waits["targets"] = json!([target(nw_threads, answered.clone())]);
+    waits["items"] = json!([{"text": "An hour later", "delay_minutes": 60}]);
+    let waits = t.insert(&author, "SocialPost", waits).await;
+    go(uid(&waits["id"])).await;
+    let before = t.net.lock().unwrap().posts.len();
+    t.upkeep(due + Duration::hours(14)).await;
+    let wpub = t.rows("SocialPublication", json!({"post": uid(&waits["id"]).to_string()})).await.remove(0);
+    assert!(wpub["next_at"].is_string() && wpub["sent_items"].as_array().unwrap().len() == 1, "{wpub:?}");
+    assert_eq!(t.net.lock().unwrap().posts.len(), before + 1);
+    assert_eq!(t.get("SocialPost", uid(&waits["id"])).await["status"], "Sending");
+    // The hour passes: the second item goes, after the first.
+    t.count(&format!(
+        "with u as (update e_social_publication set sent_items = jsonb_set(sent_items::jsonb, '{{0,sent_at}}', '\"2020-01-01T00:00:00+00:00\"') where tenant_id = $1 and id = '{}' returning 1) select count(*) from u",
+        wpub["id"].as_str().unwrap()
+    ))
+    .await;
+    t.upkeep(due + Duration::hours(14)).await;
+    assert_eq!(t.get("SocialPost", uid(&waits["id"])).await["status"], "Published");
+    assert_eq!(t.net.lock().unwrap().posts.len(), before + 2);
 
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
