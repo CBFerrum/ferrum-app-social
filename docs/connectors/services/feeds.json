@@ -6,7 +6,7 @@
   "apps": [
     "social"
   ],
-  "allowed_hosts": [],
+  "any_host": true,
   "operations": {
     "feed": {
       "url": "{{ inputs.address }}",
@@ -77,6 +77,6 @@
         "/dc:date"
       ]
     },
-    "note": "RSS 2.0, RSS 1.0 and Atom feeds, one description: each feed's address is the feed record's. The guard reaches only this connection's base host and allowed_hosts: an administrator lists each feed's host there once (a host, not a feed: every feed of that site then works)."
+    "note": "RSS 2.0, RSS 1.0 and Atom feeds, one description: each feed's address is the feed record's. It reads any public host (any_host, BD-65), so a feed is only an address: no administrator step per site. It carries no secret and only reads."
   }
 }

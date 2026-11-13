@@ -1707,7 +1707,8 @@ async fn scenario() {
     );
     let fish = t.rows("SocialPost", json!({"headline": "Fish & chips"})).await;
     assert_eq!((fish[0]["status"].as_str(), fish[0]["link"].as_str()), (Some("Draft"), Some("https://blog.example/fish")));
-    // A site the connection does not reach: said, with what to do.
+    // (round five) Any public site, with no host listed for it: one that cannot be reached (no such name here) waits for
+    // the next read, never refused as a host the connection does not list.
     let elsewhere = t
         .insert(
             &manager,
@@ -1718,7 +1719,20 @@ async fn scenario() {
         .await;
     t.upkeep(due + Duration::hours(32)).await;
     let said = t.get("SocialFeed", uid(&elsewhere["id"])).await["last_error"].as_str().unwrap_or_default().to_string();
-    assert!(said.contains("elsewhere.example") && said.contains("allowed hosts"), "{said}");
+    assert!(!said.contains("allowed hosts"), "{said}");
+    // (round five) A workspace's feeds connection of the earlier shape (its sites listed by hand) takes the shipped one.
+    let shipped: Value =
+        serde_json::from_str(&std::fs::read_to_string(format!("{}/docs/connectors/services/feeds.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    let mut earlier = shipped.clone();
+    earlier.as_object_mut().unwrap().remove("any_host");
+    earlier["allowed_hosts"] = json!(["blog.example", "news.example"]);
+    let feeds = t.k.save_connection_def(&t.admin, None, &input("feeds", earlier, None)).await.unwrap();
+    t.upkeep(due + Duration::hours(33)).await;
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    let now: Value =
+        sqlx::query_scalar("select description from conn where tenant_id = $1 and id = $2").bind(t.tenant).bind(feeds).fetch_one(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!((now["any_host"].clone(), now.get("allowed_hosts")), (json!(true), None), "{now}");
 
     // ───────────── (round three) the account's own posts read back, each with its numbers; a mention of ours is a comment ─────────────
     let mut native_desc = description(&base, key_auth2.clone(), &["publish", "metrics"], false);

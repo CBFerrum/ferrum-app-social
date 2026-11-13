@@ -9,6 +9,11 @@
 //!
 //! An account is carried once: once it names a connection that is here it is not looked at again, so the message is sent
 //! once however often the upkeep runs.
+//!
+//! (round five) A connection taken up from a description the package now ships reading any public host (`any_host`,
+//! BD-65: the feeds) takes the new description when it is the earlier one but for its hosts, which an administrator
+//! listed site by site: [`carry_any_host`]. One an administrator changed otherwise is left as it is (it works on the
+//! hosts it lists).
 
 use crate::obj;
 use ferrum_domain::util::{elevated, id, s};
@@ -44,6 +49,42 @@ fn described(shipped: &Value, placeholder: &str, server: Option<&str>) -> Value 
         Some(address) => serde_json::from_str(&shipped.to_string().replace(placeholder, address)).unwrap_or_else(|_| shipped.clone()),
         None => shipped.clone(),
     }
+}
+
+/// The parts of a description that say where it may call, which `any_host` replaces.
+fn but_hosts(d: &Value) -> Value {
+    let mut d = d.clone();
+    if let Some(o) = d.as_object_mut() {
+        for k in ["allowed_hosts", "any_host", "meta"] {
+            o.remove(k);
+        }
+    }
+    d
+}
+
+/// (round five) Connections of the earlier shape of a description now reading any public host take the shipped one.
+pub(crate) async fn carry_any_host(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<()> {
+    let shipped: Vec<Value> = k.registry.catalog().package("social").map(|p| p.manifest.connections.clone()).unwrap_or_default();
+    for c in shipped.iter().filter(|c| c["description"]["any_host"] == true) {
+        let row: Option<(Uuid, String, bool, Value)> = sqlx::query_as("select id, label, enabled, description from conn where tenant_id = $1 and name = $2")
+            .bind(ctx.tenant)
+            .bind(c["name"].as_str().unwrap_or_default())
+            .fetch_optional(&mut **tx)
+            .await?;
+        let Some((conn, label, enabled, old)) = row else { continue };
+        if old["any_host"] == true || but_hosts(&old) != but_hosts(&c["description"]) {
+            continue;
+        }
+        let input: ConnectionInput = serde_json::from_value(json!({"name": c["name"], "label": label, "description": c["description"], "enabled": enabled}))
+            .map_err(ferrum_kernel::Error::internal)?;
+        // One holding secrets an administrator gave it cannot read any host (BD-65): it stays as it is.
+        if let Err(e) = k.save_connection_def(&elevated(ctx), Some(conn), &input).await
+            && e.is_retryable()
+        {
+            return Err(e);
+        }
+    }
+    Ok(())
 }
 
 /// Accounts of the networks the old releases had connectors for, whose connection is not here: each gets one,

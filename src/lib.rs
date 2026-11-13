@@ -115,6 +115,7 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             let ctx = Ctx::system(tenant, schema);
             let mut tx = k.db.tenant_tx(tenant).await?;
             upgrade::carry_connections(k, &ctx, &mut tx).await?;
+            upgrade::carry_any_host(k, &ctx, &mut tx).await?;
             accounts::carry_over(k, &ctx, &mut tx).await?;
             accounts::refresh_all(k, &ctx, &mut tx).await?;
             review::settle(k, &ctx, &mut tx).await?;
