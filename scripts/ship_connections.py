@@ -20,5 +20,30 @@ text = package.read_text()
 start = text.index("\nconnections:\n") + 1
 end = re.search(r"\n(?=\S)", text[start + len("connections:\n"):])
 end = start + len("connections:\n") + (end.start() + 1 if end else len(text))
-package.write_text(text[:start] + block + text[end:])
-print(f"{len(entries)} descriptions shipped")
+text = text[:start] + block + text[end:]
+
+# The network profiles 0.6 seeded, kept for the accounts linked to them by name: each is its network's description's own
+# rules (`social`), its flat fields read from them, so a profile never says other than the description.
+PROFILES = {"X": "x", "Bluesky": "bluesky", "Mastodon": "mastodon", "Threads": "threads", "LinkedIn": "linkedin",
+            "Facebook": "facebook", "Instagram": "instagram", "YouTube": "youtube"}
+rows = []
+for name, file in PROFILES.items():
+    soc = json.loads((docs / f"{file}.json").read_text())["meta"]["social"]
+    soc = dict(soc, name=name)
+    media = soc.get("media", {})
+    kinds = media.get("kinds", [])
+    row = {"profile_name": name, "max_text": soc.get("text", {}).get("max") or 100000, "images": "image" in kinds, "videos": "video" in kinds,
+           "media_required": bool(media.get("required")), "alt_text": media.get("alt", True), "first_comment": bool(soc.get("first_comment")),
+           "threads": soc.get("follow_ups", {}).get("as") == "thread", "link_preview": bool(soc.get("link_preview")), "scheduling": bool(soc.get("scheduling"))}
+    for field, value in (("link_length", soc.get("text", {}).get("link_counts")), ("max_media", media.get("max")),
+                         ("max_image_bytes", (media.get("image") or {}).get("max_bytes")), ("max_video_bytes", (media.get("video") or {}).get("max_bytes"))):
+        if value is not None:
+            row[field] = value
+    row["social"] = soc
+    rows.append(row)
+seed = "  - entity: SocialProfile\n    key: [profile_name]\n    records:\n" + "".join("      - " + json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+a = text.index("  - entity: SocialProfile\n")
+b = text.index("\n\n", a) + 1
+text = text[:a] + seed + text[b:]
+package.write_text(text)
+print(f"{len(entries)} descriptions shipped, {len(rows)} profiles from them")
