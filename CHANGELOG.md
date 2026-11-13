@@ -54,10 +54,22 @@ sent to `_calc` with `want_checks` answers what `copies` does without saving; `f
 bar's New Social Post opens `social/compose`. Example descriptions for Unsplash, Pexels, GIPHY, Dub, Kutt, the Claude
 Messages API and a JSON feed.
 
+**Round three.** Requires Ferrum's App API 0.3.7 (connections part three). A network's `Retry-After` puts a post's or
+a reply's job back for the seconds it said (at most an hour), and the upkeep's own calls (numbers, plugs, clicks,
+writing help, feeds) leave that connection alone until then. A message's network id is read-only again: the shipped
+descriptions' mappings write as the system (`as: system`), and people no longer create messages. Feeds read RSS 2.0,
+RSS 1.0 and Atom through one shipped `feeds` description (XML answers); a feed is an address. A `publish` made of steps
+uploads its own media (no `publish_media` needed; media come as stored files), and each item gets the root's and the
+previous item's whole results. The account's own posts can be read back as publications without a post, their numbers
+read per item; a mention answering one of the brand's posts is a comment. A notice opt-out is its person's.
+
 **Upgrading from 0.6.13 or 0.7.0.** No step for an administrator. Posts, approvals and publications read and send as
 before (an approval given before keeps holding: its fingerprint is unchanged for a post with only 0.7.0's content); a
 publication under way keeps its key. The review policy applies at once; a workspace where nobody holds Social Approver
-keeps 0.7.0's Approve It until someone does.
+keeps 0.7.0's Approve It until someone does. A connection a workspace copied from a description of before, whose pull
+runs on each person's own sign-in without `as: system`, has its pull refused plainly (people no longer create messages;
+the platform tells the administrators): add `"as": "system"` to its mapping. Pulls on the workspace's own sign-in, and
+inbound addresses, already wrote as the system and go on as they were.
 
 ## 0.7.0
 

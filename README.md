@@ -83,14 +83,20 @@ this release: connections made from the shipped descriptions, administrators tol
 
 ## Not yet
 
-- What the platform's connections cannot say yet, and so the examples cannot: an upload that needs an
-  address from an earlier call's answer (LinkedIn's pictures), a link as clickable text with offsets
-  (Bluesky), a record key made from the delivery's key, the clock in a mapping (numbers a day are Social's),
-  and an app's own call reading `Retry-After` (see docs/connectors/README.md).
+- The platform's connections part three (steps, waits, chunks, the clock, `tid`, `entities`, XML, `as: system`,
+  `Retry-After`) can now express what the four examples could not (docs/connectors/README.md, "What they still cannot
+  do"); rewriting them on it is the network descriptions' work, not done here.
+- A short-lived public address for a stored file, for a network that pulls media by address (Instagram, Threads):
+  the platform gives an app none (`public_url` is null).
+- Reading platform tables by SQL where the platform has no call an app can use in its transaction (checked again
+  against 0.3.7, which adds none): `conn` (a connection by id or name: `accounts::reach`, `outside::named`),
+  `conn_token` (a sign-in's state: `accounts::state_of`), `app_user` (a person by address, the administrators:
+  `accounts::person`, `upgrade`), `job` (a publication's job by its key: `posts::mark_sent`), `record_tag` (the
+  report by tag), `tenant` (the active workspaces: the upkeep), and 0.6's `connection` (the upgrade). Each would go
+  with a kernel call taking the caller's transaction.
 - The screens for all of 0.8.0 (docs/interface-notes.md): the generic record forms show the new fields and actions.
-- Video, documents and carousels go as far as a description can upload them: chunked or resumable uploads, waiting for
-  a network to process media and steps that read an earlier answer are the platform's connections part three. Link
-  preview and native scheduling are recorded but Social always sends at its time itself.
+- Video, documents and carousels go as far as a description's `publish` can upload them in its steps. Link preview and
+  native scheduling are recorded but Social always sends at its time itself.
 - The first pull of Mastodon's mentions reads the newest page, not the history.
 - Handles that are not addresses are found by name for a person to judge, never erased by request.
 
