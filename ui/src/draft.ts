@@ -1,0 +1,235 @@
+// A post in the composer: the original, a version for each account that has its own, and what each account is asked.
+// The conversions to and from the record (docs/interface-notes.md section 2) are here, apart from the screen, so they
+// can be tested: a version is the whole post for its account (its words, its media, its follow-ups), nothing of the
+// original mixed in; an account without one gets the original.
+
+import { fromZonedInput, toZonedInput } from "@ferrum/client";
+import { answers, type Copy, effective, fill, finalText, type Piece, type Rules } from "./model";
+import type { Row } from "./data";
+
+export interface MediaState {
+  key: string;
+  /** `/files/<id>` */
+  file: string;
+  name: string;
+  /** As stored: empty means the file's type says. */
+  kind: string;
+  type?: string;
+  alt: string;
+  thumbnail: string;
+  width?: number;
+  height?: number;
+  seconds?: number;
+  bytes?: number;
+}
+export interface ItemState {
+  key: string;
+  text: string;
+  link: string;
+  /** Minutes after the item before (a follow-up). */
+  delay: number;
+  media: MediaState[];
+}
+export interface Content {
+  /** The first is the post itself; the rest are its follow-ups, in order. */
+  items: ItemState[];
+}
+export interface TargetState {
+  account: string;
+  kind: string;
+  settings: Record<string, unknown>;
+}
+export interface Draft {
+  headline: string;
+  targets: TargetState[];
+  original: Content;
+  versions: Record<string, Content>;
+  firstComment: string;
+  addSignature: boolean;
+  signature: string;
+  /** `YYYY-MM-DDTHH:mm` on the workspace's clock; empty: no time. */
+  at: string;
+  repeatEvery: string;
+  repeatUnit: "Days" | "Weeks" | "Months";
+  repeatUntil: string;
+  repeatCount: string;
+  tags: string[];
+}
+
+let counter = 0;
+export const keyed = () => `k${++counter}`;
+
+export const blankItem = (): ItemState => ({ key: keyed(), text: "", link: "", delay: 0, media: [] });
+export const emptyDraft = (): Draft => ({
+  headline: "",
+  targets: [],
+  original: { items: [blankItem()] },
+  versions: {},
+  firstComment: "",
+  addSignature: false,
+  signature: "",
+  at: "",
+  repeatEvery: "",
+  repeatUnit: "Days",
+  repeatUntil: "",
+  repeatCount: "",
+  tags: [],
+});
+
+/** The kind a medium is when the file says: by its content type, else by its name. */
+export function guessKind(type: string | undefined, file: string): string {
+  const major = (type ?? "").split("/")[0];
+  if (major === "image" || major === "video") return major;
+  if (type === "application/pdf" || /\.pdf$/i.test(file)) return "document";
+  if (!type) {
+    if (/\.(png|jpe?g|gif|webp|avif|heic)$/i.test(file)) return "image";
+    if (/\.(mp4|mov|webm|m4v)$/i.test(file)) return "video";
+  }
+  return "file";
+}
+export const kindOfMedium = (m: MediaState) => (m.kind.trim() ? m.kind.trim().toLowerCase() : guessKind(m.type, m.file));
+
+const clone = (c: Content): Content => ({ items: c.items.map((i) => ({ ...i, key: keyed(), media: i.media.map((m) => ({ ...m, key: keyed() })) })) });
+
+/** The account gets a version of its own: a copy of the original to change. */
+export const customise = (d: Draft, account: string): Draft => (d.versions[account] ? d : { ...d, versions: { ...d.versions, [account]: clone(d.original) } });
+
+/** Back to the original: the account's own rows go. */
+export function dropVersion(d: Draft, account: string): Draft {
+  const { [account]: _gone, ...rest } = d.versions;
+  return { ...d, versions: rest };
+}
+
+export function removeAccount(d: Draft, account: string): Draft {
+  return { ...dropVersion(d, account), targets: d.targets.filter((t) => t.account !== account) };
+}
+
+/** What an account gets: its version, else the original. */
+export const contentFor = (d: Draft, account: string): Content => d.versions[account] ?? d.original;
+
+const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() && !Number.isNaN(Number(v)) ? Number(v) : undefined);
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+const accountOf = (r: Row) => (typeof r.account === "string" && r.account ? r.account : "");
+const lines = (v: unknown): Row[] => (Array.isArray(v) ? (v as Row[]) : []);
+
+function mediaOf(r: Row): MediaState {
+  const file = str(r.file);
+  return { key: keyed(), file, name: file.split("/").pop() ?? file, kind: str(r.kind), alt: str(r.alt), thumbnail: str(r.thumbnail), width: num(r.width), height: num(r.height), seconds: num(r.seconds) };
+}
+
+/** The content one account (or the original, `account` empty) has: its words, then its follow-ups, with the media lines laid on the items they name. */
+function contentOf(row: Row, account: string, words: { text: string; link: string }): Content {
+  const items: ItemState[] = [{ key: keyed(), text: words.text, link: words.link, delay: 0, media: [] }];
+  for (const r of lines(row.items).filter((l) => accountOf(l) === account)) items.push({ key: keyed(), text: str(r.text), link: str(r.link), delay: num(r.delay_minutes) ?? 0, media: [] });
+  // 0.7.0's one picture is the original's first medium.
+  if (!account && str(row.image)) items[0].media.push(mediaOf({ id: "", file: row.image, alt: row.image_alt } as Row));
+  for (const r of lines(row.media).filter((l) => accountOf(l) === account)) {
+    const n = Math.max(1, num(r.item) ?? 1);
+    while (items.length < n) items.push(blankItem());
+    items[n - 1].media.push(mediaOf(r));
+  }
+  return { items };
+}
+
+/** The record as a draft. */
+export function fromRecord(row: Row): Draft {
+  const targets = lines(row.targets);
+  const d = emptyDraft();
+  d.headline = str(row.headline);
+  d.original = contentOf(row, "", { text: str(row.text), link: str(row.link) });
+  d.firstComment = str(row.first_comment);
+  d.addSignature = row.add_signature === true;
+  d.signature = str(row.signature);
+  d.at = toZonedInput(row.scheduled_at);
+  d.repeatEvery = row.repeat_every != null ? String(row.repeat_every) : "";
+  d.repeatUnit = (["Days", "Weeks", "Months"].includes(str(row.repeat_unit)) ? str(row.repeat_unit) : "Days") as Draft["repeatUnit"];
+  d.repeatUntil = str(row.repeat_until).slice(0, 10);
+  d.repeatCount = row.repeat_count != null ? String(row.repeat_count) : "";
+  for (const t of targets) {
+    const account = accountOf(t);
+    if (!account) continue;
+    d.targets.push({ account, kind: str(t.kind), settings: t.settings && typeof t.settings === "object" && !Array.isArray(t.settings) ? { ...(t.settings as Record<string, unknown>) } : {} });
+    if (str(t.text).trim()) d.versions[account] = contentOf(row, account, { text: str(t.text), link: str(t.link) });
+  }
+  return d;
+}
+
+const mediaRow = (m: MediaState, item: number, account: string) => ({
+  ...(account ? { account } : {}),
+  item,
+  file: m.file,
+  kind: m.kind,
+  alt: m.alt,
+  thumbnail: m.thumbnail || null,
+  ...(m.width ? { width: m.width } : {}),
+  ...(m.height ? { height: m.height } : {}),
+  ...(m.seconds != null ? { seconds: m.seconds } : {}),
+});
+
+/** The record's fields for a save: a version's rows name its account; the original's name none. 0.7.0's one picture is now media. */
+export function toRecord(d: Draft, brand: string | null, rules: Record<string, Rules> = {}): Record<string, unknown> {
+  const items: unknown[] = [];
+  const media: unknown[] = [];
+  const put = (c: Content, account: string) => {
+    c.items.forEach((it, n) => {
+      if (n > 0) items.push({ ...(account ? { account } : {}), text: it.text, link: it.link || null, delay_minutes: Math.max(0, Math.round(it.delay || 0)) });
+      it.media.forEach((m) => media.push(mediaRow(m, n + 1, account)));
+    });
+  };
+  put(d.original, "");
+  const targets = d.targets.map((tg) => {
+    const own = d.versions[tg.account];
+    if (own) put(own, tg.account);
+    const r = rules[tg.account];
+    return {
+      account: tg.account,
+      kind: tg.kind,
+      settings: r ? answers(r, effective(r, tg.kind).kind?.name ?? null, tg.settings) : tg.settings,
+      text: own ? own.items[0].text : "",
+      link: own ? own.items[0].link || null : null,
+    };
+  });
+  const every = num(d.repeatEvery);
+  return {
+    headline: d.headline.trim(),
+    brand,
+    text: d.original.items[0].text,
+    link: d.original.items[0].link.trim() || null,
+    image: null,
+    image_alt: null,
+    first_comment: d.firstComment.trim() ? d.firstComment : null,
+    add_signature: d.addSignature,
+    signature: d.addSignature && d.signature ? d.signature : null,
+    scheduled_at: d.at ? fromZonedInput(d.at) : null,
+    repeat_every: every && every >= 1 ? every : null,
+    repeat_unit: d.repeatUnit,
+    repeat_until: every && d.repeatUntil ? d.repeatUntil : null,
+    repeat_count: every && num(d.repeatCount) ? num(d.repeatCount) : null,
+    targets,
+    items,
+    media,
+  };
+}
+
+/** One account's copy as the live checks read it: the first words made final (the signature when the post asks for one, then the variables; a first comment only gets variables), the media as the rules see them. */
+export function copyOf(d: Draft, account: string, signature: string | null, values: Record<string, string>): Copy {
+  const c = contentFor(d, account);
+  const tg = d.targets.find((t) => t.account === account);
+  const piece = (m: MediaState): Piece => ({ kind: kindOfMedium(m), type: m.type, bytes: m.bytes, width: m.width, height: m.height, seconds: m.seconds, alt: m.alt });
+  return {
+    kind: tg?.kind || null,
+    settings: tg?.settings ?? {},
+    firstComment: fill(d.firstComment, values).text,
+    items: c.items.map((it, n) => ({ text: n === 0 ? finalText(it.text, d.addSignature ? signature : null, values).text : fill(it.text, values).text, link: it.link, media: it.media.map(piece) })),
+  };
+}
+
+/** The first variable a post's words name that has no value, or null. */
+export function missingVariable(d: Draft, account: string, values: Record<string, string>): string | null {
+  const c = contentFor(d, account);
+  for (const it of c.items) {
+    const m = fill(it.text, values).missing;
+    if (m) return m;
+  }
+  return fill(d.firstComment, values).missing;
+}
