@@ -39,7 +39,7 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube"];
+const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube", "tiktok"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -200,6 +200,7 @@ fn handler(net: &str) -> Option<Handler> {
         "igf" | "igs" | "igt" | "igr" => fake_instagram,
         "th" => fake_threads,
         "yt" | "yto" => fake_youtube,
+        "tt" | "ttu" => fake_tiktok,
         _ => return None,
     })
 }
@@ -348,7 +349,11 @@ impl T {
     /// A connection from the file `name`, its hosts on the fake under `/<net>`, its client id `<net>-client`, its waits
     /// a second apart and a second's patience for an answer.
     async fn connect(&self, name: &str, net: &str, hosts: &[&str], secrets: Value, edit: impl FnOnce(&mut Value)) -> Uuid {
-        let mut text = file(name);
+        self.connect_from(name, name, net, hosts, secrets, edit).await
+    }
+    /// A connection called `name` from the file `from`.
+    async fn connect_from(&self, name: &str, from: &str, net: &str, hosts: &[&str], secrets: Value, edit: impl FnOnce(&mut Value)) -> Uuid {
+        let mut text = file(from);
         for h in hosts {
             text = text.replace(&format!("https://{h}"), &format!("{}/{net}", self.base));
         }
@@ -505,6 +510,7 @@ async fn scenario() {
     instagram_standalone(&t).await;
     threads(&t).await;
     youtube(&t).await;
+    tiktok(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -2116,4 +2122,181 @@ async fn youtube(t: &T) {
     assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(2500), Some("@northwindtv")));
     t.call("youtube", "delete", json!({"id": out["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
     assert!(!t.net().list("yt:videos").iter().any(|v| v["id"] == out["id"]));
+}
+
+// ───────────── TikTok ─────────────
+
+fn fake_tiktok(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, c: &str, m: &str| status(code, json!({"error": {"code": c, "message": m, "log_id": "L1"}}));
+    let base = n.base.clone();
+    if r.path == "/v2/oauth/token/" {
+        // TikTok names the client `client_key`, in the form.
+        let f = r.form();
+        if !f.contains_key("client_key") {
+            return status(400, json!({"error": "invalid_request", "error_description": "client_key is required"}));
+        }
+        return ok(json!({"access_token": "TTA", "expires_in": 86400, "open_id": "O1", "refresh_token": "TTR", "scope": "video.publish"}));
+    }
+    if r.bearer().as_deref() != Some("tt-token") && !r.path.starts_with("/upload/") {
+        return err(401, "access_token_invalid", "The access token is invalid or not found in the request.");
+    }
+    let mut pubs = n.get("tt:publishes");
+    if pubs.is_null() {
+        pubs = json!({});
+    }
+    match (r.method.as_str(), r.path.as_str()) {
+        ("POST", "/v2/post/publish/creator_info/query/") => {
+            ok(json!({"data": {"creator_username": "northwind", "privacy_level_options": ["PUBLIC_TO_EVERYONE", "SELF_ONLY"],
+                                                                   "comment_disabled": false, "duet_disabled": false, "stitch_disabled": true, "max_video_post_duration_sec": 600},
+                                                          "error": {"code": "ok", "message": ""}}))
+        }
+        ("POST", "/v2/post/publish/video/init/") => {
+            let b = r.json();
+            if n.get("tt:limit") == true {
+                return err(403, "spam_risk_too_many_posts", "The daily post cap from the API is reached for the current user.");
+            }
+            let si = &b["source_info"];
+            let (size, chunk, count) =
+                (si["video_size"].as_u64().unwrap_or(0), si["chunk_size"].as_u64().unwrap_or(0), si["total_chunk_count"].as_u64().unwrap_or(0));
+            if si["source"] != "FILE_UPLOAD" || chunk == 0 || count != (size / chunk).max(1) || b["post_info"]["privacy_level"].as_str().is_none() {
+                return err(400, "invalid_params", "chunk_size and total_chunk_count do not match the video's size");
+            }
+            let id = format!("v_pub_file~v2-1.{}", n.next());
+            pubs[&id] = json!({"size": size, "held": 0, "info": b["post_info"], "polls": 0});
+            n.set("tt:publishes", pubs);
+            ok(json!({"data": {"publish_id": id, "upload_url": format!("{base}/ttu/upload/?upload_id={id}")}, "error": {"code": "ok", "message": ""}}))
+        }
+        ("PUT", "/upload/") => {
+            let id = r.query.get("upload_id").cloned().unwrap_or_default();
+            let p = &mut pubs[&id];
+            let range = r.header("content-range").unwrap_or_default().trim_start_matches("bytes ").to_string();
+            let start: u64 = range.split('-').next().and_then(|s| s.parse().ok()).unwrap_or(u64::MAX);
+            if p.is_null() || start != p["held"].as_u64().unwrap() || r.header("content-type") != Some("video/mp4") {
+                return err(400, "invalid_params", "Content-Range does not follow the bytes already uploaded");
+            }
+            let held = start + r.body.len() as u64;
+            p["held"] = json!(held);
+            let done = held == p["size"].as_u64().unwrap();
+            if done {
+                let info = p["info"].clone();
+                n.list("tt:posts").push(json!({"publish_id": id, "info": info}));
+            }
+            n.set("tt:publishes", pubs);
+            empty(if done { 201 } else { 206 })
+        }
+        ("POST", "/v2/post/publish/content/init/") => {
+            let b = r.json();
+            if b["media_type"] != "PHOTO" || b["source_info"]["photo_images"].as_array().is_none_or(Vec::is_empty) {
+                return err(400, "invalid_params", "photo_images is required");
+            }
+            let id = format!("p_pub_url~v2.{}", n.next());
+            pubs[&id] = json!({"size": 0, "held": 0, "info": b["post_info"], "polls": 0, "photos": b["source_info"]["photo_images"]});
+            n.set("tt:publishes", pubs);
+            n.list("tt:posts").push(json!({"publish_id": id, "info": b["post_info"], "photos": b["source_info"]["photo_images"]}));
+            ok(json!({"data": {"publish_id": id}, "error": {"code": "ok", "message": ""}}))
+        }
+        ("POST", "/v2/post/publish/status/fetch/") => {
+            let id = r.json()["publish_id"].as_str().unwrap_or_default().to_string();
+            let p = &mut pubs[&id];
+            p["polls"] = json!(p["polls"].as_u64().unwrap_or(0) + 1);
+            let complete = p["held"] == p["size"] && p["polls"].as_u64() >= Some(2);
+            let out = if complete {
+                json!({"data": {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [7300000000u64 + p["polls"].as_u64().unwrap()], "uploaded_bytes": p["held"]}, "error": {"code": "ok"}})
+            } else {
+                json!({"data": {"status": "PROCESSING_UPLOAD", "uploaded_bytes": p["held"]}, "error": {"code": "ok"}})
+            };
+            n.set("tt:publishes", pubs);
+            ok(out)
+        }
+        ("POST", "/v2/video/query/") => ok(
+            json!({"data": {"videos": [{"id": r.json()["filters"]["video_ids"][0], "view_count": 5000, "like_count": 300, "comment_count": 20, "share_count": 10}]},
+                                                 "error": {"code": "ok"}}),
+        ),
+        ("GET", "/v2/user/info/") => ok(
+            json!({"data": {"user": {"open_id": "O1", "display_name": "Northwind", "username": "northwind", "follower_count": 8800, "avatar_url": "https://p16.test/a.jpg"}},
+                                               "error": {"code": "ok"}}),
+        ),
+        _ => err(404, "not_found", "Not found"),
+    }
+}
+
+async fn tiktok(t: &T) {
+    // As the file is: TikTok's token address wants the client as `client_key`, which the platform cannot name yet.
+    let conn = t.connect("tiktok", "tt", &["open.tiktokapis.com", "open-upload.tiktokapis.com"], json!({"client_secret": "tt-secret"}), |_| {}).await;
+    let session = Uuid::now_v7();
+    let url = t.k.connect_start(&t.admin, conn, session).await.unwrap();
+    let q = query_of(reqwest::Url::parse(&url).unwrap().query().unwrap_or_default());
+    assert_eq!(q.get("client_key").map(String::as_str), Some("tt-client"), "the authorisation address names the client as TikTok wants");
+    let e = t.k.connect_finish(&t.admin, session, &q["state"], Some("CODE-tt"), None).await.unwrap_err();
+    assert!(e.to_string().contains("did not give tokens: 400: invalid_request"), "{e}");
+    assert!(t.net().last("tt", "POST", "/v2/oauth/token/").form().contains_key("client_id"), "the platform names it client_id");
+    // The rest, on the same description signed in with a token as a secret.
+    let tested = t
+        .connect_from("tiktok_tested", "tiktok", "tt", &["open.tiktokapis.com", "open-upload.tiktokapis.com"], json!({"token": "tt-token"}), |d| {
+            d["auth"] = json!({"type": "bearer", "secret": "token"});
+        })
+        .await;
+    let account = t.account("Northwind TikTok", tested).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "TikTok");
+    let privacy = t.action(account, "choices", json!({"setting": "privacy_level"})).await.unwrap();
+    assert_eq!(privacy["choices"].as_array().unwrap().len(), 2, "the creator's own options: {privacy}");
+    // A video in two chunks (the remainder in the last), its publishing waited for.
+    let video: Vec<u8> = (0..21_000_000u32).map(|i| (i % 251) as u8).collect();
+    let settings =
+        json!({"privacy_level": "SELF_ONLY", "comment": true, "duet": false, "stitch": false, "brand_content_toggle": false, "brand_organic_toggle": false});
+    let key = format!("publish:{}", Uuid::now_v7());
+    let m = t.medium("clip.mp4", "video/mp4", &video, Some("video"), settings.clone(), None).await;
+    let id = t.call("tiktok_tested", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let mut v = post_in("Bake with us #bread", None, &[("clip.mp4", "video/mp4", video.len() as i64)], &[id]);
+    v["kind"] = json!("video");
+    v["settings"] = settings.clone();
+    let out = t.call("tiktok_tested", "publish", v.clone(), Some(&key)).await.unwrap();
+    assert!(out["id"].as_str().unwrap().starts_with("73"), "the public post's id: {out}");
+    {
+        let mut n = t.net();
+        let p = n.list("tt:posts")[0].clone();
+        assert_eq!(
+            (p["info"]["title"].as_str(), p["info"]["privacy_level"].as_str(), p["info"]["disable_duet"].as_bool()),
+            (Some("Bake with us #bread"), Some("SELF_ONLY"), Some(true))
+        );
+        let puts: Vec<String> = n
+            .seen
+            .iter()
+            .filter(|(net, r)| net == "ttu" && r.method == "PUT")
+            .map(|(_, r)| r.header("content-range").unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(puts, ["bytes 0-9999999/21000000", "bytes 10000000-20999999/21000000"]);
+    }
+    // Photos, pulled by their addresses.
+    let mut p = t.medium("a.jpg", "image/jpeg", b"JPEG", Some("photo"), json!({}), None).await;
+    p["url"] = json!("https://files.northwind.test/a.jpg");
+    let pid = t.call("tiktok_tested", "publish_media", p, Some(&format!("media:{key}:p"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let mut ph = post_in("Fresh loaves", None, &[("a.jpg", "image/jpeg", 4)], &[pid]);
+    ph["kind"] = json!("photo");
+    ph["settings"] = json!({"privacy_level": "PUBLIC_TO_EVERYONE", "comment": true, "title": "Loaves"});
+    t.call("tiktok_tested", "publish", ph, Some(&format!("{key}:p"))).await.unwrap();
+    assert_eq!(t.net().list("tt:posts").last().unwrap()["photos"], json!(["https://files.northwind.test/a.jpg"]));
+    // The last chunk's answer lost: TikTok publishes an upload once it is whole and has no way to ask what it holds,
+    // so the call stops rather than start again; there is one post.
+    let small: Vec<u8> = vec![b's'; 1000];
+    let m = t.medium("s.mp4", "video/mp4", &small, Some("video"), settings.clone(), None).await;
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let sid = t.call("tiktok_tested", "publish_media", m, Some(&format!("media:{lost}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let mut s = post_in("Short and once", None, &[("s.mp4", "video/mp4", 1000)], &[sid]);
+    s["kind"] = json!("video");
+    s["settings"] = settings.clone();
+    let before = t.net().list("tt:posts").len();
+    t.net().lose.insert("PUT /ttu/upload/".into());
+    assert!(t.call("tiktok_tested", "publish", s.clone(), Some(&lost)).await.is_err());
+    let e = t.call("tiktok_tested", "publish", s, Some(&lost)).await.unwrap_err();
+    assert!(e.to_string().to_lowercase().contains("sent") || e.to_string().contains("lost"), "{e}");
+    assert_eq!(t.net().list("tt:posts").len(), before + 1, "one post");
+    // A refusal in TikTok's words.
+    t.net().set("tt:limit", json!(true));
+    let e = t.call("tiktok_tested", "publish", v, Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(e.to_string().contains("daily post cap"), "{e}");
+    let m = t.call("tiktok_tested", "metrics", json!({"id": out["id"], "account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!((m["impressions"].as_i64(), m["engagements"].as_i64()), (Some(5000), Some(330)));
+    let a = t.call("tiktok_tested", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(8800), Some("northwind")));
 }
