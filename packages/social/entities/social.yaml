@@ -188,6 +188,8 @@
     - {name: add_signature, type: check, default: false, label: Add the Signature, description: "Adds, at the end of each account's words, the signature named below, else the account's default, else its brand's, else the workspace's; never twice"}
     - {name: signature, type: link, to: SocialSignature}
     - {name: approval_request, type: data, read_only: true, no_copy: true, hidden: true, description: "The platform's approval request its review asked for last"}
+    - {name: want_checks, type: check, default: false, hidden: true, no_copy: true, description: "(round two) Set in a body sent to POST /api/v1/SocialPost/_calc: the answer's checks then holds what copies answers, nothing saved"}
+    - {name: checks, type: json, read_only: true, no_copy: true, hidden: true, description: "(round two) Each account's copy, lengths and problems, as copies answers; filled only for a body that asks"}
     - {name: preview, type: text, read_only: true, no_copy: true, label: As It Goes Out, description: "What each account gets, as a review link shows it: made when a review link is given"}
   actions:
     - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
