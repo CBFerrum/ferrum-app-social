@@ -204,7 +204,7 @@
     "create_container": {
       "method": "POST",
       "path": "/v25.0/me/media",
-      "body": "{ {% if inputs.media_type %}\"media_type\": {{ inputs.media_type | json }}{% else %}\"image_url\": {{ inputs.image_url | json }}{% endif %}{% if inputs.upload %}, \"upload_type\": \"resumable\"{% endif %}{% if inputs.carousel_item %}, \"is_carousel_item\": true{% endif %}{% if inputs.children %}, \"children\": {{ inputs.children | json }}{% endif %}{% if inputs.caption %}, \"caption\": {{ inputs.caption | json }}{% endif %}{% if inputs.collaborators %}, \"collaborators\": {{ inputs.collaborators | json }}{% endif %}{% if inputs.trial %}, \"trial_params\": {\"graduation_strategy\": \"MANUAL\"}{% endif %} }",
+      "body": "{ {% if inputs.media_type %}\"media_type\": {{ inputs.media_type | json }}{% if inputs.image_url %}, {% endif %}{% endif %}{% if inputs.image_url %}\"image_url\": {{ inputs.image_url | json }}{% endif %}{% if inputs.upload %}, \"upload_type\": \"resumable\"{% endif %}{% if inputs.carousel_item %}, \"is_carousel_item\": true{% endif %}{% if inputs.children %}, \"children\": {{ inputs.children | json }}{% endif %}{% if inputs.caption %}, \"caption\": {{ inputs.caption | json }}{% endif %}{% if inputs.collaborators %}, \"collaborators\": {{ inputs.collaborators | json }}{% endif %}{% if inputs.trial %}, \"trial_params\": {\"graduation_strategy\": \"MANUAL\"}{% endif %} }",
       "inputs": [
         "media_type",
         "image_url",
@@ -345,7 +345,6 @@
     "publish_media": {
       "inputs": [
         "file",
-        "url",
         "content_type"
       ],
       "steps": [
@@ -357,7 +356,7 @@
       ],
       "result": {
         "id": {
-          "expr": "inputs.content_type.startsWith('video/') ? 'file:' + string(inputs.file) : 'url:' + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
+          "expr": "(inputs.content_type.startsWith('video/') ? 'file:' : 'image:') + string(inputs.file)"
         }
       }
     },
@@ -376,7 +375,7 @@
           "when": "(inputs.media or []) | length > 1",
           "for_each": "inputs.media_items",
           "inputs": {
-            "image_url": "item.id[4:] if item.id is startingwith('url:') else none",
+            "image_url": "public_files['p' ~ index] if item.id is startingwith('image:') else none",
             "media_type": "'VIDEO' if item.id is startingwith('file:') else none",
             "upload": "item.id is startingwith('file:')",
             "carousel_item": "true",
@@ -425,7 +424,7 @@
           "operation": "create_container",
           "when": "not ((inputs.media or []) | length > 1)",
           "inputs": {
-            "image_url": "inputs.media[0][4:] if inputs.media[0] is startingwith('url:') else none",
+            "image_url": "public_files.p0 if inputs.media[0] is startingwith('image:') else none",
             "media_type": "'STORIES' if inputs.kind == 'story' else ('REELS' if inputs.media[0] is startingwith('file:') else none)",
             "upload": "inputs.media[0] is startingwith('file:')",
             "caption": "'' if inputs.kind == 'story' else inputs.text_with_link",
@@ -484,6 +483,48 @@
       "result": {
         "id": "/post/id",
         "url": "/link/url"
+      },
+      "public_files": {
+        "p0": {
+          "file": "{{ (inputs.media_items[0] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p1": {
+          "file": "{{ (inputs.media_items[1] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p2": {
+          "file": "{{ (inputs.media_items[2] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p3": {
+          "file": "{{ (inputs.media_items[3] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p4": {
+          "file": "{{ (inputs.media_items[4] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p5": {
+          "file": "{{ (inputs.media_items[5] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p6": {
+          "file": "{{ (inputs.media_items[6] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p7": {
+          "file": "{{ (inputs.media_items[7] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p8": {
+          "file": "{{ (inputs.media_items[8] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        },
+        "p9": {
+          "file": "{{ (inputs.media_items[9] or inputs.media_items[0]).file }}",
+          "minutes": 120
+        }
       }
     },
     "create_comment": {

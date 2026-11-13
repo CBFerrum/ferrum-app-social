@@ -65,6 +65,11 @@ impl Version {
         r.chosen(self.kind.as_deref(), self.items.first().and_then(|i| i.media.first()).map(|m| m.kind.as_str()))
     }
 
+    /// Its copy as sent from the server `k`: whether it can give a stored file a public address.
+    pub fn copy_on(&self, k: &Kernel) -> Copy {
+        Copy { no_public_address: k.settings.public_url.as_deref().is_none_or(|u| u.trim().is_empty()), ..self.copy() }
+    }
+
     pub fn copy(&self) -> Copy {
         let piece = |m: &Med| Piece {
             kind: m.kind.clone(),
@@ -81,6 +86,7 @@ impl Version {
             items: self.items.iter().map(|i| Item { text: i.text.clone(), link: i.link.clone(), media: i.media.iter().map(piece).collect() }).collect(),
             first_comment: self.first_comment.clone(),
             settings: self.settings.clone(),
+            no_public_address: false,
         }
     }
 }

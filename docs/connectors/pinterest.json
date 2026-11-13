@@ -177,7 +177,7 @@
     "create_pin": {
       "method": "POST",
       "path": "/v5/pins",
-      "body": "{\"board_id\": {{ inputs.board | json }}, \"title\": {{ (inputs.title or \"\") | json }}, \"description\": {{ inputs.text | json }}{% if inputs.link %}, \"link\": {{ inputs.link | json }}{% endif %}{% if inputs.alt %}, \"alt_text\": {{ inputs.alt | json }}{% endif %}{% if inputs.color %}, \"dominant_color\": {{ inputs.color | json }}{% endif %}, \"media_source\": {% set m = inputs.media %}{% if m[0] is startingwith(\"video:\") %}{\"source_type\": \"video_id\", \"media_id\": {{ m[0][6:] | json }}, \"cover_image_key_frame_time\": 0}{% elif m | length > 1 %}{\"source_type\": \"multiple_image_urls\", \"items\": [{% for x in m %}{% if not loop.first %}, {% endif %}{\"url\": {{ x[4:] | json }}}{% endfor %}]}{% else %}{\"source_type\": \"image_url\", \"url\": {{ m[0][4:] | json }}}{% endif %}}",
+      "body": "{\"board_id\": {{ inputs.board | json }}, \"title\": {{ (inputs.title or \"\") | json }}, \"description\": {{ inputs.text | json }}{% if inputs.link %}, \"link\": {{ inputs.link | json }}{% endif %}{% if inputs.alt %}, \"alt_text\": {{ inputs.alt | json }}{% endif %}{% if inputs.color %}, \"dominant_color\": {{ inputs.color | json }}{% endif %}, \"media_source\": {% set m = inputs.media %}{% if m[0] is startingwith(\"video:\") %}{\"source_type\": \"video_id\", \"media_id\": {{ m[0][6:] | json }}, \"cover_image_key_frame_time\": 0}{% elif m | length > 1 %}{\"source_type\": \"multiple_image_urls\", \"items\": [{% for x in inputs.urls %}{% if not loop.first %}, {% endif %}{\"url\": {{ x | json }}}{% endfor %}]}{% else %}{\"source_type\": \"image_url\", \"url\": {{ inputs.urls[0] | json }}}{% endif %}}",
       "inputs": [
         "board",
         "title",
@@ -185,7 +185,8 @@
         "link",
         "alt",
         "color",
-        "media"
+        "media",
+        "urls"
       ],
       "result": {
         "id": {
@@ -214,7 +215,6 @@
     "publish_media": {
       "inputs": [
         "file",
-        "url",
         "content_type"
       ],
       "steps": [
@@ -255,7 +255,7 @@
       ],
       "result": {
         "id": {
-          "expr": "answer.register != null ? 'video:' + answer.register.id : 'url:' + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
+          "expr": "answer.register != null ? 'video:' + answer.register.id : 'image:' + string(inputs.file)"
         }
       }
     },
@@ -266,7 +266,8 @@
         "media",
         "alt",
         "settings",
-        "title"
+        "title",
+        "media_items"
       ],
       "steps": [
         {
@@ -279,7 +280,8 @@
             "link": "inputs.settings.link or inputs.link",
             "alt": "inputs.alt",
             "color": "inputs.settings.dominant_color",
-            "media": "inputs.media"
+            "media": "inputs.media",
+            "urls": "[public_files.p0, public_files.p1, public_files.p2, public_files.p3, public_files.p4][:inputs.media_items | length]"
           },
           "confirm": {
             "operation": "board_pins",
@@ -295,6 +297,28 @@
         "id": "/pin/id",
         "url": {
           "expr": "'https://www.pinterest.com/pin/' + answer.pin.id + '/'"
+        }
+      },
+      "public_files": {
+        "p0": {
+          "file": "{{ (inputs.media_items[0] or inputs.media_items[0]).file }}",
+          "minutes": 60
+        },
+        "p1": {
+          "file": "{{ (inputs.media_items[1] or inputs.media_items[0]).file }}",
+          "minutes": 60
+        },
+        "p2": {
+          "file": "{{ (inputs.media_items[2] or inputs.media_items[0]).file }}",
+          "minutes": 60
+        },
+        "p3": {
+          "file": "{{ (inputs.media_items[3] or inputs.media_items[0]).file }}",
+          "minutes": 60
+        },
+        "p4": {
+          "file": "{{ (inputs.media_items[4] or inputs.media_items[0]).file }}",
+          "minutes": 60
         }
       }
     },

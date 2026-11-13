@@ -20,6 +20,8 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
+mod common;
+
 fn dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/connectors")
 }
@@ -264,6 +266,8 @@ async fn serve(net: Shared) -> u16 {
                 let query = rest.split_once('?').map(|(_, q)| query_of(q)).unwrap_or_default();
                 let mut headers = headers;
                 headers.insert("x-raw-query".into(), rest.split_once('?').map(|(_, q)| q.to_string()).unwrap_or_default());
+                // (round five) What a network pulls by address, it pulls before it answers.
+                common::pull_all(&format!("{target} {}", String::from_utf8_lossy(&body))).await;
                 let req = Req { method: method.clone(), path: path.clone(), query, headers, body };
                 let (resp, lost) = {
                     let mut n = net.lock().unwrap();
@@ -338,7 +342,9 @@ fn post_in(text: &str, link: Option<&str>, media: &[(&str, &str, i64)], ids: &[S
     let described: Vec<Value> = media
         .iter()
         .zip(ids)
-        .map(|((_, ct, size), id)| json!({"id": id, "kind": if ct.starts_with("video/") { "video" } else if ct.starts_with("image/") { "image" } else { "document" }, "alt": "What it shows", "content_type": ct, "size": size, "width": 1080, "height": 1080, "seconds": if ct.starts_with("video/") { json!(12.0) } else { Value::Null }}))
+        // The stored file Social names beside the medium's id (round five: a description makes its address from it);
+        // here read back from ids that carry it.
+        .map(|((_, ct, size), id)| json!({"id": id, "file": id.rsplit(':').next().filter(|f| f.parse::<Uuid>().is_ok()), "kind": if ct.starts_with("video/") { "video" } else if ct.starts_with("image/") { "image" } else { "document" }, "alt": "What it shows", "content_type": ct, "size": size, "width": 1080, "height": 1080, "seconds": if ct.starts_with("video/") { json!(12.0) } else { Value::Null }}))
         .collect();
     json!({"text": text, "link": link, "text_with_link": link.map_or_else(|| text.to_string(), |l| format!("{text} {l}")),
            "media": ids, "media_id": ids.first(), "media_items": described, "alt": if media.is_empty() { Value::Null } else { json!("What it shows") },
@@ -451,7 +457,7 @@ impl T {
         } else {
             "document"
         };
-        json!({"file": f["id"], "name": name, "content_type": ct, "alt": "What it shows", "size": bytes.len(), "kind": own, "post_kind": post_kind, "thumbnail": null, "url": null,
+        json!({"file": f["id"], "name": name, "content_type": ct, "alt": "What it shows", "size": bytes.len(), "kind": own, "post_kind": post_kind, "thumbnail": null,
                "width": 1080, "height": 1080, "seconds": if ct.starts_with("video/") { json!(12.0) } else { Value::Null }, "item": 0, "index": 0,
                "settings": settings, "account_id": account_id, "handle": null, "items": 1})
     }
@@ -512,11 +518,14 @@ async fn scenario() {
     let settings = KernelSettings {
         secret_key: Some(SecretKey::new([7u8; 32])),
         connection_hosts: vec!["127.0.0.1".into()],
-        public_url: Some("https://ferrum.example.test".into()),
+        public_url: Some(common::start().await),
         ..Default::default()
     };
     let k = Kernel::boot(db, Catalog::from_packages(packages).unwrap(), hooks, settings, None).await.expect("boot");
-    k.set_file_store(Arc::new(MemFiles::default()));
+    let store: Arc<MemFiles> = Arc::default();
+    k.set_file_store(store.clone());
+    let _ = common::FILES.set(store);
+    let _ = common::KERNEL.set(k.clone());
     ferrum_domain::maintenance(&k).await.expect("partitions");
     let tenant = k
         .create_tenant(NewTenant {
@@ -1542,14 +1551,21 @@ fn fake_instagram(n: &mut Net, r: &Req) -> Resp {
         ("POST", [u, "media"]) if user(u) => {
             let b = r.json();
             let video = b["upload_type"] == "resumable";
-            if b["media_type"].is_null() && b["image_url"].as_str().is_none_or(str::is_empty) {
+            if (b["media_type"].is_null() || b["media_type"] == "STORIES") && !video && b["image_url"].as_str().is_none_or(str::is_empty) {
                 return err(400, "The parameter image_url is required.", 100);
+            }
+            // (round five) Instagram fetches the picture from its address.
+            if let Some(u) = b["image_url"].as_str()
+                && common::pulled(u).is_none()
+            {
+                return err(400, "Media download has failed. The media URI doesn't meet our requirements.", 9004);
             }
             if b["media_type"] == "CAROUSEL" && b["children"].as_array().is_none_or(|c| c.len() < 2) {
                 return err(400, "A carousel has at least two children", 100);
             }
             let cid = format!("C{}", n.next());
-            cs[&cid] = json!({"media_type": b["media_type"], "image_url": b["image_url"], "upload": video, "carousel_item": b["is_carousel_item"], "children": b["children"],
+            let fetched = b["image_url"].as_str().and_then(common::pulled);
+            cs[&cid] = json!({"media_type": b["media_type"], "image_url": b["image_url"], "fetched": fetched, "upload": video, "carousel_item": b["is_carousel_item"], "children": b["children"],
                               "caption": b["caption"], "collaborators": b["collaborators"], "trial": b["trial_params"], "bytes": 0, "polls": 0, "published": false});
             n.set("ig:containers", cs);
             let mut out = json!({"id": cid});
@@ -1606,11 +1622,9 @@ fn fake_instagram(n: &mut Net, r: &Req) -> Resp {
     }
 }
 
-/// What Social would give `publish_media` with the public address it does not give yet (see docs/connectors/README.md).
+/// What Social gives `publish_media` for a medium on Instagram (round five: no address; the description makes it).
 async fn ig_medium(t: &T, name: &str, ct: &str, bytes: &[u8], kind: &str, account: Option<&str>) -> Value {
-    let mut m = t.medium(name, ct, bytes, Some(kind), json!({}), account).await;
-    m["url"] = json!(format!("https://files.northwind.test/{name}"));
-    m
+    t.medium(name, ct, bytes, Some(kind), json!({}), account).await
 }
 
 async fn instagram(t: &T) {
@@ -1636,7 +1650,7 @@ async fn instagram(t: &T) {
     // One picture: a container from its address, waited for, published, its permalink read.
     let m = ig_medium(t, "a.jpg", "image/jpeg", b"JPEG-A", "post", Some("IG1")).await;
     let a = t.call("instagram", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap();
-    assert_eq!(a["id"], "url:https://files.northwind.test/a.jpg");
+    assert!(a["id"].as_str().unwrap().starts_with("image:"), "{a}");
     let ids = vec![a["id"].as_str().unwrap().to_string()];
     let first = t
         .call(
@@ -1651,10 +1665,8 @@ async fn instagram(t: &T) {
     {
         let n = t.net();
         let c = n.get("ig:containers")["C".to_string() + &n.get("ig:media")[0]["container"].as_str().unwrap()[1..]].clone();
-        assert_eq!(
-            (c["image_url"].as_str(), c["caption"].as_str(), c["collaborators"].clone()),
-            (Some("https://files.northwind.test/a.jpg"), Some("Morning light"), json!(["ana"]))
-        );
+        assert!(c["image_url"].as_str().is_some_and(common::is_address), "the picture by this server's address: {c}");
+        assert_eq!((c["fetched"].clone(), c["caption"].as_str(), c["collaborators"].clone()), (json!(b"JPEG-A"), Some("Morning light"), json!(["ana"])));
     }
     // A carousel of a picture and a video: children made, the video's bytes sent to the upload host, all waited for,
     // then the carousel, waited for, published.
@@ -1720,15 +1732,19 @@ async fn instagram(t: &T) {
     let got = t.call("instagram", "publish", once, Some(&lost)).await.unwrap();
     assert_eq!(t.net().list("ig:media").len(), before + 1);
     assert_eq!(got["id"], t.net().list("ig:media")[0]["id"]);
-    // A refusal in Instagram's words: a picture with no public address.
-    let mut bare = t.medium("e.jpg", "image/jpeg", b"JPEG-E", Some("post"), json!({}), Some("IG1")).await;
-    bare["url"] = Value::Null;
-    let ei = t.call("instagram", "publish_media", bare, Some("media:bare")).await.unwrap()["id"].as_str().unwrap().to_string();
+    // A refusal in Instagram's words: the picture could not be fetched (an address that answers nothing).
+    t.net().fail.insert("POST /igf/v25.0/IG1/media".into(), (400, json!({"error": {"message": "Media download has failed.", "code": 9004}})));
+    let ei = t.call("instagram", "publish_media", ig_medium(t, "e.jpg", "image/jpeg", b"JPEG-E", "post", Some("IG1")).await, Some("media:bare")).await.unwrap();
     let e = t
-        .call("instagram", "publish", on(post_in("No address", None, &[("e.jpg", "image/jpeg", 6)], &[ei]), "post", json!({})), Some("publish:bare"))
+        .call(
+            "instagram",
+            "publish",
+            on(post_in("No address", None, &[("e.jpg", "image/jpeg", 6)], &[ei["id"].as_str().unwrap().to_string()]), "post", json!({})),
+            Some("publish:bare"),
+        )
         .await
         .unwrap_err();
-    assert!(e.to_string().contains("image_url is required"), "{e}");
+    assert!(e.to_string().contains("Media download has failed"), "{e}");
     // Numbers, the account, and the long-lived token renewed.
     let m = t.call("instagram", "metrics", json!({"id": first["id"], "account_id": "IG1", "handle": null}), None).await.unwrap();
     assert_eq!((m["impressions"].as_i64(), m["reach"].as_i64(), m["engagements"].as_i64()), (Some(120), Some(70), Some(15)));
@@ -1822,8 +1838,9 @@ fn fake_threads(n: &mut Net, r: &Req) -> Resp {
             }
             let fine = match kind {
                 "TEXT" => b["text"].is_string(),
-                "IMAGE" => b["image_url"].is_string(),
-                "VIDEO" => b["video_url"].is_string(),
+                // (round five) Threads fetches the medium from its address.
+                "IMAGE" => b["image_url"].as_str().and_then(common::pulled).is_some(),
+                "VIDEO" => b["video_url"].as_str().and_then(common::pulled).is_some(),
                 "CAROUSEL" => b["children"].as_str().is_some_and(|c| c.split(',').count() >= 2),
                 _ => false,
             };
@@ -1915,17 +1932,29 @@ async fn threads(t: &T) {
     let second = follow_in(post_in("Till six", None, &[], &[]), 1, 2, first["id"].as_str().unwrap(), &kept(0, &first));
     t.call("threads", "publish", second, Some(&format!("{key}:1"))).await.unwrap();
     assert_eq!(t.net().list("th:posts")[0]["body"]["reply_to_id"], first["id"], "each item answers the one before");
-    // A carousel of two pictures by their addresses (which Social does not give yet).
+    // (round five) A carousel of a picture and a video by addresses this server makes, which Threads pulls: through
+    // publish_with_media, as Social sends an item with media.
     let mut ids = vec![];
-    for i in 0..2 {
-        let mut m = t.medium(&format!("t{i}.jpg"), "image/jpeg", b"JPEG", None, json!({}), None).await;
-        m["url"] = json!(format!("https://files.northwind.test/t{i}.jpg"));
+    for (i, (name, ct, bytes)) in [("t0.jpg", "image/jpeg", &b"JPEG-T0"[..]), ("t1.mp4", "video/mp4", &b"MP4-T1"[..])].into_iter().enumerate() {
+        let m = t.medium(name, ct, bytes, None, json!({}), None).await;
         ids.push(t.call("threads", "publish_media", m, Some(&format!("media:{key}:2:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
     }
-    assert_eq!(ids[0], "image:https://files.northwind.test/t0.jpg");
-    t.call("threads", "publish", post_in("Two views", None, &[("t0.jpg", "image/jpeg", 4), ("t1.jpg", "image/jpeg", 4)], &ids), Some(&format!("{key}:2")))
-        .await
-        .unwrap();
+    assert!(ids[0].starts_with("image:") && ids[1].starts_with("video:"), "{ids:?}");
+    t.call(
+        "threads",
+        "publish_with_media",
+        post_in("Two views", None, &[("t0.jpg", "image/jpeg", 7), ("t1.mp4", "video/mp4", 6)], &ids),
+        Some(&format!("{key}:2")),
+    )
+    .await
+    .unwrap();
+    {
+        let n = t.net();
+        let kids: Vec<Value> =
+            n.get("th:containers").as_object().unwrap().values().filter(|c| c["body"]["is_carousel_item"] == true).map(|c| c["body"].clone()).collect();
+        let got: Vec<Option<Vec<u8>>> = kids.iter().map(|b| b["image_url"].as_str().or(b["video_url"].as_str()).and_then(common::pulled)).collect();
+        assert_eq!(got, vec![Some(b"JPEG-T0".to_vec()), Some(b"MP4-T1".to_vec())], "each child pulled from its own address");
+    }
     assert_eq!(t.net().list("th:posts")[0]["body"]["media_type"], "CAROUSEL");
     assert!(t.net().asked("th").iter().any(|a| a == "GET /v1.0/"), "the children waited for together");
     // The first comment, a reply under the post.
@@ -2228,6 +2257,10 @@ fn fake_tiktok(n: &mut Net, r: &Req) -> Resp {
             if b["media_type"] != "PHOTO" || b["source_info"]["photo_images"].as_array().is_none_or(Vec::is_empty) {
                 return err(400, "invalid_params", "photo_images is required");
             }
+            // (round five) TikTok pulls each photo from its address.
+            if b["source_info"]["photo_images"].as_array().unwrap().iter().any(|u| u.as_str().and_then(common::pulled).is_none()) {
+                return err(400, "url_ownership_unverified", "a photo could not be pulled from its address");
+            }
             let id = format!("p_pub_url~v2.{}", n.next());
             pubs[&id] = json!({"size": 0, "held": 0, "info": b["post_info"], "polls": 0, "photos": b["source_info"]["photo_images"]});
             n.set("tt:publishes", pubs);
@@ -2306,15 +2339,19 @@ async fn tiktok(t: &T) {
             .collect();
         assert_eq!(puts, ["bytes 0-9999999/21000000", "bytes 10000000-20999999/21000000"]);
     }
-    // Photos, pulled by their addresses.
-    let mut p = t.medium("a.jpg", "image/jpeg", b"JPEG", Some("photo"), json!({}), None).await;
-    p["url"] = json!("https://files.northwind.test/a.jpg");
-    let pid = t.call("tiktok_tested", "publish_media", p, Some(&format!("media:{key}:p"))).await.unwrap()["id"].as_str().unwrap().to_string();
-    let mut ph = post_in("Fresh loaves", None, &[("a.jpg", "image/jpeg", 4)], &[pid]);
+    // Photos, pulled by addresses this server makes (round five), one for each photo.
+    let mut pids = vec![];
+    for (i, name) in ["a.jpg", "b.jpg"].into_iter().enumerate() {
+        let p = t.medium(name, "image/jpeg", format!("JPEG-{i}").as_bytes(), Some("photo"), json!({}), None).await;
+        pids.push(t.call("tiktok_tested", "publish_media", p, Some(&format!("media:{key}:p:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
+    }
+    let mut ph = post_in("Fresh loaves", None, &[("a.jpg", "image/jpeg", 6), ("b.jpg", "image/jpeg", 6)], &pids);
     ph["kind"] = json!("photo");
     ph["settings"] = json!({"privacy_level": "PUBLIC_TO_EVERYONE", "comment": true, "title": "Loaves"});
     t.call("tiktok_tested", "publish", ph, Some(&format!("{key}:p"))).await.unwrap();
-    assert_eq!(t.net().list("tt:posts").last().unwrap()["photos"], json!(["https://files.northwind.test/a.jpg"]));
+    let photos = t.net().list("tt:posts").last().unwrap()["photos"].clone();
+    let got: Vec<Option<Vec<u8>>> = photos.as_array().unwrap().iter().map(|u| u.as_str().and_then(common::pulled)).collect();
+    assert_eq!(got, vec![Some(b"JPEG-0".to_vec()), Some(b"JPEG-1".to_vec())], "{photos}");
     // The last chunk's answer lost: TikTok publishes an upload once it is whole and has no way to ask what it holds,
     // so the call stops rather than start again; there is one post.
     let small: Vec<u8> = vec![b's'; 1000];
@@ -2402,8 +2439,11 @@ fn fake_pinterest(n: &mut Net, r: &Req) -> Resp {
             }
             let src = &b["media_source"];
             let fine = match src["source_type"].as_str() {
-                Some("image_url") => src["url"].is_string(),
-                Some("multiple_image_urls") => src["items"].as_array().is_some_and(|i| i.len() >= 2),
+                // (round five) Pinterest fetches each picture from its address.
+                Some("image_url") => src["url"].as_str().and_then(common::pulled).is_some(),
+                Some("multiple_image_urls") => {
+                    src["items"].as_array().is_some_and(|i| i.len() >= 2 && i.iter().all(|x| x["url"].as_str().and_then(common::pulled).is_some()))
+                }
                 Some("video_id") => src["media_id"].is_string() && src["cover_image_key_frame_time"].is_number(),
                 _ => false,
             };
@@ -2451,8 +2491,7 @@ async fn pinterest(t: &T) {
     let key = format!("publish:{}", Uuid::now_v7());
     let mut ids = vec![];
     for i in 0..2 {
-        let mut m = t.medium(&format!("{i}.jpg"), "image/jpeg", b"JPEG", None, json!({}), None).await;
-        m["url"] = json!(format!("https://files.northwind.test/{i}.jpg"));
+        let m = t.medium(&format!("{i}.jpg"), "image/jpeg", format!("JPEG-{i}").as_bytes(), None, json!({}), None).await;
         ids.push(t.call("pinterest", "publish_media", m, Some(&format!("media:{key}:0:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
     }
     // One picture, then a carousel, each on the board the setting names.
@@ -2467,14 +2506,17 @@ async fn pinterest(t: &T) {
         );
     }
     t.call("pinterest", "publish", pin("Two loaves", &ids, json!({"board": "B1"})), Some(&format!("{key}:c"))).await.unwrap();
-    assert_eq!(t.net().list("pi:pins")[0]["media_source"]["items"].as_array().unwrap().len(), 2);
+    let items = t.net().list("pi:pins")[0]["media_source"]["items"].clone();
+    let got: Vec<Option<Vec<u8>>> = items.as_array().unwrap().iter().map(|x| x["url"].as_str().and_then(common::pulled)).collect();
+    assert_eq!(got, vec![Some(b"JPEG-0".to_vec()), Some(b"JPEG-1".to_vec())], "each picture by its own address: {items}");
     // A video: registered, sent to the storage address with the fields it named, waited for, pinned.
     let m = t.medium("v.mp4", "video/mp4", b"VIDEO-BYTES", None, json!({}), None).await;
-    let vid = t.call("pinterest", "publish_media", m, Some(&format!("media:{key}:v"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let vid = t.call("pinterest", "publish_media", m.clone(), Some(&format!("media:{key}:v"))).await.unwrap()["id"].as_str().unwrap().to_string();
     assert!(vid.starts_with("video:"));
     assert_eq!(t.net().get("pi:s3")["bytes"], 11);
     assert!(t.net().get("pi:s3")["fields"].as_array().unwrap().contains(&json!("x-amz-signature")));
     let mut v = post_in("Watch the crumb", None, &[("v.mp4", "video/mp4", 11)], &[vid]);
+    v["media_items"][0]["file"] = m["file"].clone();
     v["settings"] = json!({"board": "B2"});
     t.call("pinterest", "publish", v, Some(&format!("{key}:v"))).await.unwrap();
     assert_eq!(t.net().list("pi:pins")[0]["media_source"]["source_type"], "video_id");
@@ -3150,6 +3192,12 @@ fn fake_google_business(n: &mut Net, r: &Req) -> Resp {
             if ["EVENT", "OFFER"].contains(&b["topicType"].as_str().unwrap_or_default()) && !b["event"]["schedule"]["startDate"]["year"].is_number() {
                 return err(400, "An event needs its schedule.", "INVALID_ARGUMENT");
             }
+            // (round five) Google fetches the picture from its address.
+            if let Some(u) = b["media"][0]["sourceUrl"].as_str()
+                && common::pulled(u).is_none()
+            {
+                return err(400, "The media could not be fetched from sourceUrl.", "INVALID_ARGUMENT");
+            }
             let name = format!("accounts/1/locations/2/localPosts/{}", n.next());
             n.list("gb:posts").insert(0, json!({"name": name, "summary": b["summary"], "body": b, "searchUrl": format!("https://local.google.test/{name}")}));
             ok(json!({"name": name, "summary": b["summary"], "state": "LIVE", "searchUrl": format!("https://local.google.test/{name}")}))
@@ -3196,14 +3244,13 @@ async fn google_business(t: &T) {
         v
     };
     let key = format!("publish:{}", Uuid::now_v7());
-    // An update with a button and a picture by its address.
-    let mut m = t.medium("p.jpg", "image/jpeg", b"JPEG", Some("standard"), json!({}), Some("accounts/1/locations/2")).await;
-    m["url"] = json!("https://files.northwind.test/p.jpg");
+    // An update with a button and a picture by an address this server makes, through publish_with_media (round five).
+    let m = t.medium("p.jpg", "image/jpeg", b"JPEG-P", Some("standard"), json!({}), Some("accounts/1/locations/2")).await;
     let photo = t.call("google_business", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
     let first = t
         .call(
             "google_business",
-            "publish",
+            "publish_with_media",
             on("Fresh today", "standard", json!({"cta": "LEARN_MORE", "cta_url": "https://northwind.test", "language": "en"}), &[photo]),
             Some(&key),
         )
@@ -3213,8 +3260,8 @@ async fn google_business(t: &T) {
         let mut n = t.net();
         let b = n.list("gb:posts")[0]["body"].clone();
         assert_eq!(
-            (b["topicType"].as_str(), b["callToAction"]["actionType"].as_str(), b["media"][0]["sourceUrl"].as_str()),
-            (Some("STANDARD"), Some("LEARN_MORE"), Some("https://files.northwind.test/p.jpg"))
+            (b["topicType"].as_str(), b["callToAction"]["actionType"].as_str(), b["media"][0]["sourceUrl"].as_str().and_then(common::pulled)),
+            (Some("STANDARD"), Some("LEARN_MORE"), Some(b"JPEG-P".to_vec()))
         );
     }
     assert!(first["url"].as_str().unwrap().contains("localPosts"));
