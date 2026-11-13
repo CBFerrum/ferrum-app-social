@@ -37,6 +37,23 @@ treated as "later". New: Posting Time, Post Template, Set, Snippet, Signature, V
 `social.review_link`; Social Author may import posts. The interface is not rebuilt: docs/interface-notes.md is what the
 screens are built from.
 
+**Round two.** The media library (assets with description, size, source and credit; stock pictures and GIFs searched
+and taken through sources named in Social Settings, the source told of a download where it asks; media from an
+address through a connection's guard; a post's media line filled from an asset). Links: tracking parameters from the
+most specific Link Template, never doubled nor on excluded hosts; short links through a shortener, once per address and
+publication, their clicks read back. Writing help through a connection (write, rewrite with presets, adapt for each
+account within its rules, hashtags, describe a picture, split into a thread, a picture kept as an asset, a blank start
+from a brand), prompts as editable templates with the brand's voice, answers given back never saved over, each use
+kept and erased with the person, the role Social Writing Help. Plugs (repost, comment, other accounts like, repost or
+comment, once a number is reached or a time has passed), each run kept. Reports by network, by kind, against the period
+before, followers by day, top posts; each brand's week kept on it, a document template and a weekly automation to the
+address it names. Notices as templates (went out, did not, review, reconnect, repeat stopped, a weekly digest), each
+turned off per person. Feeds whose new items become posts, once each, read through a connection answering JSON (XML
+waits on the platform). A draft may be saved with what its networks would refuse, refused when it leaves Draft; a body
+sent to `_calc` with `want_checks` answers what `copies` does without saving; `fold` in a network's text rules; the
+bar's New Social Post opens `social/compose`. Example descriptions for Unsplash, Pexels, GIPHY, Dub, Kutt, the Claude
+Messages API and a JSON feed.
+
 **Upgrading from 0.6.13 or 0.7.0.** No step for an administrator. Posts, approvals and publications read and send as
 before (an approval given before keeps holding: its fingerprint is unchanged for a post with only 0.7.0's content); a
 publication under way keeps its key. The review policy applies at once; a workspace where nobody holds Social Approver

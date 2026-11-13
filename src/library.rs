@@ -32,6 +32,12 @@ async fn variables(k: &Kernel, ctx: &Ctx, tx: &mut Tx, brand: Option<Uuid>, acco
     Ok(out.into_iter().map(|(k, (_, v))| (k, v)).collect())
 }
 
+/// `text` with the variables of `account` of `brand` filled.
+pub(crate) async fn fill_for(k: &Kernel, ctx: &Ctx, tx: &mut Tx, brand: Option<Uuid>, account: Option<Uuid>, text: &str) -> Result<String> {
+    let values = variables(k, ctx, tx, brand, account).await?;
+    fill(text, &values).map_err(|name| Error::field("text", format!("no variable is called {name}")))
+}
+
 /// `text` with each `{{name}}` filled, or the first name that has no value.
 pub(crate) fn fill(text: &str, values: &HashMap<String, String>) -> std::result::Result<String, String> {
     let mut out = String::with_capacity(text.len());
@@ -79,14 +85,39 @@ pub(crate) async fn finish(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, accoun
         return Ok(());
     }
     let values = variables(k, ctx, tx, id(doc, "brand"), id(account, "id")).await?;
-    let unknown = |name: String| Error::field("text", format!("no variable is called {name} for {}", s(account, "account_name").unwrap_or("this account")));
+    let mut unknown = vec![];
     for item in &mut v.items {
-        item.text = fill(&item.text, &values).map_err(unknown)?;
+        item.text = fill_known(&item.text, &values, &mut unknown);
     }
     if let Some(c) = v.first_comment.as_mut() {
-        *c = fill(c, &values).map_err(unknown)?;
+        *c = fill_known(c, &values, &mut unknown);
     }
+    unknown.dedup();
+    let who = s(account, "account_name").unwrap_or("this account");
+    v.problems.extend(unknown.into_iter().map(|name| format!("no variable is called {name} for {who}")));
     Ok(())
+}
+
+/// `text` with each `{{name}}` that has a value filled; the others left as written and named in `unknown`.
+fn fill_known(text: &str, values: &HashMap<String, String>, unknown: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("{{") {
+        let Some(len) = rest[start + 2..].find("}}") else { break };
+        let whole = &rest[start..start + 4 + len];
+        let name = rest[start + 2..start + 2 + len].trim();
+        out.push_str(&rest[..start]);
+        match values.get(name) {
+            Some(v) => out.push_str(v),
+            None => {
+                unknown.push(name.to_string());
+                out.push_str(whole);
+            }
+        }
+        rest = &rest[start + 4 + len..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The accounts an action was given: a list of ids, or ids separated by commas or lines.
@@ -164,6 +195,7 @@ impl DocHook for LibraryHook {
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        crate::media::fill_lines(hc, doc).await?;
         // A signature or a variable of an account is its brand's too.
         if matches!(hc.entity.def.name.as_str(), "SocialSignature" | "SocialVariable")
             && let Some(a) = id(doc, "account")
@@ -175,6 +207,9 @@ impl DocHook for LibraryHook {
     }
 
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        if hc.entity.def.name == "SocialLinkTemplate" {
+            return crate::links::check_template(doc);
+        }
         if hc.entity.def.name != "SocialVariable" {
             return Ok(());
         }

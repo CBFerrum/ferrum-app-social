@@ -8,6 +8,14 @@
   fields:
     - {name: brand_name, type: data, required: true, unique: true, in_list: true}
     - {name: description, type: text}
+    - {name: voice, type: text, description: "(round two) How the brand speaks, for writing help: who it talks to, its tone, words it uses and avoids"}
+    - {name: report_to, type: email, label: Weekly Report To, description: "(round two) Who gets the brand's numbers each Monday as a document; empty: nobody (the automation social_weekly_report sends it)"}
+    - {name: numbers, type: json, read_only: true, no_copy: true, label: Last Seven Days, description: "(round two) Its posts' numbers over the last seven days against the seven before, and its top post: kept by the upkeep each day"}
+  actions:
+    - {name: write_new, label: Write a Post, permission: read, params: [{name: prompt, type: text, label: What About, required: true}]}
+    - {name: media_search, label: Find Pictures, permission: read, read_only: true, params: [{name: query, type: data, label: Look For, required: true}, {name: source, type: data, label: Source}, {name: page, type: int, label: Page}]}
+    - {name: media_take, label: Take a Picture, permission: read, hidden: true, params: [{name: source, type: data, label: Source}, {name: id, type: data, label: Its Id, required: true}, {name: url, type: data, label: Address}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}, {name: credit, type: data, label: Credit}, {name: credit_link, type: data, label: Credit Link}, {name: licence, type: text, label: Licence}, {name: width, type: int, label: Width}, {name: height, type: int, label: Height}]}
+    - {name: media_from_address, label: Add Media From an Address, permission: read, params: [{name: url, type: data, label: Address, required: true}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}]}
   list: {columns: [brand_name], sort: brand_name asc}
 
 - name: SocialProfile
@@ -46,6 +54,14 @@
     - {name: crm_field, type: data, label: Field That Holds a Handle, description: "The field of that entity holding a person's handle on the network, as the message gives it; empty switches matching off"}
     - {name: metrics_days, type: int, default: 30, min: 1, max: 366, label: Read a Post's Numbers For (Days), description: "How long after it went out each post's numbers are read"}
     - {name: metrics_hours, type: int, default: 6, min: 1, max: 168, label: Read Again After (Hours), description: "The soonest an account's or a post's numbers are read again"}
+    - {name: media_sources, type: text, label: Picture and GIF Sources, description: "Connections searched for stock pictures and GIFs (search_media, fetch_media), by name, one a line; the first is the default"}
+    - {name: digest_day, type: select, options: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday, Never], default: Monday, label: Weekly Digest On}
+    - {name: digest_time, type: data, default: "09:00", label: Weekly Digest At, description: "On the workspace's clock, as 09:00"}
+    - {name: writing_connection, type: data, label: Writing Help Through, description: "The connection whose write (and picture) writing help uses; empty: writing help is off"}
+    - {name: writing_model, type: data, default: claude-sonnet-5-5, label: Writing Model, description: "Passed to write as model, where the description uses it"}
+    - {name: shorten_connection, type: data, label: Shorten Links Through, description: "The connection whose shorten makes short links (and link_clicks reads their clicks); empty: links go as they are"}
+    - {name: shorten_text_links, type: check, default: false, label: Shorten Links in the Words Too}
+    - {name: fetch_connection, type: data, label: Media From an Address Through, description: "The connection whose fetch_media takes an address and stores the file"}
 
 - name: SocialSavedReply
   label: Saved Reply
@@ -125,6 +141,7 @@
     - {name: account, type: link, to: SocialAccount, in_list: true, description: "Empty: the original's"}
     - {name: item, type: int, default: 1, min: 1, in_list: true}
     - {name: file, type: attach, required: true, in_list: true}
+    - {name: asset, type: link, to: SocialMediaAsset, description: "(round two) From the media library: its file, kind, description, dimensions and length fill what this line leaves empty"}
     - {name: kind, type: data, description: "image, video, document, or a kind the network names; empty: from the file's type"}
     - {name: alt, type: data, label: Description, description: "What it shows, for people who cannot see it"}
     - {name: thumbnail, type: attach, description: "A video's picture, where the network takes one"}
@@ -173,6 +190,8 @@
     - {name: add_signature, type: check, default: false, label: Add the Signature, description: "Adds, at the end of each account's words, the signature named below, else the account's default, else its brand's, else the workspace's; never twice"}
     - {name: signature, type: link, to: SocialSignature}
     - {name: approval_request, type: data, read_only: true, no_copy: true, hidden: true, description: "The platform's approval request its review asked for last"}
+    - {name: want_checks, type: check, default: false, hidden: true, no_copy: true, description: "(round two) Set in a body sent to POST /api/v1/SocialPost/_calc: the answer's checks then holds what copies answers, nothing saved"}
+    - {name: checks, type: json, read_only: true, no_copy: true, hidden: true, description: "(round two) Each account's copy, lengths and problems, as copies answers; filled only for a body that asks"}
     - {name: preview, type: text, read_only: true, no_copy: true, label: As It Goes Out, description: "What each account gets, as a review link shows it: made when a review link is given"}
   actions:
     - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
@@ -186,6 +205,13 @@
     - {name: duplicate, label: Duplicate, permission: write}
     - {name: stop_repeat, label: Stop Repeating, permission: write, condition: "!isEmpty(doc.repeat_every)"}
     - {name: copies, label: As Each Account Gets It, permission: read, read_only: true}
+    - {name: write, label: Write It, permission: read, params: [{name: prompt, type: text, label: What About, required: true}]}
+    - {name: rewrite, label: Rewrite It, permission: read, params: [{name: instruction, type: text, label: How}, {name: preset, type: link, to: SocialWritingPreset, label: Or a Preset}]}
+    - {name: adapt, label: Adapt for Each Account, permission: read}
+    - {name: hashtags, label: Suggest Hashtags, permission: read, params: [{name: count, type: int, label: How Many}]}
+    - {name: describe, label: Describe the Picture, permission: read, params: [{name: medium, type: int, label: Which Medium (From 0)}]}
+    - {name: thread, label: Split Into a Thread, permission: read, params: [{name: parts, type: int, label: Parts}]}
+    - {name: picture, label: Make a Picture, permission: read, params: [{name: prompt, type: text, label: Of What, required: true}]}
     - {name: save_as_template, label: Save as Template, permission: read, params: [{name: name, type: data, label: Template Name, required: true}]}
     - {name: review, label: Approve Under the Policy, permission: write, hidden: true, condition: "doc.status == 'In Review'"}
     - {name: review_link, label: Review Link, permission: write, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", params: [{name: email, type: data, label: Send It To}, {name: name, type: data, label: Their Name}, {name: decide, type: check, label: They May Approve or Ask for Changes}, {name: days, type: int, label: Works For (Days)}, {name: uses, type: int, label: Uses}]}
@@ -236,6 +262,9 @@
     - {name: sent_items, type: json, read_only: true, no_copy: true, label: Items Out, description: "Each item out on the network: its number from 0, the network's id and address, its media's ids, when"}
     - {name: next_at, type: datetime, read_only: true, no_copy: true, label: Next Item At, description: "When the next item of a thread goes, while it waits its delay"}
     - {name: follow_ups, type: data, read_only: true, no_copy: true, hidden: true, description: "thread or comment: what its items after the first are on the network"}
+    - {name: kind, type: data, read_only: true, no_copy: true, in_filter: true, description: "(round two) The kind of post it went as"}
+    - {name: short_links, type: json, read_only: true, no_copy: true, label: Short Links, description: "(round two) Each address it carried and its short link: made once, used again on a retry"}
+    - {name: clicks_read_at, type: datetime, read_only: true, no_copy: true, hidden: true}
   actions:
     - {name: delete_remote, label: Delete on the Network, permission: write, condition: "!isEmpty(doc.external_id) && isEmpty(doc.deleted_at)", confirm: "Delete this post from the network? It cannot be put back from here."}
   list: {columns: [post, account, external_id, impressions, engagements], sort: sent_at desc}
@@ -424,3 +453,189 @@
     - {name: text, type: text, read_only: true}
     - {name: at, type: datetime, read_only: true, in_list: true}
   list: {columns: [post, reviewer_name, outcome, at], sort: at desc}
+
+- name: SocialMediaAsset
+  label: Media Asset
+  label_plural: Media Library
+  kind: master
+  module: social
+  title_field: asset_name
+  description: "A picture, video, GIF or document kept for posts, with what it shows, its size, and where it came from and whose it is. Tags are the platform's."
+  fields:
+    - {name: asset_name, type: data, in_list: true, label: Name}
+    - {name: file, type: attach, required: true}
+    - {name: kind, type: data, in_list: true, in_filter: true, description: "image, video, document, or another kind; empty: from the file's type"}
+    - {name: alt, type: data, label: Description, description: "What it shows, for people who cannot see it"}
+    - {name: width, type: int, min: 0}
+    - {name: height, type: int, min: 0}
+    - {name: seconds, type: decimal, min: 0, label: Length (Seconds)}
+    - {name: source, type: select, options: [Upload, Address, Stock, Generated, Feed], default: Upload, in_list: true, in_filter: true}
+    - {name: source_name, type: data, read_only: true, label: From, description: "The connection it came through"}
+    - {name: source_id, type: data, read_only: true, label: Its Id There, description: "The source's id for it, or the address it was fetched from"}
+    - {name: credit, type: data, in_list: true, description: "Whose it is, as the source asks it to be credited"}
+    - {name: credit_link, type: data, label: Credit Link}
+    - {name: licence, type: text}
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true}
+    - {name: content_type, type: data, read_only: true, label: File Type}
+    - {name: bytes, type: int, read_only: true, label: Size (Bytes)}
+    - {name: added_by, type: email, read_only: true}
+  list: {columns: [asset_name, kind, source, credit, brand], sort: created_at desc}
+
+- name: SocialLinkTemplate
+  label: Link Template
+  label_plural: Link Templates
+  kind: master
+  module: social
+  title_field: template_name
+  description: "Tracking parameters a post's links get: an account's template, else its brand's, else the workspace's. Values name {{post}}, {{post_id}}, {{account}}, {{handle}}, {{network}}, {{kind}}, {{brand}}, {{tags}}."
+  fields:
+    - {name: template_name, type: data, required: true, unique: true, in_list: true}
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true}
+    - {name: parameters, type: text, required: true, description: "One name=value a line, as utm_source={{network}}"}
+    - {name: in_text, type: check, default: false, label: Links in the Words Too}
+    - {name: exclude, type: text, label: Not On, description: "Hosts whose addresses are left as they are, one a line"}
+    - {name: active, type: check, default: true, in_list: true}
+  list: {columns: [template_name, brand, account, active], sort: template_name asc}
+
+- name: SocialWritingPreset
+  label: Rewrite Preset
+  label_plural: Rewrite Presets
+  kind: master
+  module: social
+  title_field: preset_name
+  description: "A way to rewrite a post, picked instead of saying it each time."
+  fields:
+    - {name: preset_name, type: data, required: true, unique: true, in_list: true}
+    - {name: instruction, type: text, required: true}
+  list: {columns: [preset_name], sort: preset_name asc}
+
+- name: SocialWritingUse
+  label: Writing Help Use
+  label_plural: Writing Help Uses
+  kind: master
+  module: social
+  title_field: action
+  description: "Each use of writing help: who asked, about which post or brand, what was asked and what came back."
+  fields:
+    - {name: post, type: link, to: SocialPost, read_only: true, in_list: true, in_filter: true}
+    - {name: brand, type: link, to: SocialBrand, read_only: true, in_filter: true}
+    - {name: action, type: data, read_only: true, in_list: true, in_filter: true}
+    - {name: by, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: prompt, type: text, read_only: true}
+    - {name: answer, type: text, read_only: true}
+    - {name: connection, type: data, read_only: true}
+  list: {columns: [action, post, by, created_at], sort: created_at desc}
+
+- name: SocialPlug
+  label: Plug
+  label_plural: Plugs
+  kind: master
+  module: social
+  title_field: plug_name
+  description: "What to do with a published post once it does well, or once a time has passed: repost it, comment under it, or have other accounts like, repost or comment on it. Once for each post and acting account, at most Max Runs times in all."
+  fields:
+    - {name: plug_name, type: data, required: true, unique: true, in_list: true}
+    - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, in_list: true, description: "Only this account's posts; empty: every account of the brand"}
+    - {name: trigger, type: select, options: [Number Reached, Time Passed], default: Number Reached, in_list: true}
+    - {name: measure, type: select, options: [impressions, engagements, clicks], default: engagements, label: Number}
+    - {name: threshold, type: int, min: 0, description: "The number it must reach"}
+    - {name: within_hours, type: int, default: 24, min: 1, label: Within (Hours), description: "Of going out; later it does nothing"}
+    - {name: after_minutes, type: int, default: 60, min: 0, label: After (Minutes), description: "For Time Passed: this long after it went out"}
+    - {name: action, type: select, options: [Repost, Comment, Others Like, Others Repost, Others Comment], default: Repost, in_list: true}
+    - {name: text, type: text, label: Comment, description: "For a comment: its words, with {{variables}}"}
+    - {name: targets, type: table, of: SocialTarget, label: Other Accounts, description: "Who likes, reposts or comments, for the Others actions"}
+    - {name: delay_minutes, type: int, default: 0, min: 0, label: Not Before (Minutes), description: "After the post went out"}
+    - {name: max_runs, type: int, default: 1, min: 1, label: Max Runs}
+    - {name: active, type: check, default: true, in_list: true}
+  list: {columns: [plug_name, brand, trigger, action, active], sort: plug_name asc}
+
+- name: SocialPlugRun
+  label: Plug Run
+  label_plural: Plug Runs
+  kind: master
+  module: social
+  title_field: run_key
+  description: "What a plug did with one publication as one account: done, refused by the network (its words), or skipped (the connection does not offer it)."
+  fields:
+    - {name: plug, type: link, to: SocialPlug, read_only: true, in_list: true, in_filter: true}
+    - {name: publication, type: link, to: SocialPublication, read_only: true, in_list: true, in_filter: true}
+    - {name: account, type: link, to: SocialAccount, read_only: true, in_list: true}
+    - {name: run_key, type: data, read_only: true, unique: true, hidden: true}
+    - {name: state, type: select, options: [Done, Refused, Skipped], read_only: true, in_list: true, in_filter: true}
+    - {name: note, type: text, read_only: true}
+    - {name: external_id, type: data, read_only: true}
+    - {name: at, type: datetime, read_only: true, in_list: true}
+  list: {columns: [plug, publication, account, state, at], sort: at desc}
+
+- name: SocialNoticeOptOut
+  label: Notice Opt-out
+  label_plural: Notice Opt-outs
+  kind: master
+  module: social
+  title_field: person
+  description: "A notice someone does not want: Social leaves them out of it."
+  fields:
+    - {name: person, type: email, required: true, in_list: true, in_filter: true}
+    - {name: notice, type: select, options: [went_out, failed, review, reconnect, repeat_stopped, digest], required: true, in_list: true, in_filter: true}
+  unique: [[person, notice]]
+  list: {columns: [person, notice], sort: person asc}
+
+- name: SocialDigestRun
+  label: Digest Run
+  label_plural: Digest Runs
+  kind: master
+  module: social
+  title_field: week
+  description: "Each week's digest, sent once."
+  fields:
+    - {name: week, type: data, required: true, unique: true, read_only: true, in_list: true}
+    - {name: sent_at, type: datetime, read_only: true, in_list: true}
+    - {name: people, type: int, read_only: true, in_list: true}
+  list: {columns: [week, sent_at, people], sort: week desc}
+
+- name: SocialFeed
+  label: Feed
+  label_plural: Feeds
+  kind: master
+  module: social
+  title_field: feed_name
+  description: "A feed whose new items become posts: of a brand, to its accounts, from a template or a set, then left a draft, sent for review, queued or published now. Read through a connection whose description says where its items are (meta.feed)."
+  fields:
+    - {name: feed_name, type: data, required: true, unique: true, in_list: true}
+    - {name: connection, type: data, required: true, description: "The connection that reads it, by name or id"}
+    - {name: operation, type: data, default: feed, description: "Its operation that answers the items"}
+    - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
+    - {name: targets, type: table, of: SocialTarget, label: Accounts, description: "Where its posts go; empty: the set's or template's accounts"}
+    - {name: template, type: link, to: SocialTemplate}
+    - {name: set, type: link, to: SocialSet}
+    - {name: then, type: select, options: [Draft, Send for Review, Add to Queue, Publish Now], default: Draft, in_list: true, label: Then}
+    - {name: rewrite, type: check, default: false, label: Rewrite With Writing Help}
+    - {name: rewrite_instruction, type: text, label: How to Rewrite}
+    - {name: take_picture, type: check, default: true, label: Take Its Picture}
+    - {name: every_minutes, type: int, default: 60, min: 5, label: Read Every (Minutes)}
+    - {name: owner, type: email, description: "Whose posts they are (their author)"}
+    - {name: since, type: datetime, read_only: true, label: Items From, description: "Only items newer than when the feed was added are taken"}
+    - {name: read_at, type: datetime, read_only: true, no_copy: true}
+    - {name: last_error, type: text, read_only: true, no_copy: true}
+    - {name: active, type: check, default: true, in_list: true}
+  list: {columns: [feed_name, brand, then, active], sort: feed_name asc}
+
+- name: SocialFeedItem
+  label: Feed Item
+  label_plural: Feed Items
+  kind: master
+  module: social
+  title_field: title
+  description: "An item a feed read, once: the post made of it, or why none was."
+  fields:
+    - {name: feed, type: link, to: SocialFeed, read_only: true, in_list: true, in_filter: true}
+    - {name: item_key, type: data, read_only: true, unique: true, hidden: true}
+    - {name: title, type: data, read_only: true, in_list: true}
+    - {name: link, type: data, read_only: true}
+    - {name: published_at, type: datetime, read_only: true}
+    - {name: post, type: link, to: SocialPost, read_only: true, in_list: true}
+    - {name: state, type: select, options: [Made, Skipped, Failed], read_only: true, in_list: true, in_filter: true}
+    - {name: note, type: text, read_only: true}
+  list: {columns: [title, feed, state, post], sort: created_at desc}

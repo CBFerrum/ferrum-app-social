@@ -57,6 +57,12 @@ struct Net {
     reject_replies: bool,
     /// A post whose words hold this is refused.
     refuse_text: Option<String>,
+    /// Every request to the round-two fakes (stock, fetch, shortener, writing, plugs, feed): "METHOD path" and its body.
+    calls: Vec<(String, Value)>,
+    /// What the writing fake answers next, in order; then an echo of the prompt.
+    written: Vec<String>,
+    /// The feed's items.
+    feed: Vec<Value>,
     inbox: Vec<Value>,
     stats_down: bool,
     /// Calls to /me and /posts/*/stats.
@@ -142,6 +148,18 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
             n.deleted.push(p.trim_start_matches("/v1/posts/").to_string());
             (200, json!({"deleted": true}))
         }
+        (m, r)
+            if r.starts_with("/v1/stock")
+                || r.starts_with("/v1/fetch")
+                || r.starts_with("/v1/short")
+                || r.starts_with("/v1/messages")
+                || r.starts_with("/v1/picture")
+                || r.starts_with("/v1/posts/") && (r.ends_with("/repost") || r.ends_with("/like"))
+                || r.starts_with("/v1/feed") =>
+        {
+            n.calls.push((format!("{m} {path}"), json_body.clone()));
+            round_two(n, m, r, path, &json_body)
+        }
         ("GET", "/v1/pages") => (
             200,
             json!({"pages": [{"id": "pg-1", "name": "Northwind Shop", "username": "@nwshop", "avatar": "https://chirp.test/a/1.png"},
@@ -191,6 +209,43 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
     }
 }
 
+/// The round-two fakes: shaped like the documented answers of a stock picture source, an image fetcher, a link
+/// shortener, the Claude Messages API, a picture maker, reposts and likes, and a feed read as JSON.
+fn round_two(n: &mut Net, method: &str, route: &str, path: &str, body: &Value) -> (u16, Value) {
+    let png = |t: &str| json!({"__bytes": format!("\u{89}PNG {t}"), "__type": "image/png"});
+    match (method, route) {
+        ("GET", "/v1/stock/search") => (
+            200,
+            json!({"total": 2, "results": [
+            {"id": "s-1", "alt_description": "A lake at dawn", "width": 4000, "height": 3000, "urls": {"small": "https://chirp.test/s/1-small.jpg", "full": "https://chirp.test/s/1.jpg"},
+             "user": {"name": "Ana Lima", "links": {"html": "https://chirp.test/@ana"}}},
+            {"id": "s-2", "urls": {"small": "https://chirp.test/s/2-small.jpg", "full": "https://chirp.test/s/2.jpg"}, "user": {"name": "Bo", "links": {"html": "https://chirp.test/@bo"}}}]}),
+        ),
+        ("GET", r) if r.starts_with("/v1/stock/") && r.ends_with("/download") => (200, png("stock")),
+        ("POST", r) if r.starts_with("/v1/stock/") && r.ends_with("/told") => (200, json!({"ok": true})),
+        ("GET", "/v1/fetch") => (200, png(path.split("u=").nth(1).unwrap_or_default())),
+        ("POST", "/v1/short") => {
+            let i = n.calls.iter().filter(|c| c.0.starts_with("POST /v1/short")).count();
+            (200, json!({"id": format!("k{i}"), "shortLink": format!("https://sh.test/k{i}")}))
+        }
+        ("GET", r) if r.starts_with("/v1/short/") => (200, json!({"clicks": 42})),
+        ("POST", "/v1/messages") => {
+            let prompt = body["messages"][0]["content"].clone();
+            let said =
+                if n.written.is_empty() { format!("ECHO {}", prompt.as_str().map_or_else(|| prompt.to_string(), str::to_string)) } else { n.written.remove(0) };
+            (
+                200,
+                json!({"id": "msg_1", "type": "message", "role": "assistant", "model": body["model"], "content": [{"type": "text", "text": said}], "stop_reason": "end_turn"}),
+            )
+        }
+        ("POST", "/v1/picture") => (200, png("drawn")),
+        ("POST", r) if r.ends_with("/repost") => (200, json!({"id": format!("rp-{}", n.calls.len())})),
+        ("POST", r) if r.ends_with("/like") => (200, json!({"liked": true})),
+        ("GET", "/v1/feed") => (200, json!({"items": n.feed.clone()})),
+        _ => (404, json!({"error": {"message": "No such thing"}})),
+    }
+}
+
 async fn serve(net: Shared) -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -227,9 +282,12 @@ async fn serve(net: Shared) -> u16 {
                     lines.filter_map(|l| l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))).collect();
                 let header = |h: &str| headers.iter().find(|(k, _)| k == h).map(|(_, v)| v.clone());
                 let (status, reply) = answer(&mut net.lock().unwrap(), &method, &path, &header, body);
-                let reply = reply.to_string();
-                let out =
-                    format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
+                // A file is answered as its bytes: `{"__bytes": text, "__type": content type}`.
+                let (kind, reply) = match reply.get("__bytes").and_then(Value::as_str) {
+                    Some(b) => (reply["__type"].as_str().unwrap_or("application/octet-stream").to_string(), b.to_string()),
+                    None => ("application/json".to_string(), reply.to_string()),
+                };
+                let out = format!("HTTP/1.1 {status} X\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
                 let _ = s.write_all(out.as_bytes()).await;
             });
         }
@@ -275,6 +333,8 @@ fn description(base: &str, auth: Value, ops: &[&str], inbound: bool) -> Value {
         "account": {"path": "/me", "query": {"for": "{{ inputs.account_id or '' }}"}, "inputs": ["account_id"], "result": {"followers": "/followers", "impressions": "/day/views", "reach": "/day/unique", "engagements": "/day/actions", "clicks": "/day/taps",
                                               "name": "/name", "handle": "/handle", "picture": "/avatar"}, "error_at": err},
         "accounts": {"path": "/pages", "error_at": err},
+        "repost": {"method": "POST", "path": "/posts/{{ inputs.id }}/repost", "body": "{}", "result": {"id": "/id"}, "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["id"]},
+        "like": {"method": "POST", "path": "/posts/{{ inputs.id }}/like", "body": "{}", "error_at": err, "idempotency_header": "Idempotency-Key", "inputs": ["id"]},
         "mentions": {"path": "/people", "query": {"q": "{{ inputs.q }}"}, "error_at": err, "inputs": ["q"]},
         "boards": {"path": "/boards", "query": {"for": "{{ inputs.account_id }}"}, "error_at": err, "inputs": ["account_id"]},
         "messages": {"path": "/inbox", "query": {"since": "{{ cursor or '' }}"}, "error_at": err},
@@ -316,6 +376,11 @@ struct T {
 impl T {
     async fn insert(&self, ctx: &Ctx, entity: &str, v: Value) -> Doc {
         self.k.insert(ctx, entity, obj(v)).await.unwrap_or_else(|e| panic!("insert {entity}: {e:?}"))
+    }
+    /// A post saved, then sent for review: a draft may hold what its networks refuse, leaving Draft may not.
+    async fn ready(&self, ctx: &Ctx, v: Value) -> std::result::Result<Value, Error> {
+        let d = self.k.insert(ctx, "SocialPost", obj(v)).await?;
+        self.k.run_action(ctx, "SocialPost", uid(&d["id"]), "send_for_review", Value::Null).await
     }
     async fn get(&self, entity: &str, id: Uuid) -> Doc {
         self.k.get(&self.admin, entity, id, false).await.unwrap_or_else(|e| panic!("get {entity}: {e:?}"))
@@ -420,7 +485,7 @@ async fn scenario() {
     let pia = t.user("pia@brands.test", &["Social Author"]).await;
 
     // ───────────── connections: the network is a description; no code of Social's knows it ─────────────
-    let everything = ["publish", "publish_media", "delete", "reply", "send_message", "metrics", "account", "messages"];
+    let everything = ["publish", "publish_media", "delete", "reply", "send_message", "metrics", "account", "messages", "repost", "like"];
     let key_auth = json!({"type": "header", "header": "x-api-key", "secret": "key"});
     let provider = |who: &str| {
         json!({"authorize_url": "https://login.chirp.test/authorize", "token_url": format!("{base}/oauth/token"), "revoke_url": format!("{base}/oauth/revoke"),
@@ -565,14 +630,10 @@ async fn scenario() {
                "scheduled_at": at.to_rfc3339(), "targets": targets.iter().map(|a| json!({"account": a.to_string()})).collect::<Vec<_>>()})
     };
     // 100 characters; the link counts 10 and a space.
-    refused(
-        t.k.insert(&author, "SocialPost", obj(post(&"a".repeat(90), &[nw_key]))).await,
-        "invalid",
-        "for Northwind Chirp: Chirp takes 100 characters, and this post is 101",
-    );
+    refused(t.ready(&author, post(&"a".repeat(90), &[nw_key])).await, "invalid", "for Northwind Chirp: Chirp takes 100 characters, and this post is 101");
     t.insert(&author, "SocialPost", post(&"a".repeat(89), &[nw_key])).await;
-    refused(t.k.insert(&author, "SocialPost", obj(post("Spring is here", &[co_key]))).await, "invalid", "Contoso Chirp is another brand's");
-    refused(t.k.insert(&author, "SocialPost", obj(post("Spring is here", &[nw_pictured]))).await, "invalid", "takes no post without an image or a video");
+    refused(t.ready(&author, post("Spring is here", &[co_key])).await, "invalid", "Contoso Chirp is another brand's");
+    refused(t.ready(&author, post("Spring is here", &[nw_pictured])).await, "invalid", "takes no post without an image or a video");
     let png = t.k.store_file(&author, None, "spring.png", "image/png", b"\x89PNG\r\n\x1a\nspring").await.unwrap();
     let big = t.k.store_file(&author, None, "big.png", "image/png", &vec![7u8; 6000]).await.unwrap();
     let pictured_post = |targets: &[Uuid], file: &Value, alt: Option<&str>| {
@@ -581,27 +642,19 @@ async fn scenario() {
         p["image_alt"] = json!(alt);
         p
     };
-    refused(t.k.insert(&author, "SocialPost", obj(pictured_post(&[nw_key], &png, None))).await, "invalid", "says what the picture shows");
-    refused(
-        t.k.insert(&author, "SocialPost", obj(pictured_post(&[nw_key], &big, Some("Big")))).await,
-        "invalid",
-        "takes pictures of at most 5 KB, and this one is 6 KB",
-    );
-    refused(t.k.insert(&author, "SocialPost", obj(pictured_post(&[nw_words], &png, Some("Sage")))).await, "invalid", "Chirp Words takes no pictures");
-    refused(
-        t.k.insert(&author, "SocialPost", obj(pictured_post(&[nw_pia], &png, Some("Sage")))).await,
-        "invalid",
-        "Pia's Chirp's connection cannot publish pictures",
-    );
+    refused(t.ready(&author, pictured_post(&[nw_key], &png, None)).await, "invalid", "says what the picture shows");
+    refused(t.ready(&author, pictured_post(&[nw_key], &big, Some("Big"))).await, "invalid", "takes pictures of at most 5 KB, and this one is 6 KB");
+    refused(t.ready(&author, pictured_post(&[nw_words], &png, Some("Sage"))).await, "invalid", "Chirp Words takes no pictures");
+    refused(t.ready(&author, pictured_post(&[nw_pia], &png, Some("Sage"))).await, "invalid", "Pia's Chirp's connection cannot publish pictures");
     let mut commented = post("Spring is here", &[nw_words]);
     commented["first_comment"] = json!("More at the link");
-    refused(t.k.insert(&author, "SocialPost", obj(commented)).await, "invalid", "Chirp Words takes no first comment");
+    refused(t.ready(&author, commented).await, "invalid", "Chirp Words takes no first comment");
     let mut bad_link = post("Spring", &[nw_key]);
     bad_link["link"] = json!("northwind dot example");
-    refused(t.k.insert(&author, "SocialPost", obj(bad_link)).await, "invalid", "is a web address");
+    refused(t.ready(&author, bad_link).await, "invalid", "is a web address");
     let mut elsewhere = pictured_post(&[nw_key], &png, Some("Sage"));
     elsewhere["image"] = json!("https://elsewhere.example/sage.png");
-    refused(t.k.insert(&author, "SocialPost", obj(elsewhere)).await, "invalid", "is a picture stored here");
+    refused(t.ready(&author, elsewhere).await, "invalid", "is a picture stored here");
     // A network's profile edited: the post is looked at again where it is sent (below).
 
     // ───────────── review: someone other than the author approves ─────────────
@@ -858,13 +911,37 @@ async fn scenario() {
     // Settings: what the network asks is answered per account, refused when missing or not asked, passed on.
     let mut asked = tagged("Hello threads", &[], "Settings");
     asked["targets"] = json!([target(nw_threads, json!({}))]);
-    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "for Northwind Threads: Audience is needed");
+    refused(t.ready(&author, asked.clone()).await, "invalid", "for Northwind Threads: Audience is needed");
     asked["targets"] = json!([target(nw_threads, json!({"settings": {"audience": "followers", "colour": "red"}}))]);
-    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Chirp Threads asks nothing called colour");
+    refused(t.ready(&author, asked.clone()).await, "invalid", "Chirp Threads asks nothing called colour");
     asked["targets"] = json!([target(nw_threads, json!({"settings": {"audience": "nobody"}}))]);
-    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Audience is one of everyone, followers");
+    refused(t.ready(&author, asked.clone()).await, "invalid", "Audience is one of everyone, followers");
     asked["targets"] = json!([target(nw_threads, json!({"kind": "reel", "settings": {"audience": "followers"}}))]);
-    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Chirp Threads has no kind of post called reel");
+    refused(t.ready(&author, asked.clone()).await, "invalid", "Chirp Threads has no kind of post called reel");
+    // (round two) A draft keeps what its networks would refuse, says it, and may not leave Draft with it; a kind or a
+    // setting the network does not have is refused even in a draft; a post in review is held to every rule on save.
+    let mut half = tagged(&"a".repeat(150), &[], "Half written");
+    half["link"] = Value::Null;
+    half["targets"] = json!([target(nw_threads, json!({}))]);
+    let half = t.insert(&author, "SocialPost", half).await;
+    let said = t.act(&author, "SocialPost", uid(&half["id"]), "copies", Value::Null).await.unwrap()["copies"][0]["problems"].clone();
+    assert!(said.to_string().contains("Audience is needed") && said.to_string().contains("takes 100 characters, and this post is 150"), "{said}");
+    refused(t.act(&author, "SocialPost", uid(&half["id"]), "send_for_review", Value::Null).await, "invalid", "takes 100 characters, and this post is 150");
+    refused(t.act(&author, "SocialPost", uid(&half["id"]), "add_to_queue", Value::Null).await, "invalid", "this post is 150");
+    t.k.update(&author, "SocialPost", uid(&half["id"]), obj(json!({"text": "Fixed", "targets": [target(nw_threads, answered.clone())]})), None).await.unwrap();
+    t.act(&author, "SocialPost", uid(&half["id"]), "send_for_review", Value::Null).await.unwrap();
+    refused(t.k.update(&author, "SocialPost", uid(&half["id"]), obj(json!({"text": "b".repeat(150)})), None).await, "invalid", "takes 100 characters");
+    // (round two) The same answer for a body never saved: `_calc` with want_checks, nothing written.
+    let mut body = tagged(&"c".repeat(120), &[], "Unsaved");
+    body["link"] = Value::Null;
+    body["targets"] = json!([target(nw_threads, json!({"settings": {"audience": "everyone"}}))]);
+    body["want_checks"] = json!(true);
+    let before_count = t.rows("SocialPost", json!({})).await.len();
+    let calc = t.k.preview(&author, "SocialPost", obj(body)).await.unwrap();
+    let c = &calc["checks"]["copies"][0];
+    assert_eq!((c["items"][0]["length"].as_i64(), c["items"][0]["max"].as_i64()), (Some(120), Some(100)), "{calc:?}");
+    assert!(c["problems"].to_string().contains("this post is 120"));
+    assert_eq!(t.rows("SocialPost", json!({})).await.len(), before_count, "nothing saved");
     // Versions: the original to one account, the account's own words to another.
     let mut versions = tagged("The original words", &[nw_key], "Versions");
     versions["targets"] =
@@ -895,7 +972,7 @@ async fn scenario() {
                              {"item": 2, "file": pics[2]["url"], "alt": "Third"}]);
     let mut too_many = thread.clone();
     too_many["media"] = json!([{"item": 4, "file": pics[0]["url"]}]);
-    refused(t.k.insert(&author, "SocialPost", obj(too_many)).await, "invalid", "a medium is for item 4, and Northwind Threads has 3");
+    refused(t.ready(&author, too_many).await, "invalid", "a medium is for item 4, and Northwind Threads has 3");
     let thread = t.insert(&author, "SocialPost", thread).await;
     let thread_id = uid(&thread["id"]);
     go(thread_id).await;
@@ -941,7 +1018,7 @@ async fn scenario() {
     let mut commented = tagged("Post with comments", &[nw_comments], "Comments");
     commented["items"] = json!([{"text": "A comment", "delay_minutes": 0}]);
     commented["media"] = json!([{"item": 2, "file": pics[0]["url"]}]);
-    refused(t.k.insert(&author, "SocialPost", obj(commented.clone())).await, "invalid", "Chirp Comments takes no media after the post");
+    refused(t.ready(&author, commented.clone()).await, "invalid", "Chirp Comments takes no media after the post");
     commented["media"] = json!([]);
     let commented = t.insert(&author, "SocialPost", commented).await;
     go(uid(&commented["id"])).await;
@@ -1112,11 +1189,11 @@ async fn scenario() {
     signed["add_signature"] = json!(true);
     let mut unknown = signed.clone();
     unknown["text"] = json!("Visit {{nope}}");
-    refused(t.k.insert(&author, "SocialPost", obj(unknown)).await, "invalid", "no variable is called nope for Northwind Chirp");
+    refused(t.ready(&author, unknown).await, "invalid", "no variable is called nope for Northwind Chirp");
     let mut long = signed.clone();
     long["text"] = json!(format!("{} {{{{shop}}}}", "a".repeat(56)));
     long["link"] = Value::Null;
-    refused(t.k.insert(&author, "SocialPost", obj(long)).await, "invalid", "for Northwind Words: Chirp Words takes 100 characters, and this post is 101");
+    refused(t.ready(&author, long).await, "invalid", "for Northwind Words: Chirp Words takes 100 characters, and this post is 101");
     let signed = t.insert(&author, "SocialPost", signed).await;
     let copies = t.act(&author, "SocialPost", uid(&signed["id"]), "copies", Value::Null).await.unwrap();
     let key_copy = copies["copies"].as_array().unwrap().iter().find(|c| c["account"] == json!(nw_key)).unwrap().clone();
@@ -1262,6 +1339,288 @@ async fn scenario() {
     t.upkeep(due + Duration::hours(19)).await;
     assert_eq!(t.net.lock().unwrap().posts.last().unwrap().1["account"], "pg-1");
 
+    // ───────────── (round two) the media library: stock pictures taken with their credit, an address fetched ─────────────
+    let key_auth2 = json!({"type": "header", "header": "x-api-key", "secret": "key"});
+    let mut stock = json!({"base": base, "auth": key_auth2.clone(), "apps": ["social"], "operations": {
+        "search_media": {"path": "/stock/search", "query": {"query": "{{ inputs.query }}", "page": "{{ inputs.page }}"}, "error_at": "/error/message"},
+        "fetch_media": {"path": "/stock/{{ inputs.id }}/download", "result": {"file": {"file": {"max_bytes": 100000}}}, "error_at": "/error/message"},
+        "media_downloaded": {"method": "POST", "path": "/stock/{{ inputs.id }}/told", "body": "{}", "idempotency_header": "Idempotency-Key", "error_at": "/error/message"}}});
+    stock["meta"] = json!({"social": {"media_search": {"items_at": "/results", "id_at": "/id", "preview_at": "/urls/small", "url_at": "/urls/full", "credit_at": "/user/name",
+        "credit_link_at": "/user/links/html", "alt_at": "/alt_description", "width_at": "/width", "height_at": "/height", "licence": "Free to use; credit asked", "kind": "image"}}});
+    save("chirp_stock", stock, json!({"key": KEY})).await;
+    let fetcher = json!({"base": base, "auth": key_auth2.clone(), "apps": ["social"], "operations": {
+        "fetch_media": {"path": "/fetch", "query": {"u": "{{ inputs.url }}"}, "result": {"file": {"file": {"max_bytes": 100000}}}, "error_at": "/error/message"}}});
+    save("chirp_fetch", fetcher, json!({"key": KEY})).await;
+    let settings_now = t.rows("SocialSettings", json!({})).await;
+    let set = |values: Value| {
+        let (t, manager, now) = (&t, &manager, settings_now.clone());
+        async move {
+            let rows = t.rows("SocialSettings", json!({})).await;
+            match rows.first().or(now.first()) {
+                Some(r) => {
+                    t.k.update(manager, "SocialSettings", uid(&r["id"]), obj(values), None).await.unwrap();
+                }
+                None => {
+                    t.insert(manager, "SocialSettings", values).await;
+                }
+            }
+        }
+    };
+    refused(t.act(&author, "SocialBrand", northwind, "media_search", json!({"query": "lake"})).await, "invalid", "no picture source");
+    set(json!({"media_sources": "chirp_stock", "fetch_connection": "chirp_fetch"})).await;
+    let found = t.act(&author, "SocialBrand", northwind, "media_search", json!({"query": "lake"})).await.unwrap();
+    let first = found["items"][0].clone();
+    assert_eq!(
+        (first["id"].as_str(), first["credit"].as_str(), first["preview"].as_str(), first["licence"].as_str()),
+        (Some("s-1"), Some("Ana Lima"), Some("https://chirp.test/s/1-small.jpg"), Some("Free to use; credit asked")),
+        "{found}"
+    );
+    let mut take = first.clone();
+    take["source"] = json!("chirp_stock");
+    let taken = t.act(&author, "SocialBrand", northwind, "media_take", take.clone()).await.unwrap();
+    let asset = t.get("SocialMediaAsset", uid(&taken["id"])).await;
+    assert_eq!(
+        (
+            asset["source"].as_str(),
+            asset["credit"].as_str(),
+            asset["credit_link"].as_str(),
+            asset["kind"].as_str(),
+            asset["alt"].as_str(),
+            asset["width"].as_i64()
+        ),
+        (Some("Stock"), Some("Ana Lima"), Some("https://chirp.test/@ana"), Some("image"), Some("A lake at dawn"), Some(4000)),
+        "{asset:?}"
+    );
+    assert!(asset["bytes"].as_i64().is_some_and(|b| b > 0) && asset["content_type"] == "image/png");
+    t.act(&author, "SocialBrand", northwind, "media_take", take).await.unwrap();
+    assert_eq!(t.net.lock().unwrap().calls.iter().filter(|c| c.0.ends_with("/told")).count(), 1, "the source told of its download once");
+    refused(t.act(&author, "SocialBrand", northwind, "media_from_address", json!({"url": "file:///etc/passwd"})).await, "invalid", "is a web address");
+    let fetched = t.act(&author, "SocialBrand", northwind, "media_from_address", json!({"url": "https://chirp.test/x/cat.png", "alt": "A cat"})).await.unwrap();
+    let fetched = t.get("SocialMediaAsset", uid(&fetched["id"])).await;
+    assert_eq!(
+        (fetched["source"].as_str(), fetched["asset_name"].as_str(), fetched["source_id"].as_str()),
+        (Some("Address"), Some("cat.png"), Some("https://chirp.test/x/cat.png"))
+    );
+    // A post's medium from the library: its file, description and size carried.
+    let mut from_library = tagged("From the library", &[], "Library");
+    from_library["targets"] = json!([target(nw_threads, answered.clone())]);
+    from_library["media"] = json!([{"item": 1, "asset": asset["id"]}]);
+    let from_library = t.insert(&author, "SocialPost", from_library).await;
+    assert_eq!(
+        (from_library["media"][0]["file"].clone(), from_library["media"][0]["alt"].as_str(), from_library["media"][0]["width"].as_i64()),
+        (asset["file"].clone(), Some("A lake at dawn"), Some(4000))
+    );
+
+    // ───────────── (round two) links: tracking by the most specific template, short links once, their clicks ─────────────
+    refused(
+        t.k.insert(&manager, "SocialLinkTemplate", obj(json!({"template_name": "Bad", "parameters": "utm_source={{planet}}"}))).await,
+        "invalid",
+        "{{planet}} is not one of",
+    );
+    t.insert(&manager, "SocialLinkTemplate", json!({"template_name": "Everyone", "parameters": "utm_source=ws"})).await;
+    let brand_links = t
+        .insert(
+            &manager,
+            "SocialLinkTemplate",
+            json!({"template_name": "Northwind links", "brand": northwind.to_string(), "in_text": true, "exclude": "partner.example",
+                                                       "parameters": "utm_source={{network}}\nutm_medium=social\nutm_campaign={{post}}"}),
+        )
+        .await;
+    let short_desc = json!({"base": base, "auth": key_auth2.clone(), "apps": ["social"], "operations": {
+        "shorten": {"method": "POST", "path": "/short", "body": "{\"url\": {{ inputs.url | json }}}", "result": {"url": "/shortLink", "id": "/id"}, "error_at": "/error/message", "idempotency_header": "Idempotency-Key"},
+        "link_clicks": {"path": "/short/{{ inputs.id }}", "result": {"clicks": "/clicks"}, "error_at": "/error/message"}}});
+    save("chirp_short", short_desc, json!({"key": KEY})).await;
+    let mut linked = tagged("Shop https://shop.example/b and https://cdn.partner.example/p", &[nw_key], "Sale");
+    linked["link"] = json!("https://shop.example/a?x=1&utm_medium=email");
+    let linked = t.insert(&author, "SocialPost", linked).await;
+    let copy = t.act(&author, "SocialPost", uid(&linked["id"]), "copies", Value::Null).await.unwrap()["copies"][0]["items"][0].clone();
+    assert_eq!(
+        copy["link"], "https://shop.example/a?x=1&utm_medium=email&utm_source=Chirp&utm_campaign=Sale",
+        "the brand's, the address's own kept, not doubled"
+    );
+    assert_eq!(copy["text"], "Shop https://shop.example/b?utm_source=Chirp&utm_medium=social&utm_campaign=Sale and https://cdn.partner.example/p", "{copy}");
+    set(json!({"shorten_connection": "chirp_short", "metrics_hours": 1})).await;
+    go(uid(&linked["id"])).await;
+    let before = t.net.lock().unwrap().posts.len();
+    t.upkeep(due + Duration::hours(20)).await;
+    let sent_text = t.net.lock().unwrap().posts[before].1["text"].as_str().unwrap().to_string();
+    assert!(
+        sent_text.starts_with("Shop https://shop.example/b?") && sent_text.ends_with(" https://sh.test/k1"),
+        "the post's link shortened, the words' left: {sent_text}"
+    );
+    let lpub = t.rows("SocialPublication", json!({"post": uid(&linked["id"]).to_string()})).await.remove(0);
+    assert_eq!(lpub["short_links"]["https://shop.example/a?x=1&utm_medium=email&utm_source=Chirp&utm_campaign=Sale"]["url"], "https://sh.test/k1");
+    t.upkeep(due + Duration::hours(22)).await;
+    assert_eq!(t.get("SocialPublication", uid(&lpub["id"])).await["clicks"], 42, "the shortener's clicks");
+    assert_eq!(t.net.lock().unwrap().calls.iter().filter(|c| c.0.starts_with("POST /v1/short")).count(), 1, "shortened once");
+    t.k.update(&manager, "SocialLinkTemplate", uid(&brand_links["id"]), obj(json!({"active": false})), None).await.unwrap();
+    set(json!({"shorten_connection": null, "metrics_hours": 6})).await;
+
+    // ───────────── (round two) writing help through the Claude Messages API's shape: given back, never saved over ─────────────
+    let writer = t.user("writer@brands.test", &["Social Author", "Social Writing Help"]).await;
+    let mut claude: Value =
+        serde_json::from_str(&std::fs::read_to_string(format!("{}/docs/connectors/services/claude.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    claude["base"] = json!(base.trim_end_matches("/v1"));
+    claude["operations"]["picture"] = json!({"method": "POST", "path": "/v1/picture", "body": "{\"prompt\": {{ inputs.prompt | json }}}", "result": {"file": {"file": {"max_bytes": 100000}}}});
+    save("claude_test", claude, json!({"api_key": KEY})).await;
+    t.k.update(&manager, "SocialBrand", northwind, obj(json!({"voice": "Cheerful, plain words, no exclamation marks"})), None).await.unwrap();
+    let mut draft = tagged("Spring is here, come and see", &[], "Writing");
+    draft["link"] = Value::Null;
+    draft["targets"] = json!([{"account": nw_key.to_string()}, {"account": nw_threads.to_string(), "settings": {"audience": "everyone"}}]);
+    let draft = t.insert(&writer, "SocialPost", draft).await;
+    let draft_id = uid(&draft["id"]);
+    refused(t.act(&author, "SocialPost", draft_id, "write", json!({"prompt": "spring"})).await, "forbidden", "Social Writing Help");
+    refused(t.act(&writer, "SocialPost", draft_id, "write", json!({"prompt": "spring"})).await, "invalid", "no connection is set for writing help");
+    set(json!({"writing_connection": "claude_test"})).await;
+    t.net.lock().unwrap().written = vec!["Spring is here. Come and see.".into()];
+    let wrote = t.act(&writer, "SocialPost", draft_id, "write", json!({"prompt": "our spring sale"})).await.unwrap();
+    assert_eq!(wrote["text"], "Spring is here. Come and see.");
+    assert_eq!(t.get("SocialPost", draft_id).await["text"], "Spring is here, come and see", "given back, not saved over");
+    {
+        let n = t.net.lock().unwrap();
+        let body = &n.calls.iter().rev().find(|c| c.0.starts_with("POST /v1/messages")).unwrap().1;
+        assert_eq!((body["model"].as_str(), body["max_tokens"].as_i64()), (Some("claude-sonnet-5-5"), Some(1024)));
+        assert!(body["system"].as_str().unwrap().contains("Northwind") && body["system"].as_str().unwrap().contains("Cheerful"), "{body}");
+        assert!(body["messages"][0]["content"].as_str().unwrap().contains("our spring sale"), "{body}");
+    }
+    let shorter = t.rows("SocialWritingPreset", json!({"preset_name": "Shorter"})).await;
+    let rewritten = t.act(&writer, "SocialPost", draft_id, "rewrite", json!({"preset": shorter[0]["id"]})).await.unwrap();
+    assert!(rewritten["text"].as_str().unwrap().contains("Make it shorter") && rewritten["text"].as_str().unwrap().contains("come and see"), "{rewritten}");
+    t.net.lock().unwrap().written = vec!["Short and sweet".into(), "b".repeat(150)];
+    let adapted = t.act(&writer, "SocialPost", draft_id, "adapt", Value::Null).await.unwrap();
+    let v = adapted["versions"].as_array().unwrap();
+    assert_eq!(
+        (v[0]["text"].as_str(), v[0]["fits"].clone(), v[1]["fits"].clone(), v[1]["max"].as_i64()),
+        (Some("Short and sweet"), json!(true), json!(false), Some(100)),
+        "{adapted}"
+    );
+    t.net.lock().unwrap().written = vec!["#spring #sale, #Spring and more #".into(), "One\n---\nTwo\n---\nThree".into()];
+    assert_eq!(t.act(&writer, "SocialPost", draft_id, "hashtags", json!({"count": 5})).await.unwrap()["hashtags"], json!(["#spring", "#sale"]));
+    assert_eq!(t.act(&writer, "SocialPost", draft_id, "thread", json!({"parts": 3})).await.unwrap()["items"], json!(["One", "Two", "Three"]));
+    let pic_post = t.insert(&writer, "SocialPost", pictured_post(&[nw_key], &png, Some("x"))).await;
+    t.act(&writer, "SocialPost", uid(&pic_post["id"]), "describe", json!({"medium": 0})).await.unwrap();
+    {
+        let n = t.net.lock().unwrap();
+        let body = &n.calls.iter().rev().find(|c| c.0.starts_with("POST /v1/messages")).unwrap().1;
+        assert_eq!(
+            (body["messages"][0]["content"][0]["type"].as_str(), body["messages"][0]["content"][0]["source"]["media_type"].as_str()),
+            (Some("image"), Some("image/png"))
+        );
+    }
+    let drawn = t.act(&writer, "SocialPost", draft_id, "picture", json!({"prompt": "a spring meadow"})).await.unwrap();
+    assert_eq!(t.get("SocialMediaAsset", uid(&drawn["id"])).await["source"], "Generated");
+    assert!(t.act(&writer, "SocialBrand", northwind, "write_new", json!({"prompt": "a hello"})).await.unwrap()["text"].as_str().unwrap().starts_with("ECHO"));
+    let uses = t.rows("SocialWritingUse", json!({"by": "writer@brands.test"})).await;
+    assert_eq!(uses.len(), 9, "every use kept: {}", uses.len());
+    t.k.erase_personal_data(&t.admin, "writer@brands.test", "asked to be forgotten").await.unwrap();
+    assert!(t.rows("SocialWritingUse", json!({"action": "write"})).await.iter().all(|u| u["prompt"].is_null() || u["prompt"] == ""), "prompts erased");
+
+    // ───────────── (round two) plugs: reposted once it does well; liked by other accounts, once each ─────────────
+    t.insert(
+        &manager,
+        "SocialPlug",
+        json!({"plug_name": "Boost", "brand": northwind.to_string(), "account": nw_key.to_string(), "trigger": "Number Reached",
+                                              "measure": "impressions", "threshold": 400, "within_hours": 72, "action": "Repost", "max_runs": 1}),
+    )
+    .await;
+    t.insert(
+        &manager,
+        "SocialPlug",
+        json!({"plug_name": "Cheer", "brand": northwind.to_string(), "account": nw_threads.to_string(), "trigger": "Time Passed",
+                                              "after_minutes": 0, "action": "Others Like", "max_runs": 50,
+                                              "targets": [{"account": nw_key.to_string()}, {"account": nw_words.to_string()}]}),
+    )
+    .await;
+    refused(t.k.insert(&author, "SocialPlug", obj(json!({"plug_name": "Mine", "brand": northwind.to_string()}))).await, "forbidden", "");
+    let threads_out = t
+        .rows("SocialPublication", json!({"account": nw_threads.to_string()}))
+        .await
+        .into_iter()
+        .filter(|p| p["external_id"].is_string() && p["deleted_at"].is_null())
+        .count();
+    for hour in [23, 24] {
+        t.upkeep(due + Duration::hours(hour)).await;
+    }
+    let runs = t.rows("SocialPlugRun", json!({})).await;
+    let count = |state: &str, acct: Uuid| runs.iter().filter(|r| r["state"] == state && r["account"] == json!(acct.to_string())).count();
+    assert_eq!(count("Done", nw_key) - threads_out, 1, "one repost by the Boost plug, at most once in all: {runs:?}");
+    assert_eq!(count("Skipped", nw_words), threads_out, "a connection without like: skipped, said");
+    {
+        let n = t.net.lock().unwrap();
+        assert_eq!(
+            n.calls.iter().filter(|c| c.0.ends_with("/like")).count(),
+            threads_out,
+            "each post liked once by the other account, though the upkeep ran twice"
+        );
+        assert_eq!(n.calls.iter().filter(|c| c.0.ends_with("/repost")).count(), 1);
+    }
+    assert!(runs.iter().any(|r| r["state"] == "Skipped" && r["note"].as_str().unwrap().contains("does not offer like")));
+
+    // ───────────── (round two) notices: went out, did not, review, opted out, the weekly digest once ─────────────
+    let sent_with = |id: Uuid| {
+        let t = &t;
+        async move {
+            let log = t.k.message_log(&t.admin, Some(("SocialPost", id)), None, 50).await.unwrap();
+            log.iter().filter_map(|m| m["template"].as_str().map(str::to_string)).collect::<Vec<_>>()
+        }
+    };
+    assert!(sent_with(uid(&versions["id"])).await.contains(&"social.went_out".to_string()), "the author told it went out");
+    assert!(sent_with(thread_id).await.contains(&"social.failed".to_string()), "and when it did not");
+    assert!(sent_with(spring_id).await.contains(&"social.review".to_string()), "the approval policy's notices in the package's words");
+    t.insert(&author, "SocialNoticeOptOut", json!({"person": "author@brands.test", "notice": "went_out"})).await;
+    let quiet = t.insert(&author, "SocialPost", tagged("Quietly", &[nw_key], "Quiet")).await;
+    go(uid(&quiet["id"])).await;
+    t.upkeep(due + Duration::hours(25)).await;
+    assert_eq!(t.get("SocialPost", uid(&quiet["id"])).await["status"], "Published");
+    assert!(!sent_with(uid(&quiet["id"])).await.contains(&"social.went_out".to_string()), "opted out");
+    let digest_at = due + Duration::hours(26);
+    let weekday = digest_at.format("%A").to_string();
+    set(json!({"digest_day": weekday, "digest_time": "00:00"})).await;
+    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, digest_at), ferrum_app_social::maintenance_at(&t.k, digest_at));
+    x.unwrap();
+    y.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, digest_at + Duration::hours(1)).await.unwrap();
+    let week = format!("{}-W{:02}", chrono::Datelike::iso_week(&digest_at).year(), chrono::Datelike::iso_week(&digest_at).week());
+    let runs = t.rows("SocialDigestRun", json!({"week": week})).await;
+    assert_eq!(runs.len(), 1, "once a week, though two upkeeps ran at once");
+    assert!(runs[0]["people"].as_i64().unwrap() >= 4, "{runs:?}");
+    set(json!({"digest_day": "Never"})).await;
+
+    // ───────────── (round two) a feed: new items made posts once each, sent for review, their pictures kept ─────────────
+    let feed_desc = json!({"base": base, "auth": key_auth2.clone(), "apps": ["social"], "operations": {
+        "feed": {"path": "/feed", "error_at": "/error/message"},
+        "fetch_media": {"path": "/fetch", "query": {"u": "{{ inputs.url }}"}, "result": {"file": {"file": {"max_bytes": 100000}}}, "error_at": "/error/message"}},
+        "meta": {"feed": {"items_at": "/items", "id_at": "/id", "link_at": "/url", "title_at": "/title", "text_at": "/content_text", "picture_at": "/image", "published_at": "/date_published"}}});
+    save("chirp_feed", feed_desc, json!({"key": KEY})).await;
+    let blog = t
+        .insert(
+            &manager,
+            "SocialFeed",
+            json!({"feed_name": "Blog", "connection": "chirp_feed", "brand": northwind.to_string(), "then": "Send for Review",
+                                                        "targets": [{"account": nw_key.to_string()}], "owner": "author@brands.test"}),
+        )
+        .await;
+    let old = (Utc::now() - Duration::days(2)).to_rfc3339();
+    let new = (Utc::now() + Duration::minutes(1)).to_rfc3339();
+    t.net.lock().unwrap().feed = vec![
+        json!({"id": "b-0", "url": "https://blog.example/0", "title": "Before the feed", "date_published": old}),
+        json!({"id": "b-1", "url": "https://blog.example/1", "title": "New colours", "date_published": new, "image": "https://blog.example/1.png"}),
+        json!({"id": "b-2", "url": "https://blog.example/2", "title": "Opening hours", "date_published": new}),
+    ];
+    t.upkeep(due + Duration::hours(27)).await;
+    t.upkeep(due + Duration::hours(29)).await;
+    let items = t.rows("SocialFeedItem", json!({"feed": blog["id"]})).await;
+    assert_eq!(items.len(), 2, "each new item once, nothing older than the feed: {items:?}");
+    let made = t.get("SocialPost", uid(&items.iter().find(|i| i["title"] == "New colours").unwrap()["post"])).await;
+    assert_eq!(
+        (made["status"].as_str(), made["author"].as_str(), made["link"].as_str()),
+        (Some("In Review"), Some("author@brands.test"), Some("https://blog.example/1")),
+        "{made:?}"
+    );
+    let pic = t.get("SocialMediaAsset", uid(&made["media"][0]["asset"])).await;
+    assert_eq!((pic["source"].as_str(), pic["source_id"].as_str()), (Some("Feed"), Some("https://blog.example/1.png")));
+    assert!(t.get("SocialFeed", uid(&blog["id"])).await["last_error"].is_null());
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});
@@ -1376,7 +1735,7 @@ async fn scenario() {
     push("delivery-9", item2).await;
     let c9 = &t.rows("SocialMessage", json!({"external_id": "c-9"})).await[0];
     assert!(c9["contact_id"].is_null(), "off unless the workspace says so");
-    t.insert(&manager, "SocialSettings", json!({"match_crm": true, "crm_entity": "Contact", "crm_field": "x_handle"})).await;
+    set(json!({"match_crm": true, "crm_entity": "Contact", "crm_field": "x_handle"})).await;
     push("delivery-10", item("c-10", "comment", "ivy@chirp.test", None, Some(&spring_external), "t-5", "Yet another")).await;
     let c10 = &t.rows("SocialMessage", json!({"external_id": "c-10"})).await[0];
     assert_eq!((c10["contact_entity"].as_str(), c10["contact_id"].clone()), (Some("Contact"), ivy["id"].clone()));
@@ -1473,8 +1832,34 @@ async fn scenario() {
     assert_eq!(by_day.len(), 2);
     assert!(by_day.last().unwrap()["impressions"].as_i64().unwrap() >= 500, "{by_day:?}");
     assert!(!run("social_best_times", each_day).await.is_empty());
-    let by_tag = run("social_by_tag", span).await;
+    let by_tag = run("social_by_tag", span.clone()).await;
     assert!(by_tag.iter().any(|r| r["tag"] == "launch" && r["publications"] == 3 && r["engagements"].as_i64().unwrap() >= 6), "{by_tag:?}");
+    // (round two) By network, by kind, against the period before, followers by day, top posts; the brand's week.
+    let by_network = run("social_by_network", span.clone()).await;
+    assert!(by_network.iter().any(|r| r["network"] == "Chirp" && r["publications"].as_i64().unwrap() > 3), "{by_network:?}");
+    let by_kind = run("social_by_kind", span.clone()).await;
+    assert!(by_kind.iter().any(|r| r["kind"] == "post"), "{by_kind:?}");
+    let compare = run("social_period_compare", span.clone()).await;
+    let pubs = compare.iter().find(|r| r["measure"] == "publications").unwrap();
+    assert!(pubs["this_period"].as_i64().unwrap() > 0 && pubs["period_before"] == 0 && pubs["change_pct"].is_null(), "{compare:?}");
+    let followers = run("social_followers_by_day", span.clone()).await;
+    assert!(followers.iter().any(|r| r["account"] == "Northwind Chirp" && r["followers"] == 1200), "{followers:?}");
+    let mut top = span.clone();
+    top["by"] = json!("impressions");
+    top["limit"] = json!("2");
+    let top = run("social_top_posts", top).await;
+    assert_eq!(top.len(), 2);
+    assert!(top[0]["impressions"].as_i64() >= top[1]["impressions"].as_i64());
+    let week = t.get("SocialBrand", northwind).await["numbers"].clone();
+    assert!(week["publications"].as_i64().unwrap() + week["before"]["publications"].as_i64().unwrap() > 0, "the upkeep's clock runs days ahead here: {week}");
+    let doc = t.k.generate_document(&t.admin, &serde_json::from_value(json!({"template": "social.brand_report", "record": northwind})).unwrap()).await.unwrap();
+    let html = String::from_utf8(t.k.read_file(&t.admin, doc.file).await.unwrap().2).unwrap_or_default();
+    assert!(doc.size > 0 && (html.is_empty() || html.contains("Posts out")), "the shipped template renders the brand's week");
+    assert_eq!(
+        t.count("select count(*) from automation where tenant_id = $1 and name = 'social_weekly_report'").await,
+        1,
+        "the schedule ships as configuration"
+    );
 
     // ───────────── who may do what ─────────────
     refused(t.act(&author, "SocialAccount", nw_key, "check", json!({})).await, "forbidden", "");

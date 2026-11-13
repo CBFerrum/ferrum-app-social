@@ -1,0 +1,27 @@
+{
+  "base": "https://blog.example",
+  "auth": {
+    "type": "none"
+  },
+  "apps": [
+    "social"
+  ],
+  "operations": {
+    "feed": {
+      "path": "/feed.json",
+      "error_at": "/error"
+    }
+  },
+  "meta": {
+    "feed": {
+      "items_at": "/items",
+      "id_at": "/id",
+      "link_at": "/url",
+      "title_at": "/title",
+      "text_at": "/content_text",
+      "picture_at": "/image",
+      "published_at": "/date_published"
+    },
+    "note": "A JSON Feed (jsonfeed.org, version 1.1). An RSS or Atom feed needs the platform's XML answers (connections part three, P7)."
+  }
+}
