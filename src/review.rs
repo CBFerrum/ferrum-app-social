@@ -57,6 +57,7 @@ pub(crate) async fn send_for_review(hc: &mut HookCtx<'_>, post: Uuid) -> Result<
     crate::posts::ready(hc, &stored).await?;
     hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "In Review", "review_note": null}))).await?;
     if !by_policy(hc) {
+        tell_approvers(hc, post).await?;
         return Ok(json!({"status": "In Review"}));
     }
     let doc = hc.kernel.get_tx(&system, hc.tx, "SocialPost", post, false).await?;
@@ -86,9 +87,25 @@ pub(crate) async fn send_for_review(hc: &mut HookCtx<'_>, post: Uuid) -> Result<
         Err(e) => {
             sqlx::query("rollback to savepoint social_review").execute(&mut **hc.tx).await?;
             hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"approval_request": null}))).await?;
+            tell_approvers(hc, post).await?;
             Ok(json!({"status": "In Review", "approval": null, "approval_refused": e.to_string()}))
         }
     }
+}
+
+/// Without a platform request (which tells its approvers itself), the Social Approvers are told.
+async fn tell_approvers(hc: &mut HookCtx<'_>, post: Uuid) -> Result<()> {
+    let doc = hc.kernel.get_tx(&elevated(hc.ctx), hc.tx, "SocialPost", post, false).await?;
+    let to = crate::notices::holders(hc.kernel, hc.ctx, hc.tx, &doc, "Social Approver").await?;
+    crate::notices::send(hc.kernel, hc.ctx, hc.tx, "review", to, Some(post), json!({"notice": "waiting", "title": s(&doc, "headline")})).await?;
+    Ok(())
+}
+
+/// The author told how the review went (0.7.0's Approve It and Send It Back; the policy's own notices tell them otherwise).
+async fn tell_author(hc: &mut HookCtx<'_>, post: Uuid, doc: &Doc, notice: &str) -> Result<()> {
+    let to = crate::notices::author(hc.tx, hc.ctx, doc).await?;
+    crate::notices::send(hc.kernel, hc.ctx, hc.tx, "review", to, Some(post), json!({"notice": notice, "title": s(doc, "headline")})).await?;
+    Ok(())
 }
 
 /// The review's actions; `None` for another.
@@ -115,11 +132,14 @@ pub(crate) async fn action(hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: 
                 if s(doc, "author").is_some_and(|a| a.eq_ignore_ascii_case(&hc.ctx.email)) {
                     return Err(Error::Forbidden("a post is approved by someone other than its author".into()));
                 }
-                return approved(hc, post, doc, Some(hc.ctx.email.clone())).await.map(Some);
+                let out = approved(hc, post, doc, Some(hc.ctx.email.clone())).await?;
+                tell_author(hc, post, doc, "approved").await?;
+                return Ok(Some(out));
             }
             let note = params.get("note").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
             let note = note.ok_or_else(|| Error::field("note", "sending a post back says why"))?;
             hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "Rejected", "review_note": note}))).await?;
+            tell_author(hc, post, doc, "rejected").await?;
             Ok(Some(json!({"status": "Rejected"})))
         }
         "review_link" => link(hc, post, doc, params).await.map(Some),

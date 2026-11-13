@@ -9,7 +9,7 @@ modules:
     label: Social
     icon: share-2
     order: 66
-    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialTemplate, SocialSet, SocialSnippet, SocialSignature, SocialVariable, SocialMediaAsset, SocialLinkTemplate, SocialPlug, SocialPlugRun, SocialWritingPreset, SocialWritingUse, SocialReview, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
+    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialTemplate, SocialSet, SocialSnippet, SocialSignature, SocialVariable, SocialMediaAsset, SocialLinkTemplate, SocialPlug, SocialPlugRun, SocialNoticeOptOut, SocialDigestRun, SocialWritingPreset, SocialWritingUse, SocialReview, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
 
 roles:
   - name: Social Writing Help
@@ -34,6 +34,7 @@ roles:
       - {entity: SocialMediaAsset, read: true, write: true, create: true}
       - {entity: SocialLinkTemplate, read: true}
       - {entity: SocialPlug, read: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
       - {entity: SocialPlugRun, read: true}
       - {entity: SocialPost, read: true, write: true, create: true, import: true}
       - {entity: SocialPublication, read: true}
@@ -58,6 +59,7 @@ roles:
       - {entity: SocialMediaAsset, read: true}
       - {entity: SocialLinkTemplate, read: true}
       - {entity: SocialPlug, read: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
       - {entity: SocialPlugRun, read: true}
       - {entity: SocialPost, read: true, write: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
@@ -86,6 +88,8 @@ roles:
       - {entity: SocialWritingUse, read: true, export: true}
       - {entity: SocialPlug, read: true, write: true, create: true, delete: true}
       - {entity: SocialPlugRun, read: true, export: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
+      - {entity: SocialDigestRun, read: true}
       - {entity: SocialPost, read: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}
@@ -100,6 +104,8 @@ personal_data:
   - {entity: SocialMessage, match: author, name: author, erase: [author, author_id, account_handle, text, contact_id, contact_entity]}
   - {entity: SocialReply, match: message, erase: [text, in_reply_to]}
   # Who reviewed a post through its link (the address or name it was given for) and what they said.
+  # (round two) The notices a person turned off.
+  - {entity: SocialNoticeOptOut, match: person, erase: [person]}
   # (round two) What someone asked writing help, and what came back: it may hold anything they wrote.
   - {entity: SocialWritingUse, match: by, erase: [prompt, answer]}
   - {entity: SocialReview, match: reviewer, name: reviewer_name, erase: [reviewer, reviewer_name, text]}
@@ -143,19 +149,23 @@ approvals:
       steps:
         - {label: Social Approver, approvers: {role: Social Approver}}
       reset_on: [text, link, image, image_alt, first_comment, targets, items, media, scheduled_at, add_signature, signature]
+      message: social.review
 
 # Told once to the workspace's administrators when an upgrade made connections for accounts that need connecting again.
 messages:
   - key: social.reconnect
     label: Social accounts to connect again
     category: operational
-    channels: [inapp]
-    values: [count, accounts]
+    channels: [inapp, email]
+    values: [count, accounts, reason]
     languages:
       en:
         inapp:
           title: "{{ values.count }} Social account{% if values.count != 1 %}s{% endif %} to connect again"
-          text: "{% for a in values.accounts %}{{ a.account }}: in Administration, Connections, add the secrets of {{ a.label }} and turn it on, then Connect the account in Social.{% if not loop.last %} {% endif %}{% endfor %}"
+          text: "{% if values.reason == 'refused' %}{% for a in values.accounts %}{{ a.account }}: its network no longer takes the sign-in. Connect the account again in Social.{% endfor %}{% else %}{% for a in values.accounts %}{{ a.account }}: in Administration, Connections, add the secrets of {{ a.label }} and turn it on, then Connect the account in Social.{% if not loop.last %} {% endif %}{% endfor %}{% endif %}"
+        email:
+          subject: "{{ values.count }} Social account{% if values.count != 1 %}s{% endif %} to connect again"
+          body: "<p>{% for a in values.accounts %}{{ a.account }}{% if not loop.last %}, {% endif %}{% endfor %}: {% if values.reason == 'refused' %}the network no longer takes the sign-in. Connect again in Social.{% else %}add the connection's secrets in Administration, Connections, turn it on, then Connect the account in Social.{% endif %}</p>"
   # A review link for someone outside: what the post is and where to look at it.
   - key: social.review_link
     label: A post to review
@@ -169,6 +179,61 @@ messages:
           subject: "{{ values.from }} asks you to look at a post: {{ doc.headline }}"
           body: "<p>Hello{% if values.name %} {{ values.name }}{% endif %},</p><p>{{ values.from }} would like to know what you think of a post before it goes out{% if doc.scheduled_at %}, at {{ doc.scheduled_at }}{% endif %}: <a href=\"{{ values.url }}\">look at it here</a>. The link works until {{ values.expires_at }}.</p>"
 
+  # (round two) Notices, each a template a workspace edits; a person turns one off with a Notice Opt-out.
+  - key: social.went_out
+    label: A post went out
+    category: operational
+    entity: SocialPost
+    channels: [inapp, email]
+    languages:
+      en:
+        inapp: {title: "Out: {{ doc.headline }}", text: "Your post went out to every account it names."}
+        email: {subject: "Out: {{ doc.headline }}", body: "<p>Your post {{ doc.headline }} went out to every account it names.</p>"}
+  - key: social.failed
+    label: A post did not go out
+    category: operational
+    entity: SocialPost
+    channels: [inapp, email]
+    values: [failures]
+    languages:
+      en:
+        inapp: {title: "Not out: {{ doc.headline }}", text: "{% for f in values.failures %}{{ f }}{% if not loop.last %}; {% endif %}{% endfor %}"}
+        email: {subject: "Not out: {{ doc.headline }}", body: "<p>Your post {{ doc.headline }} did not go out everywhere:</p><ul>{% for f in values.failures %}<li>{{ f }}</li>{% endfor %}</ul><p>Retry sends it to the accounts it did not reach.</p>"}
+  - key: social.review
+    label: A post's review
+    category: operational
+    entity: SocialPost
+    channels: [inapp, email]
+    values: [notice, title]
+    languages:
+      en:
+        inapp:
+          title: "{% if values.notice == 'approved' %}Approved{% elif values.notice == 'rejected' %}Sent back{% elif values.notice == 'not_done' %}Approved, not done{% else %}To review{% endif %}: {{ doc.headline }}"
+          text: "{% if values.notice == 'rejected' %}{{ doc.review_note }}{% elif values.notice == 'waiting' or values.notice == 'reminder' or values.notice == 'escalated' %}A post waits for your review.{% else %}{{ values.title }}{% endif %}"
+        email:
+          subject: "{% if values.notice == 'approved' %}Approved{% elif values.notice == 'rejected' %}Sent back{% else %}To review{% endif %}: {{ doc.headline }}"
+          body: "<p>{% if values.notice == 'rejected' %}{{ doc.headline }} was sent back: {{ doc.review_note }}{% elif values.notice == 'approved' %}{{ doc.headline }} was approved.{% else %}{{ doc.headline }} waits for your review.{% endif %}</p>"
+  - key: social.repeat_stopped
+    label: A post stopped repeating
+    category: operational
+    entity: SocialPost
+    channels: [inapp, email]
+    values: [why, times]
+    languages:
+      en:
+        inapp: {title: "No longer repeating: {{ doc.headline }}", text: "{% if values.why %}Its next time could not be made: {{ values.why }}{% else %}It went out {{ values.times }} times, as it was to.{% endif %}"}
+        email: {subject: "No longer repeating: {{ doc.headline }}", body: "<p>{% if values.why %}Its next time could not be made: {{ values.why }}{% else %}It went out {{ values.times }} times, as it was to.{% endif %}</p>"}
+  - key: social.digest
+    label: Social's week
+    category: operational
+    channels: [email, inapp]
+    values: [week, went_out, coming, failed, top]
+    languages:
+      en:
+        email:
+          subject: "Social, week {{ values.week }}"
+          body: "<p>Out: {{ values.went_out|length }}. Coming: {{ values.coming|length }}. Not out: {{ values.failed|length }}.</p>{% if values.top %}<p>Top post: {{ values.top.headline }} ({{ values.top.engagements }} engagements)</p>{% endif %}{% if values.failed %}<ul>{% for f in values.failed %}<li>{{ f.headline }}: {{ f.failure }}</li>{% endfor %}</ul>{% endif %}{% if values.coming %}<p>Coming:</p><ul>{% for c in values.coming %}<li>{{ c.headline }}, {{ c.at }}</li>{% endfor %}</ul>{% endif %}"
+        inapp: {title: "Social, week {{ values.week }}", text: "Out: {{ values.went_out|length }}. Coming: {{ values.coming|length }}. Not out: {{ values.failed|length }}."}
   # (round two) The weekly report document's mail.
   - key: social.brand_report_mail
     label: A brand's week on social media

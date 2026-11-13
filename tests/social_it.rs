@@ -1556,6 +1556,36 @@ async fn scenario() {
     }
     assert!(runs.iter().any(|r| r["state"] == "Skipped" && r["note"].as_str().unwrap().contains("does not offer like")));
 
+    // ───────────── (round two) notices: went out, did not, review, opted out, the weekly digest once ─────────────
+    let sent_with = |id: Uuid| {
+        let t = &t;
+        async move {
+            let log = t.k.message_log(&t.admin, Some(("SocialPost", id)), None, 50).await.unwrap();
+            log.iter().filter_map(|m| m["template"].as_str().map(str::to_string)).collect::<Vec<_>>()
+        }
+    };
+    assert!(sent_with(uid(&versions["id"])).await.contains(&"social.went_out".to_string()), "the author told it went out");
+    assert!(sent_with(thread_id).await.contains(&"social.failed".to_string()), "and when it did not");
+    assert!(sent_with(spring_id).await.contains(&"social.review".to_string()), "the approval policy's notices in the package's words");
+    t.insert(&author, "SocialNoticeOptOut", json!({"person": "author@brands.test", "notice": "went_out"})).await;
+    let quiet = t.insert(&author, "SocialPost", tagged("Quietly", &[nw_key], "Quiet")).await;
+    go(uid(&quiet["id"])).await;
+    t.upkeep(due + Duration::hours(25)).await;
+    assert_eq!(t.get("SocialPost", uid(&quiet["id"])).await["status"], "Published");
+    assert!(!sent_with(uid(&quiet["id"])).await.contains(&"social.went_out".to_string()), "opted out");
+    let digest_at = due + Duration::hours(26);
+    let weekday = digest_at.format("%A").to_string();
+    set(json!({"digest_day": weekday, "digest_time": "00:00"})).await;
+    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, digest_at), ferrum_app_social::maintenance_at(&t.k, digest_at));
+    x.unwrap();
+    y.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, digest_at + Duration::hours(1)).await.unwrap();
+    let week = format!("{}-W{:02}", chrono::Datelike::iso_week(&digest_at).year(), chrono::Datelike::iso_week(&digest_at).week());
+    let runs = t.rows("SocialDigestRun", json!({"week": week})).await;
+    assert_eq!(runs.len(), 1, "once a week, though two upkeeps ran at once");
+    assert!(runs[0]["people"].as_i64().unwrap() >= 4, "{runs:?}");
+    set(json!({"digest_day": "Never"})).await;
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});
