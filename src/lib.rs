@@ -40,6 +40,7 @@ mod review;
 mod rules;
 mod upgrade;
 mod when;
+mod writing;
 
 use chrono::{DateTime, Utc};
 use ferrum_domain::reports::ReportSource;
@@ -136,7 +137,10 @@ impl ferrum_kernel::DocHook for BrandHook {
     }
 
     async fn action(&self, hc: &mut ferrum_kernel::HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
-        media::action(hc, name, doc, params).await
+        if let Some(out) = media::action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        writing::action(hc, "SocialBrand", name, doc, params).await
     }
 }
 

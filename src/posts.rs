@@ -208,6 +208,9 @@ impl DocHook for PostHook {
         if let Some(out) = crate::library::post_action(hc, name, doc, params).await? {
             return Ok(Some(out));
         }
+        if let Some(out) = crate::writing::action(hc, "SocialPost", name, doc, params).await? {
+            return Ok(Some(out));
+        }
         if name == "copies" {
             return copies(hc, doc).await.map(Some);
         }

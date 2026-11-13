@@ -1437,6 +1437,65 @@ async fn scenario() {
     t.k.update(&manager, "SocialLinkTemplate", uid(&brand_links["id"]), obj(json!({"active": false})), None).await.unwrap();
     set(json!({"shorten_connection": null, "metrics_hours": 6})).await;
 
+    // ───────────── (round two) writing help through the Claude Messages API's shape: given back, never saved over ─────────────
+    let writer = t.user("writer@brands.test", &["Social Author", "Social Writing Help"]).await;
+    let mut claude: Value =
+        serde_json::from_str(&std::fs::read_to_string(format!("{}/docs/connectors/services/claude.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    claude["base"] = json!(base.trim_end_matches("/v1"));
+    claude["operations"]["picture"] = json!({"method": "POST", "path": "/v1/picture", "body": "{\"prompt\": {{ inputs.prompt | json }}}", "result": {"file": {"file": {"max_bytes": 100000}}}});
+    save("claude_test", claude, json!({"api_key": KEY})).await;
+    t.k.update(&manager, "SocialBrand", northwind, obj(json!({"voice": "Cheerful, plain words, no exclamation marks"})), None).await.unwrap();
+    let mut draft = tagged("Spring is here, come and see", &[], "Writing");
+    draft["link"] = Value::Null;
+    draft["targets"] = json!([{"account": nw_key.to_string()}, {"account": nw_threads.to_string(), "settings": {"audience": "everyone"}}]);
+    let draft = t.insert(&writer, "SocialPost", draft).await;
+    let draft_id = uid(&draft["id"]);
+    refused(t.act(&author, "SocialPost", draft_id, "write", json!({"prompt": "spring"})).await, "forbidden", "Social Writing Help");
+    refused(t.act(&writer, "SocialPost", draft_id, "write", json!({"prompt": "spring"})).await, "invalid", "no connection is set for writing help");
+    set(json!({"writing_connection": "claude_test"})).await;
+    t.net.lock().unwrap().written = vec!["Spring is here. Come and see.".into()];
+    let wrote = t.act(&writer, "SocialPost", draft_id, "write", json!({"prompt": "our spring sale"})).await.unwrap();
+    assert_eq!(wrote["text"], "Spring is here. Come and see.");
+    assert_eq!(t.get("SocialPost", draft_id).await["text"], "Spring is here, come and see", "given back, not saved over");
+    {
+        let n = t.net.lock().unwrap();
+        let body = &n.calls.iter().rev().find(|c| c.0.starts_with("POST /v1/messages")).unwrap().1;
+        assert_eq!((body["model"].as_str(), body["max_tokens"].as_i64()), (Some("claude-sonnet-5-5"), Some(1024)));
+        assert!(body["system"].as_str().unwrap().contains("Northwind") && body["system"].as_str().unwrap().contains("Cheerful"), "{body}");
+        assert!(body["messages"][0]["content"].as_str().unwrap().contains("our spring sale"), "{body}");
+    }
+    let shorter = t.rows("SocialWritingPreset", json!({"preset_name": "Shorter"})).await;
+    let rewritten = t.act(&writer, "SocialPost", draft_id, "rewrite", json!({"preset": shorter[0]["id"]})).await.unwrap();
+    assert!(rewritten["text"].as_str().unwrap().contains("Make it shorter") && rewritten["text"].as_str().unwrap().contains("come and see"), "{rewritten}");
+    t.net.lock().unwrap().written = vec!["Short and sweet".into(), "b".repeat(150)];
+    let adapted = t.act(&writer, "SocialPost", draft_id, "adapt", Value::Null).await.unwrap();
+    let v = adapted["versions"].as_array().unwrap();
+    assert_eq!(
+        (v[0]["text"].as_str(), v[0]["fits"].clone(), v[1]["fits"].clone(), v[1]["max"].as_i64()),
+        (Some("Short and sweet"), json!(true), json!(false), Some(100)),
+        "{adapted}"
+    );
+    t.net.lock().unwrap().written = vec!["#spring #sale, #Spring and more #".into(), "One\n---\nTwo\n---\nThree".into()];
+    assert_eq!(t.act(&writer, "SocialPost", draft_id, "hashtags", json!({"count": 5})).await.unwrap()["hashtags"], json!(["#spring", "#sale"]));
+    assert_eq!(t.act(&writer, "SocialPost", draft_id, "thread", json!({"parts": 3})).await.unwrap()["items"], json!(["One", "Two", "Three"]));
+    let pic_post = t.insert(&writer, "SocialPost", pictured_post(&[nw_key], &png, Some("x"))).await;
+    t.act(&writer, "SocialPost", uid(&pic_post["id"]), "describe", json!({"medium": 0})).await.unwrap();
+    {
+        let n = t.net.lock().unwrap();
+        let body = &n.calls.iter().rev().find(|c| c.0.starts_with("POST /v1/messages")).unwrap().1;
+        assert_eq!(
+            (body["messages"][0]["content"][0]["type"].as_str(), body["messages"][0]["content"][0]["source"]["media_type"].as_str()),
+            (Some("image"), Some("image/png"))
+        );
+    }
+    let drawn = t.act(&writer, "SocialPost", draft_id, "picture", json!({"prompt": "a spring meadow"})).await.unwrap();
+    assert_eq!(t.get("SocialMediaAsset", uid(&drawn["id"])).await["source"], "Generated");
+    assert!(t.act(&writer, "SocialBrand", northwind, "write_new", json!({"prompt": "a hello"})).await.unwrap()["text"].as_str().unwrap().starts_with("ECHO"));
+    let uses = t.rows("SocialWritingUse", json!({"by": "writer@brands.test"})).await;
+    assert_eq!(uses.len(), 9, "every use kept: {}", uses.len());
+    t.k.erase_personal_data(&t.admin, "writer@brands.test", "asked to be forgotten").await.unwrap();
+    assert!(t.rows("SocialWritingUse", json!({"action": "write"})).await.iter().all(|u| u["prompt"].is_null() || u["prompt"] == ""), "prompts erased");
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});

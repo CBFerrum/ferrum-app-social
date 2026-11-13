@@ -8,7 +8,9 @@
   fields:
     - {name: brand_name, type: data, required: true, unique: true, in_list: true}
     - {name: description, type: text}
+    - {name: voice, type: text, description: "(round two) How the brand speaks, for writing help: who it talks to, its tone, words it uses and avoids"}
   actions:
+    - {name: write_new, label: Write a Post, permission: read, params: [{name: prompt, type: text, label: What About, required: true}]}
     - {name: media_search, label: Find Pictures, permission: read, read_only: true, params: [{name: query, type: data, label: Look For, required: true}, {name: source, type: data, label: Source}, {name: page, type: int, label: Page}]}
     - {name: media_take, label: Take a Picture, permission: read, hidden: true, params: [{name: source, type: data, label: Source}, {name: id, type: data, label: Its Id, required: true}, {name: url, type: data, label: Address}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}, {name: credit, type: data, label: Credit}, {name: credit_link, type: data, label: Credit Link}, {name: licence, type: text, label: Licence}, {name: width, type: int, label: Width}, {name: height, type: int, label: Height}]}
     - {name: media_from_address, label: Add Media From an Address, permission: read, params: [{name: url, type: data, label: Address, required: true}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}]}
@@ -51,6 +53,8 @@
     - {name: metrics_days, type: int, default: 30, min: 1, max: 366, label: Read a Post's Numbers For (Days), description: "How long after it went out each post's numbers are read"}
     - {name: metrics_hours, type: int, default: 6, min: 1, max: 168, label: Read Again After (Hours), description: "The soonest an account's or a post's numbers are read again"}
     - {name: media_sources, type: text, label: Picture and GIF Sources, description: "Connections searched for stock pictures and GIFs (search_media, fetch_media), by name, one a line; the first is the default"}
+    - {name: writing_connection, type: data, label: Writing Help Through, description: "The connection whose write (and picture) writing help uses; empty: writing help is off"}
+    - {name: writing_model, type: data, default: claude-sonnet-5-5, label: Writing Model, description: "Passed to write as model, where the description uses it"}
     - {name: shorten_connection, type: data, label: Shorten Links Through, description: "The connection whose shorten makes short links (and link_clicks reads their clicks); empty: links go as they are"}
     - {name: shorten_text_links, type: check, default: false, label: Shorten Links in the Words Too}
     - {name: fetch_connection, type: data, label: Media From an Address Through, description: "The connection whose fetch_media takes an address and stores the file"}
@@ -195,6 +199,13 @@
     - {name: duplicate, label: Duplicate, permission: write}
     - {name: stop_repeat, label: Stop Repeating, permission: write, condition: "!isEmpty(doc.repeat_every)"}
     - {name: copies, label: As Each Account Gets It, permission: read, read_only: true}
+    - {name: write, label: Write It, permission: read, params: [{name: prompt, type: text, label: What About, required: true}]}
+    - {name: rewrite, label: Rewrite It, permission: read, params: [{name: instruction, type: text, label: How}, {name: preset, type: link, to: SocialWritingPreset, label: Or a Preset}]}
+    - {name: adapt, label: Adapt for Each Account, permission: read}
+    - {name: hashtags, label: Suggest Hashtags, permission: read, params: [{name: count, type: int, label: How Many}]}
+    - {name: describe, label: Describe the Picture, permission: read, params: [{name: medium, type: int, label: Which Medium (From 0)}]}
+    - {name: thread, label: Split Into a Thread, permission: read, params: [{name: parts, type: int, label: Parts}]}
+    - {name: picture, label: Make a Picture, permission: read, params: [{name: prompt, type: text, label: Of What, required: true}]}
     - {name: save_as_template, label: Save as Template, permission: read, params: [{name: name, type: data, label: Template Name, required: true}]}
     - {name: review, label: Approve Under the Policy, permission: write, hidden: true, condition: "doc.status == 'In Review'"}
     - {name: review_link, label: Review Link, permission: write, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", params: [{name: email, type: data, label: Send It To}, {name: name, type: data, label: Their Name}, {name: decide, type: check, label: They May Approve or Ask for Changes}, {name: days, type: int, label: Works For (Days)}, {name: uses, type: int, label: Uses}]}
@@ -480,3 +491,32 @@
     - {name: exclude, type: text, label: Not On, description: "Hosts whose addresses are left as they are, one a line"}
     - {name: active, type: check, default: true, in_list: true}
   list: {columns: [template_name, brand, account, active], sort: template_name asc}
+
+- name: SocialWritingPreset
+  label: Rewrite Preset
+  label_plural: Rewrite Presets
+  kind: master
+  module: social
+  title_field: preset_name
+  description: "A way to rewrite a post, picked instead of saying it each time."
+  fields:
+    - {name: preset_name, type: data, required: true, unique: true, in_list: true}
+    - {name: instruction, type: text, required: true}
+  list: {columns: [preset_name], sort: preset_name asc}
+
+- name: SocialWritingUse
+  label: Writing Help Use
+  label_plural: Writing Help Uses
+  kind: master
+  module: social
+  title_field: action
+  description: "Each use of writing help: who asked, about which post or brand, what was asked and what came back."
+  fields:
+    - {name: post, type: link, to: SocialPost, read_only: true, in_list: true, in_filter: true}
+    - {name: brand, type: link, to: SocialBrand, read_only: true, in_filter: true}
+    - {name: action, type: data, read_only: true, in_list: true, in_filter: true}
+    - {name: by, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: prompt, type: text, read_only: true}
+    - {name: answer, type: text, read_only: true}
+    - {name: connection, type: data, read_only: true}
+  list: {columns: [action, post, by, created_at], sort: created_at desc}
