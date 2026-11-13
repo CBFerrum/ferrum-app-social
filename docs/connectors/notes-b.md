@@ -46,3 +46,28 @@ platform's own backoff); `characters` as the counting unit (the docs say "charac
 **Setup**: create the bot with @BotFather, put its token under the connection's `bot_token`, add the bot to the
 group or channel as an administrator with the right to post, send one message there (a channel: make a post) so
 that `getUpdates` shows it, then pick the chat in Social. Do not set a webhook on the bot (`getUpdates` stops working).
+
+## Discord (`discord.json`)
+
+**Does**: a bot token (`Authorization: Bot`); the servers the bot is in are what the sign-in reaches (server icon as the
+picture), the server id is the account's id on the network, the channel is a required setting whose choices are the
+server's text and announcement channels (categories and voice channels filtered out by the description); markdown text
+up to 2000 characters; up to 10 files in one message (a `payload_json` part and `files[n]`, one operation for each count
+1 to 10, because a `form` has a fixed set of parts), each with its description; follow-ups as a thread made from the
+first message (made once, every later item posted in it); a first comment as a reply in the channel; delete by channel
+and message; mentions (`<@id>`, member search); the server's name and member count.
+**Never twice**: Discord has no idempotency header but takes a `nonce` with `enforce_nonce`: the description sends the
+call's key as the nonce (`{{ key | tid }}`, 13 characters) so a second send is answered with the first message. The
+operations name an `idempotency_header` (`X-Idempotency-Key`, ignored by Discord) only so that the platform may send
+again after a lost answer; the protection is the nonce. A thread made twice is refused by Discord (160004); its step
+reads the thread back (`confirm`) instead of sending again.
+**Cannot**: numbers for a post (reactions cannot be summed in the platform's expression language); embeds, stickers,
+polls, forum or voice channels, a thread name of its own (always "Replies"); files above 10 MiB (see unverified); the
+message's permalink (the link needs the server id, which `publish` is not given: Social would have to pass `account_id`
+into `url`, the description does not map one).
+**Unverified**: the 10 MiB file limit (Discord's limit for bots has changed more than once, 8 / 25 MiB before); that a
+new upload may be described in `attachments` by `id` and `description` without `filename`; that the member search needs
+the privileged Server Members intent (it does in the docs I know); the `User-Agent` form.
+**Setup**: a Discord application with a bot (discord.com/developers), the bot token under `bot_token`, the bot invited
+with View Channel, Send Messages, Attach Files, Create Public Threads, Send Messages in Threads (and Manage Messages to
+delete other people's), the Server Members intent for mentions.
