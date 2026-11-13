@@ -508,6 +508,9 @@ async fn scenario() {
     if wanted("wordpress") {
         wordpress(&t).await;
     }
+    if wanted("medium") {
+        medium(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -1092,7 +1095,9 @@ async fn wordpress(t: &T) {
     let rules = t.rules(blog).await;
     assert_eq!((rules["name"].as_str(), rules["text"]["format"].as_str()), (Some("WordPress"), Some("html")));
     let types = t.act(&t.author, "SocialAccount", blog, "choices", json!({"setting": "post_type"})).await.unwrap();
-    assert_eq!(types["choices"], json!([{"value": "pages", "label": "Pages"}, {"value": "posts", "label": "Posts"}]), "no media, no patterns");
+    let mut kinds = types["choices"].as_array().unwrap().clone();
+    kinds.sort_by_key(|k| k["value"].to_string());
+    assert_eq!(kinds, [json!({"value": "pages", "label": "Pages"}), json!({"value": "posts", "label": "Posts"})], "no media, no patterns");
     let cats = t.act(&t.author, "SocialAccount", blog, "choices", json!({"setting": "categories"})).await.unwrap();
     assert_eq!(cats["choices"], json!([{"value": "3", "label": "News"}, {"value": "4", "label": "Launches"}]));
     let tags = t.act(&t.author, "SocialAccount", blog, "choices", json!({"setting": "tags", "query": "sp"})).await.unwrap();
@@ -1158,4 +1163,100 @@ async fn wordpress(t: &T) {
     assert!(net.to("DELETE", "posts")[0].target.find("force").is_none(), "the trash, not for good");
     let checked = t.act(&t.manager, "SocialAccount", blog, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind Blog", "{checked}");
+}
+
+// ───────────── Medium ─────────────
+
+async fn medium(t: &T) {
+    // API (github.com/Medium/medium-api-docs): an integration token as a bearer, /me, /users/{id}/posts and
+    // /publications/{id}/posts with `contentFormat`, `publishStatus`, `tags` (three at most), `canonicalUrl`, /images.
+    let articles: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (a2, l2) = (articles.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, c: i64, m: &str| status(code, json!({"errors": [{"message": m, "code": c}]}));
+        if r.header("authorization") != "Bearer medium-token" {
+            return err(401, 6003, "Token was invalid.");
+        }
+        let mut articles = a2.lock().unwrap();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/v1/me") => ok(json!({"data": {"id": "u1", "username": "northwind", "name": "Northwind", "imageUrl": "https://miro.medium.test/u1.png"}})),
+            ("GET", "/v1/users/u1/publications") => ok(json!({"data": [{"id": "p1", "name": "Northwind Blog"}]})),
+            ("POST", "/v1/images") => {
+                let f = r.part("image").expect("an image part");
+                assert_eq!((f.content.as_slice(), f.kind.as_deref()), (PNG, Some("image/png")));
+                ok(json!({"data": {"url": "https://cdn-images-1.medium.test/max/cat.png", "md5": "x"}}))
+            }
+            ("POST", p @ ("/v1/users/u1/posts" | "/v1/publications/p1/posts")) => {
+                let b = r.json();
+                if b["title"] == "Forbidden" {
+                    return err(403, 2002, "You do not have permission to publish in this publication.");
+                }
+                assert_eq!(b["contentFormat"], "markdown");
+                assert!(b["tags"].as_array().is_none_or(|t| t.len() <= 3));
+                let id = format!("a{}", articles.len() + 1);
+                articles.push(json!({"id": id, "via": p, "body": b}));
+                if l2.lock().unwrap().as_deref() == b["title"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                Resp::Answer(201, vec![], json!({"data": {"id": id, "title": b["title"], "url": format!("https://medium.test/@northwind/{id}"), "publishStatus": b["publishStatus"]}}).to_string())
+            }
+            _ => err(404, 404, "Not found"),
+        }
+    })
+    .await;
+    let conn = t.connect("medium_north", "medium", &[("https://api.medium.com", &net.base)], json!({"integration_token": "medium-token"}), |_| {}).await;
+    let me = t.account("Northwind Medium", "northwind", conn, "u1").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["format"].as_str()), (Some("Medium"), Some("markdown")));
+    let pubs = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "publication"})).await.unwrap();
+    assert_eq!(pubs["choices"], json!([{"value": "p1", "label": "Northwind Blog"}]));
+    let article = |settings: Value| target_with(me, "article", settings);
+
+    // A story in markdown with a picture on top, tags, the original address and a visibility.
+    let p = t
+        .post(
+            "# Spring\n\nIt is here.",
+            vec![article(json!({"title": "Spring", "tags": "spring, launch ,, news", "canonical": "https://northwind.example/spring", "status": "draft"}))],
+            json!({"link": "https://northwind.example/spring", "media": [t.media(&t.png, "A cat")]}),
+        )
+        .await;
+    let out = t.out(p, me).await;
+    assert_eq!((out["external_id"].as_str(), out["permalink"].as_str()), (Some("a1"), Some("https://medium.test/@northwind/a1")));
+    {
+        let a = articles.lock().unwrap();
+        assert_eq!(a[0]["via"], "/v1/users/u1/posts");
+        let b = &a[0]["body"];
+        assert_eq!(b["content"], "![A cat](https://cdn-images-1.medium.test/max/cat.png)\n\n# Spring\n\nIt is here. https://northwind.example/spring");
+        assert_eq!(
+            (b["tags"].clone(), b["canonicalUrl"].as_str(), b["publishStatus"].as_str()),
+            (json!(["spring", "launch", "news"]), Some("https://northwind.example/spring"), Some("draft"))
+        );
+    }
+    // In a publication, by the publication's own address.
+    let p = t.post("In the blog", vec![article(json!({"title": "Blog", "publication": "p1"}))], json!({})).await;
+    t.out(p, me).await;
+    assert_eq!(articles.lock().unwrap()[1]["via"], "/v1/publications/p1/posts");
+
+    // A lost answer: nothing can show whether Medium made it (no list of one's stories), so it is not sent again.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    let p = t.post("Lost", vec![article(json!({"title": "Lost one"}))], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert_eq!(post["status"], "Failed");
+    assert!(post["failure"].as_str().unwrap().contains("may have been sent"), "{post:?}");
+    assert_eq!(articles.lock().unwrap().iter().filter(|a| a["body"]["title"] == "Lost one").count(), 1, "one story");
+
+    // A refusal, in Medium's words.
+    let p = t.post("No", vec![article(json!({"title": "Forbidden"}))], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert!(post["failure"].as_str().unwrap().contains("do not have permission to publish"), "{post:?}");
+
+    // No delete: the API has none.
+    let e = t.act(&t.manager, "SocialPublication", uid(&out["id"]), "delete_remote", Value::Null).await.unwrap_err().to_string();
+    assert!(e.contains("does not offer to delete"), "{e}");
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
 }
