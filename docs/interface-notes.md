@@ -338,3 +338,24 @@ Writing Help Through, Writing Model, Weekly Digest On, Weekly Digest At; actions
 Media From an Address, Write a Post, Write It, Rewrite It, Adapt for Each Account, Suggest Hashtags, Describe the
 Picture, Split Into a Thread, Make a Picture; report titles Social Numbers by Network, by Kind of Post, Against the
 Period Before, Social Followers by Day, Social Top Posts; role Social Writing Help.
+
+## 10. Round three (additions; nothing above changes but where a line below says so)
+
+- **Platform (round three):** the app needs Ferrum's App API 0.3.7 (`platform: ">=0.3.7, <0.4"`).
+- **Waiting (round three):** a publication or reply whose network said `Retry-After` shows `failure` "Waiting to try
+  again: …" with `failed_at` empty, and goes when the network said (at most an hour). Show it as waiting, not failed.
+- **Inbox (round three):** `SocialMessage.external_id` is read-only again (written by the connection's mapping as the
+  system). People no longer create messages (Social Author, Approver and Manager keep read and write: reply, assign,
+  close); a "new message" button has no place. A mention that answers one of the brand's posts arrives as `kind:
+  Comment`.
+- **Feeds (round three):** `SocialFeed.address` (the RSS or Atom address) is what a person gives; `connection` is
+  optional (Social Settings' new `feed_connection`, else the package's `feeds` connection). A feed whose site the
+  connection does not reach shows `last_error` naming the host to add (administrators, Administration, Connections,
+  the connection's allowed hosts, once per site).
+- **Publications read back (round three):** `SocialPublication.native` (check, R/O: made on the network, read back;
+  it has no `post`), hidden `via_connection`, `account_handle`. Lists of an account's posts show these too; a native
+  one has numbers and `permalink`, no post to open.
+- **Notice opt-outs (round three):** a person sees and edits only rows naming them; `person` defaults to their address
+  and another person's is refused (`403`); administrators set anyone's.
+- **Composer (round three):** an account whose description's `publish` uploads in its own steps takes media without
+  a `publish_media`; nothing changes on screen.
