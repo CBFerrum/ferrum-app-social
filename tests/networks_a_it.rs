@@ -39,8 +39,21 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] =
-    &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone", "threads", "youtube", "tiktok", "pinterest", "reddit", "mastodon"];
+const NETWORKS: &[&str] = &[
+    "x",
+    "linkedin",
+    "linkedin_page",
+    "facebook",
+    "instagram",
+    "instagram_standalone",
+    "threads",
+    "youtube",
+    "tiktok",
+    "pinterest",
+    "reddit",
+    "mastodon",
+    "bluesky",
+];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -205,6 +218,7 @@ fn handler(net: &str) -> Option<Handler> {
         "pi" | "pis3" => fake_pinterest,
         "rd" | "rdw" | "rds3" => fake_reddit,
         "ma" => fake_mastodon,
+        "bs" => fake_bluesky,
         _ => return None,
     })
 }
@@ -247,6 +261,8 @@ async fn serve(net: Shared) -> u16 {
                 let rest = format!("/{}", segs.next().unwrap_or_default());
                 let path = rest.split('?').next().unwrap_or_default().to_string();
                 let query = rest.split_once('?').map(|(_, q)| query_of(q)).unwrap_or_default();
+                let mut headers = headers;
+                headers.insert("x-raw-query".into(), rest.split_once('?').map(|(_, q)| q.to_string()).unwrap_or_default());
                 let req = Req { method: method.clone(), path: path.clone(), query, headers, body };
                 let (resp, lost) = {
                     let mut n = net.lock().unwrap();
@@ -518,6 +534,7 @@ async fn scenario() {
     pinterest(&t).await;
     reddit(&t).await;
     mastodon(&t).await;
+    bluesky(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -2850,4 +2867,221 @@ async fn mastodon(t: &T) {
     assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(321), Some("north")));
     t.call("mastodon", "delete", json!({"id": first["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
     assert!(!t.net().list("ma:statuses").iter().any(|s| s["id"] == first["id"]));
+}
+
+// ───────────── Bluesky ─────────────
+
+fn fake_bluesky(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, e: &str, m: &str| status(code, json!({"error": e, "message": m}));
+    let call = r.path.trim_start_matches("/xrpc/").to_string();
+    let b = r.json();
+    if call == "com.atproto.server.createSession" {
+        if b["identifier"] != "north.bsky.test" || b["password"] != "app-pass-1234" {
+            return err(401, "AuthenticationRequired", "Invalid identifier or password");
+        }
+        let i = n.next();
+        n.tokens("bs").push(json!(format!("BA-{i}")));
+        n.list("bs:refresh").push(json!(format!("BR-{i}")));
+        n.list("bs:logins").push(json!(i));
+        return ok(json!({"accessJwt": format!("BA-{i}"), "refreshJwt": format!("BR-{i}"), "handle": "north.bsky.test", "did": "did:plc:north"}));
+    }
+    if call == "com.atproto.server.refreshSession" {
+        if !r.bearer().is_some_and(|t| n.list("bs:refresh").contains(&json!(t))) {
+            return err(400, "ExpiredToken", "Token has been revoked");
+        }
+        let i = n.next();
+        n.tokens("bs").push(json!(format!("BA-{i}")));
+        n.list("bs:refresh").push(json!(format!("BR-{i}")));
+        n.list("bs:refreshes").push(json!(i));
+        return ok(json!({"accessJwt": format!("BA-{i}"), "refreshJwt": format!("BR-{i}"), "handle": "north.bsky.test", "did": "did:plc:north"}));
+    }
+    if !n.valid("bs", r) {
+        return err(401, "ExpiredToken", "Token has expired");
+    }
+    let post = |n: &mut Net, uri: &str| n.list("bs:records").iter().find(|x| x["uri"] == json!(uri)).cloned();
+    match (r.method.as_str(), call.as_str()) {
+        ("GET", "app.bsky.actor.getProfiles") => {
+            let wanted: Vec<String> = r.target_query_all("actors");
+            let known = ["ana.bsky.test"];
+            ok(
+                json!({"profiles": wanted.iter().filter(|h| known.contains(&h.as_str())).map(|h| json!({"did": format!("did:plc:{}", h.split('.').next().unwrap()), "handle": h})).collect::<Vec<_>>()}),
+            )
+        }
+        ("POST", "com.atproto.repo.uploadBlob") => {
+            let cid = format!("bafy-blob-{}", n.next());
+            n.list("bs:blobs").push(json!({"cid": cid, "type": r.header("content-type"), "bytes": r.body.len()}));
+            ok(json!({"blob": {"$type": "blob", "ref": {"$link": cid}, "mimeType": r.header("content-type"), "size": r.body.len()}}))
+        }
+        ("POST", "com.atproto.repo.createRecord") => {
+            let rec = &b["record"];
+            if b["repo"] != "north.bsky.test"
+                || !rec["createdAt"].as_str().is_some_and(|t| t.ends_with('Z'))
+                || b["rkey"].as_str().is_none_or(|k| k.len() != 13)
+            {
+                return err(400, "InvalidRequest", "Invalid record");
+            }
+            if rec["text"].as_str().is_some_and(|t| t.chars().count() > 300) {
+                return err(400, "InvalidRequest", "Invalid app.bsky.feed.post record: Record/text must not be longer than 300 graphemes");
+            }
+            let collection = b["collection"].as_str().unwrap_or_default().to_string();
+            let uri = format!("at://did:plc:north/{collection}/{}", b["rkey"].as_str().unwrap());
+            if n.list("bs:records").iter().any(|x| x["uri"] == json!(uri)) {
+                return err(400, "InvalidRequest", "Record already exists");
+            }
+            for key in ["root", "parent"] {
+                if let Some(u) = rec["reply"][key]["uri"].as_str() {
+                    let target = post(n, u);
+                    if target.as_ref().map(|t| &t["cid"]) != Some(&rec["reply"][key]["cid"]) {
+                        return err(400, "InvalidRequest", &format!("reply {key} does not match a post"));
+                    }
+                }
+            }
+            let cid = format!("bafy-rec-{}", n.next());
+            n.list("bs:records").push(json!({"uri": uri, "cid": cid, "collection": collection, "record": rec}));
+            ok(json!({"uri": uri, "cid": cid}))
+        }
+        ("GET", "com.atproto.repo.getRecord") => {
+            let uri =
+                format!("at://did:plc:north/{}/{}", r.query.get("collection").cloned().unwrap_or_default(), r.query.get("rkey").cloned().unwrap_or_default());
+            match post(n, &uri) {
+                Some(p) => ok(json!({"uri": uri, "cid": p["cid"], "value": p["record"]})),
+                None => err(400, "RecordNotFound", "Could not locate record"),
+            }
+        }
+        ("GET", "app.bsky.feed.getPosts") => {
+            let uri = r.query.get("uris").cloned().unwrap_or_default();
+            match post(n, &uri) {
+                Some(p) => ok(
+                    json!({"posts": [{"uri": uri, "cid": p["cid"], "record": p["record"], "likeCount": 4, "repostCount": 3, "replyCount": 1, "quoteCount": 1}]}),
+                ),
+                None => ok(json!({"posts": []})),
+            }
+        }
+        ("POST", "com.atproto.repo.deleteRecord") => {
+            let rkey = b["rkey"].as_str().unwrap_or_default().to_string();
+            n.list("bs:records").retain(|x| !x["uri"].as_str().unwrap_or_default().ends_with(&format!("/{rkey}")));
+            ok(json!({}))
+        }
+        ("GET", "app.bsky.actor.getProfile") => {
+            ok(json!({"handle": "north.bsky.test", "displayName": "Northwind", "followersCount": 77, "avatar": "https://cdn.bsky.test/a.jpg"}))
+        }
+        ("GET", "app.bsky.actor.searchActorsTypeahead") => ok(json!({"actors": [{"did": "did:plc:ana", "handle": "ana.bsky.test", "displayName": "Ana"}]})),
+        ("GET", "chat.bsky.convo.getConvoForMembers") if r.header("atproto-proxy") == Some("did:web:api.bsky.chat#bsky_chat") => {
+            ok(json!({"convo": {"id": format!("convo-{}", r.query.get("members").cloned().unwrap_or_default())}}))
+        }
+        ("POST", "chat.bsky.convo.sendMessage") if r.header("atproto-proxy") == Some("did:web:api.bsky.chat#bsky_chat") => {
+            n.list("bs:chats").push(json!({"convo": b["convoId"], "text": b["message"]["text"]}));
+            ok(json!({"id": "msg1", "text": b["message"]["text"]}))
+        }
+        _ => err(404, "MethodNotImplemented", &format!("No {call}")),
+    }
+}
+
+impl Req {
+    /// Every value of a query parameter given more than once.
+    fn target_query_all(&self, name: &str) -> Vec<String> {
+        self.headers
+            .get("x-raw-query")
+            .map(|q| reqwest::Url::parse(&format!("http://f/?{q}")).unwrap().query_pairs().filter(|(k, _)| k == name).map(|(_, v)| v.into_owned()).collect())
+            .unwrap_or_default()
+    }
+}
+
+async fn bluesky(t: &T) {
+    let conn = t.connect("bluesky", "bs", &["bsky.social"], json!({"handle": "north.bsky.test", "app_password": "app-pass-1234"}), |_| {}).await;
+    let account = t.account("north.bsky.test", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "Bluesky");
+    let key = format!("publish:{}", Uuid::now_v7());
+    // Text with a link (a card), a tag and a mention, each a facet at its byte offsets.
+    let text = "Bake 🍞 with @ana.bsky.test and @nobody.test #bread https://northwind.test/a";
+    let mut v = post_in(text, Some("https://northwind.test/card"), &[], &[]);
+    v["settings"] = json!({"language": "en"});
+    let first = t.call("bluesky", "publish", v, Some(&key)).await.unwrap();
+    let rec = t.net().list("bs:records")[0]["record"].clone();
+    let at = |f: &Value| &text.as_bytes()[f["index"]["byteStart"].as_u64().unwrap() as usize..f["index"]["byteEnd"].as_u64().unwrap() as usize];
+    let facets = rec["facets"].as_array().unwrap().clone();
+    assert_eq!(facets.len(), 3, "a link, a tag and the one mention that resolves: {facets:?}");
+    for f in &facets {
+        let feature = &f["features"][0];
+        match feature["$type"].as_str().unwrap() {
+            "app.bsky.richtext.facet#link" => assert_eq!(at(f), b"https://northwind.test/a"),
+            "app.bsky.richtext.facet#tag" => assert_eq!((at(f), feature["tag"].as_str()), (b"#bread".as_slice(), Some("bread"))),
+            _ => assert_eq!((at(f), feature["did"].as_str()), (b"@ana.bsky.test".as_slice(), Some("did:plc:ana"))),
+        }
+    }
+    assert_eq!((rec["embed"]["external"]["uri"].as_str(), rec["langs"].clone()), (Some("https://northwind.test/card"), json!(["en"])));
+    assert!(first["url"].is_null(), "no permalink: its handle is the connection's secret, masked in answers: {first}");
+    // A thread: each item answers the one before, with the root's reference carried along.
+    let one = kept(0, &first);
+    let second = t
+        .call("bluesky", "publish", follow_in(post_in("Two", None, &[], &[]), 1, 3, first["id"].as_str().unwrap(), &one), Some(&format!("{key}:1")))
+        .await
+        .unwrap();
+    let two = kept(1, &second);
+    t.call("bluesky", "publish", follow_in(post_in("Three", None, &[], &[]), 2, 3, first["id"].as_str().unwrap(), &two), Some(&format!("{key}:2")))
+        .await
+        .unwrap();
+    {
+        let mut n = t.net();
+        let third = n.list("bs:records")[2]["record"]["reply"].clone();
+        assert_eq!((third["root"]["uri"].clone(), third["root"]["cid"].clone()), (first["id"].clone(), first["cid"].clone()));
+        assert_eq!((third["parent"]["uri"].clone(), third["parent"]["cid"].clone()), (second["id"].clone(), second["cid"].clone()));
+    }
+    // Two pictures with their descriptions and shapes, and a video.
+    let mut ids = vec![];
+    for i in 0..2 {
+        let m = t.medium(&format!("{i}.png"), "image/png", b"PNG-BYTES", None, json!({}), None).await;
+        ids.push(t.call("bluesky", "publish_media", m, Some(&format!("media:{key}:3:{i}"))).await.unwrap()["id"].as_str().unwrap().to_string());
+    }
+    t.call("bluesky", "publish", post_in("Two pictures", None, &[("0.png", "image/png", 9), ("1.png", "image/png", 9)], &ids), Some(&format!("{key}:3")))
+        .await
+        .unwrap();
+    let pics = t.net().list("bs:records").last().unwrap()["record"]["embed"].clone();
+    assert_eq!((pics["images"].as_array().unwrap().len(), pics["images"][0]["aspectRatio"]["width"].as_u64()), (2, Some(1080)));
+    assert_eq!(pics["images"][1]["image"]["ref"]["$link"], ids[1]);
+    let m = t.medium("v.mp4", "video/mp4", b"VIDEO", None, json!({}), None).await;
+    let vid = t.call("bluesky", "publish_media", m, Some(&format!("media:{key}:4:0"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    t.call("bluesky", "publish", post_in("A video", None, &[("v.mp4", "video/mp4", 5)], std::slice::from_ref(&vid)), Some(&format!("{key}:4"))).await.unwrap();
+    let r = t.net().list("bs:records").last().unwrap()["record"].clone();
+    assert_eq!(r["embed"]["video"]["ref"]["$link"], json!(vid), "{r}");
+    // The first comment: the post's reference read, then the reply.
+    t.call(
+        "bluesky",
+        "reply",
+        json!({"text": "More soon", "in_reply_to": first["id"], "root": first["id"], "created_at": "2026-11-13T10:00:00.000Z"}),
+        Some(&format!("first_comment:{key}")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(t.net().list("bs:records").last().unwrap()["record"]["reply"]["parent"]["cid"], first["cid"]);
+    // A lost answer: the record key comes from the call's key, so the record is found where it would be; one post.
+    t.net().lose.insert("POST /bs/xrpc/com.atproto.repo.createRecord".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("bs:records").len();
+    assert!(t.call("bluesky", "publish", post_in("Exactly once", None, &[], &[]), Some(&lost)).await.is_err());
+    let got = t.call("bluesky", "publish", post_in("Exactly once", None, &[], &[]), Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("bs:records").len(), before + 1);
+    assert_eq!(got["id"], t.net().list("bs:records").last().unwrap()["uri"]);
+    // A refusal in Bluesky's words.
+    let e = t.call("bluesky", "publish", post_in(&"a".repeat(301), None, &[], &[]), Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(e.to_string().contains("longer than 300 graphemes"), "{e}");
+    // A dropped token is renewed by the session's refresh, not a new login.
+    let logins = t.net().list("bs:logins").len();
+    t.net().kept.insert("bs:tokens".into(), json!([]));
+    t.call("bluesky", "like", json!({"id": first["id"]}), Some("like:bs")).await.unwrap();
+    {
+        let mut n = t.net();
+        assert_eq!((n.list("bs:logins").len(), n.list("bs:refreshes").len()), (logins, 1), "refreshed, not signed in again");
+    }
+    t.call("bluesky", "repost", json!({"id": first["id"]}), Some("repost:bs")).await.unwrap();
+    assert!(t.net().list("bs:records").iter().any(|x| x["collection"] == "app.bsky.feed.like" && x["record"]["subject"]["cid"] == first["cid"]));
+    // A direct message through the chat service.
+    t.call("bluesky", "send_message", json!({"to": "did:plc:ana", "text": "Hello", "author": "ana.bsky.test"}), Some("reply:bs-dm")).await.unwrap();
+    assert_eq!(t.net().list("bs:chats")[0]["convo"], "convo-did:plc:ana");
+    let m = t.call("bluesky", "metrics", json!({"id": first["id"], "account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!(m["engagements"], 9);
+    let a = t.call("bluesky", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!(a["followers"], 77);
+    t.call("bluesky", "delete", json!({"id": got["id"]}), Some(&format!("delete:{lost}"))).await.unwrap();
+    assert!(!t.net().list("bs:records").iter().any(|x| x["uri"] == got["id"]));
 }
