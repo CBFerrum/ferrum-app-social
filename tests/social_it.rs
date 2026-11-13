@@ -593,19 +593,32 @@ async fn scenario() {
     let spring = t.insert(&author, "SocialPost", tagged("Spring is here", &[nw_key, nw_page, nw_pia], "Spring launch")).await;
     let spring_id = uid(&spring["id"]);
     assert_eq!((spring["author"].as_str(), spring["status"].as_str()), (Some("author@brands.test"), Some("Draft")));
+    // The package's approval policy reproduces 0.7.0's rule: one step, a Social Approver, never the author (who asks).
     let go = |id: Uuid| {
         let (t, author, approver) = (&t, &author, &approver);
         async move {
-            t.act(author, "SocialPost", id, "send_for_review", Value::Null).await.unwrap();
-            refused(t.act(author, "SocialPost", id, "approve", Value::Null).await, "forbidden", "");
-            t.act(approver, "SocialPost", id, "approve", Value::Null).await.expect("approved");
+            let asked = t.act(author, "SocialPost", id, "send_for_review", Value::Null).await.unwrap();
+            assert_eq!(asked["approval"]["steps"][0]["label"], "Social Approver", "{asked}");
+            refused(t.k.decide_approval(author, "SocialPost", id, true, None).await, "forbidden", "");
+            t.k.decide_approval(approver, "SocialPost", id, true, None).await.expect("approved");
+            assert!(matches!(t.get("SocialPost", id).await["status"].as_str(), Some("Approved" | "Sending")));
         }
     };
     t.act(&author, "SocialPost", spring_id, "send_for_review", Value::Null).await.unwrap();
-    refused(t.act(&approver, "SocialPost", spring_id, "reject", json!({"note": " "})).await, "invalid", "says why");
-    t.act(&approver, "SocialPost", spring_id, "reject", json!({"note": "Say which colours"})).await.unwrap();
+    assert_eq!(t.get("SocialPost", spring_id).await["status"], "In Review");
+    refused(t.act(&approver, "SocialPost", spring_id, "approve", Value::Null).await, "invalid", "decided in its approval");
+    assert!(t.k.decide_approval(&approver, "SocialPost", spring_id, false, Some(" ")).await.unwrap_err().to_string().contains("reason"));
+    t.k.decide_approval(&approver, "SocialPost", spring_id, false, Some("Say which colours")).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
+    let sent_back = t.get("SocialPost", spring_id).await;
+    assert_eq!((sent_back["status"].as_str(), sent_back["review_note"].as_str()), (Some("Rejected"), Some("Say which colours")), "the approver's words");
     t.act(&author, "SocialPost", spring_id, "send_for_review", Value::Null).await.unwrap();
-    t.act(&approver, "SocialPost", spring_id, "approve", Value::Null).await.unwrap();
+    // A change while it waits voids what was decided so far: the policy asks again.
+    t.k.update(&author, "SocialPost", spring_id, obj(json!({"text": "Spring is here."})), None).await.unwrap();
+    t.k.decide_approval(&approver, "SocialPost", spring_id, true, None).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
+    let approved = t.get("SocialPost", spring_id).await;
+    assert_eq!((approved["status"].as_str(), approved["approved_by"].as_str()), (Some("Approved"), Some("approver@brands.test")), "who approved it, read back");
     t.k.update(&author, "SocialPost", spring_id, obj(json!({"text": "Spring is here!"})), None).await.unwrap();
     assert_eq!(t.get("SocialPost", spring_id).await["status"], "Draft", "changed words need approving again");
     go(spring_id).await;
@@ -955,11 +968,8 @@ async fn scenario() {
     let draft = t.insert(&author, "SocialPost", draft).await;
     assert!(draft["scheduled_at"].is_null(), "a draft needs no time");
     assert_eq!(t.act(&author, "SocialPost", uid(&draft["id"]), "publish_now", Value::Null).await.unwrap()["status"], "In Review");
-    assert_eq!(
-        t.act(&approver, "SocialPost", uid(&draft["id"]), "approve", Value::Null).await.unwrap()["status"],
-        "Sending",
-        "approved after its time: at once"
-    );
+    t.k.decide_approval(&approver, "SocialPost", uid(&draft["id"]), true, None).await.unwrap();
+    assert_eq!(t.get("SocialPost", uid(&draft["id"])).await["status"], "Sending", "approved after its time: at once");
     t.work().await;
     ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
     assert_eq!(t.get("SocialPost", uid(&draft["id"])).await["status"], "Published");
@@ -1126,6 +1136,51 @@ async fn scenario() {
     let snippet = t.insert(&author, "SocialSnippet", json!({"snippet_name": "Spring tags", "kind": "Hashtags", "text": "#spring #northwind"})).await;
     assert_eq!(snippet["kind"], "Hashtags");
 
+    // ───────────── a review link: someone outside looks, comments, asks for changes ─────────────
+    let review = t.insert(&author, "SocialPost", tagged("For the client", &[nw_key, nw_words], "Client review")).await;
+    let review_id = uid(&review["id"]);
+    go(review_id).await;
+    let link = t
+        .act(&author, "SocialPost", review_id, "review_link", json!({"email": "client@else.example", "name": "Cleo", "decide": true, "days": 3}))
+        .await
+        .unwrap();
+    let url = link["url"].as_str().unwrap().to_string();
+    let token = url.rsplit('/').next().unwrap().to_string();
+    let preview = t.get("SocialPost", review_id).await["preview"].as_str().unwrap().to_string();
+    assert!(
+        preview.contains("Northwind Chirp · Chirp") && preview.contains("Northwind Words · Chirp Words") && preview.contains("For the client"),
+        "{preview}"
+    );
+    let page = t.k.link_page("brands", &token).await.unwrap().expect("the page");
+    let page = serde_json::to_value(&page).unwrap();
+    assert!(page.to_string().contains("For the client"), "{page}");
+    let use_link = |action: &str, comment: Option<&str>| {
+        let (t, token) = (&t, token.clone());
+        let mut params = serde_json::Map::new();
+        if let Some(c) = comment {
+            params.insert("comment".into(), json!(c));
+        }
+        let action = action.to_string();
+        async move { t.k.use_link("brands", &token, &action, &params, None).await }
+    };
+    use_link("review_comment", Some("Lovely colours")).await.unwrap();
+    use_link("review_changes", Some("Say spring, not Spring")).await.unwrap();
+    let back = t.get("SocialPost", review_id).await;
+    assert_eq!(
+        (back["status"].as_str(), back["review_note"].as_str()),
+        (Some("Rejected"), Some("Cleo: Say spring, not Spring")),
+        "asking for changes sends it back"
+    );
+    let said = t.rows("SocialReview", json!({"post": review_id.to_string()})).await;
+    assert_eq!(said.len(), 2);
+    assert!(said.iter().all(|r| r["reviewer"] == "client@else.example" && r["reviewer_name"] == "Cleo"), "{said:?}");
+    let mailed = t.k.message_log(&t.admin, Some(("SocialPost", review_id)), None, 10).await.unwrap();
+    assert!(mailed.iter().any(|m| m.to_string().contains("client@else.example")), "{mailed:?}");
+    assert!(!serde_json::to_string(&mailed).unwrap().contains(&token), "the link is kept masked");
+    let only_view = t.act(&author, "SocialPost", review_id, "review_link", json!({})).await.unwrap();
+    let other = only_view["url"].as_str().unwrap().rsplit('/').next().unwrap().to_string();
+    assert!(t.k.use_link("brands", &other, "review_approve", &serde_json::Map::new(), None).await.is_err(), "a link without a say decides nothing");
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});
@@ -1268,6 +1323,10 @@ async fn scenario() {
     assert_ne!(t.get("SocialReply", reply_id).await["text"], "Thank you!");
     let rest = t.rows("SocialMessage", json!({"author": "bo"})).await;
     assert_eq!(rest[0]["text"], "@northwind_words see this", "others' messages stay");
+    // And what someone said through a review link.
+    t.k.erase_personal_data(&t.admin, "client@else.example", "asked to be forgotten").await.unwrap();
+    let reviews = t.rows("SocialReview", json!({"post": review_id.to_string()})).await;
+    assert!(reviews.iter().all(|r| r["reviewer"] != "client@else.example" && r["text"] != "Lovely colours"), "{reviews:?}");
 
     // ───────────── numbers, by day, named by what they are ─────────────
     let reads = t.net.lock().unwrap().reads;

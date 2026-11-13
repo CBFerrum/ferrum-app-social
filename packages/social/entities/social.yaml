@@ -161,6 +161,8 @@
     - {name: origin, type: link, to: SocialPost, read_only: true, no_copy: true, label: Copied From}
     - {name: add_signature, type: check, default: false, label: Add the Signature, description: "Adds, at the end of each account's words, the signature named below, else the account's default, else its brand's, else the workspace's; never twice"}
     - {name: signature, type: link, to: SocialSignature}
+    - {name: approval_request, type: data, read_only: true, no_copy: true, hidden: true, description: "The platform's approval request its review asked for last"}
+    - {name: preview, type: text, read_only: true, no_copy: true, label: As It Goes Out, description: "What each account gets, as a review link shows it: made when a review link is given"}
   actions:
     - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
     - {name: approve, label: Approve It, permission: write, condition: "doc.status == 'In Review'"}
@@ -173,6 +175,11 @@
     - {name: duplicate, label: Duplicate, permission: write}
     - {name: stop_repeat, label: Stop Repeating, permission: write, condition: "!isEmpty(doc.repeat_every)"}
     - {name: save_as_template, label: Save as Template, permission: read, params: [{name: name, type: data, label: Template Name, required: true}]}
+    - {name: review, label: Approve Under the Policy, permission: write, hidden: true, condition: "doc.status == 'In Review'"}
+    - {name: review_link, label: Review Link, permission: write, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", params: [{name: email, type: data, label: Send It To}, {name: name, type: data, label: Their Name}, {name: decide, type: check, label: They May Approve or Ask for Changes}, {name: days, type: int, label: Works For (Days)}, {name: uses, type: int, label: Uses}]}
+    - {name: review_comment, label: Comment, permission: write, hidden: true, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", condition_message: "{{ doc.headline }} has gone out already", params: [{name: comment, type: text, label: Your Comment, required: true}, {name: reviewer, type: data, label: Reviewer}, {name: reviewer_name, type: data, label: Reviewer's Name}]}
+    - {name: review_approve, label: Approve, permission: write, hidden: true, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", condition_message: "{{ doc.headline }} has gone out already", params: [{name: comment, type: text, label: Anything to Add}, {name: reviewer, type: data, label: Reviewer}, {name: reviewer_name, type: data, label: Reviewer's Name}]}
+    - {name: review_changes, label: Ask for Changes, permission: write, hidden: true, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", condition_message: "{{ doc.headline }} has gone out already", params: [{name: comment, type: text, label: What to Change, required: true}, {name: reviewer, type: data, label: Reviewer}, {name: reviewer_name, type: data, label: Reviewer's Name}]}
   list: {columns: [headline, brand, scheduled_at, status], sort: scheduled_at desc}
 
 - name: SocialPostingTime
@@ -389,3 +396,19 @@
     - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true}
     - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true}
   list: {columns: [variable_name, value, brand, account], sort: variable_name asc}
+
+- name: SocialReview
+  label: Review
+  label_plural: Reviews
+  kind: master
+  module: social
+  title_field: reviewer_name
+  description: "What someone said of a post through its review link: a comment, an approval, or changes asked for (which send the post back)."
+  fields:
+    - {name: post, type: link, to: SocialPost, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: reviewer, type: data, read_only: true, in_list: true, description: "The address the link was given for"}
+    - {name: reviewer_name, type: data, read_only: true, in_list: true, label: Name}
+    - {name: outcome, type: select, options: [Comment, Approved, Changes Asked], read_only: true, in_list: true, in_filter: true}
+    - {name: text, type: text, read_only: true}
+    - {name: at, type: datetime, read_only: true, in_list: true}
+  list: {columns: [post, reviewer_name, outcome, at], sort: at desc}

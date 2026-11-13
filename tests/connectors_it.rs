@@ -583,7 +583,7 @@ async fn scenario() {
         let (t, author, approver) = (&t, &author, &approver);
         async move {
             t.k.run_action(author, "SocialPost", id, "send_for_review", Value::Null).await.unwrap();
-            t.k.run_action(approver, "SocialPost", id, "approve", Value::Null).await.unwrap();
+            t.k.decide_approval(approver, "SocialPost", id, true, None).await.unwrap();
         }
     };
     let later = Utc::now() + Duration::hours(3);
