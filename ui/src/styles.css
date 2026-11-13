@@ -186,3 +186,15 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* A place in the queue: a time, and what is in it. */
+.cal-place-row {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.cal-place-row[data-over] {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
