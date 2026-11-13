@@ -107,7 +107,8 @@ this release: connections made from the shipped descriptions, administrators tol
   `accounts::person`, `upgrade`), `job` (a publication's job by its key: `posts::mark_sent`), `record_tag` (the
   report by tag), `tenant` (the active workspaces: the upkeep), and 0.6's `connection` (the upgrade). Each would go
   with a kernel call taking the caller's transaction.
-- The screens for all of 0.8.0 (docs/interface-notes.md): the generic record forms show the new fields and actions.
+- Signing in to a real network, dragging on the calendar and uploading files have not been tried in a browser; the
+  rest of the interface was walked on a local server.
 - Video, documents and carousels go as far as a description's `publish` can upload them in its steps. Link preview and
   native scheduling are recorded but Social always sends at its time itself.
 - The first pull of Mastodon's mentions reads the newest page, not the history.
