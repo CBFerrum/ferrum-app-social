@@ -25,6 +25,7 @@
   ],
   "timeout_ms": 60000,
   "meta": {
+    "label": "Whop",
     "carries": {
       "network": "Whop",
       "provider": "whop"

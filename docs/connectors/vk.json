@@ -38,6 +38,7 @@
     "concurrent": 1
   },
   "meta": {
+    "label": "VK",
     "carries": {
       "network": "VK",
       "provider": "vk"

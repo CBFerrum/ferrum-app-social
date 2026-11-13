@@ -22,6 +22,7 @@
     "concurrent": 6
   },
   "meta": {
+    "label": "Bluesky",
     "carries": {
       "network": "Bluesky",
       "provider": "bluesky",

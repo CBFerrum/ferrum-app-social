@@ -36,6 +36,7 @@
     "concurrent": 1
   },
   "meta": {
+    "label": "Twitch",
     "carries": {
       "network": "Twitch",
       "provider": "twitch"

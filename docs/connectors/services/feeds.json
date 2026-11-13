@@ -39,6 +39,7 @@
     }
   },
   "meta": {
+    "label": "Feeds: RSS and Atom",
     "feed": {
       "items_at": [
         "/rss/channel/item",

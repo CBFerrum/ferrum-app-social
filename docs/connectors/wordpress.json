@@ -10,6 +10,7 @@
   ],
   "timeout_ms": 60000,
   "meta": {
+    "label": "WordPress (your site)",
     "carries": {
       "network": "WordPress",
       "provider": "wordpress",

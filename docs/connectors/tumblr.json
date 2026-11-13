@@ -30,6 +30,7 @@
     "concurrent": 3
   },
   "meta": {
+    "label": "Tumblr",
     "carries": {
       "network": "Tumblr",
       "provider": "tumblr"

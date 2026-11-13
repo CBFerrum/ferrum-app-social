@@ -17,6 +17,7 @@
     "concurrent": 2
   },
   "meta": {
+    "label": "Moltbook",
     "carries": {
       "network": "Moltbook",
       "provider": "moltbook"

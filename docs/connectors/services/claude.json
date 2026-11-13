@@ -31,6 +31,7 @@
     }
   },
   "meta": {
+    "label": "Writing help: Claude",
     "note": "The Claude Messages API. Secret: api_key. It makes no pictures: a picture source is another description offering picture."
   }
 }

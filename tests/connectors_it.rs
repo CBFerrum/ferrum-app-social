@@ -68,6 +68,13 @@ fn the_package_ships_every_description_as_the_file_is() {
         let mut files: Vec<String> = descriptions().into_iter().map(|d| d.0).collect();
         files.sort();
         assert_eq!(names, files, "every description is offered to a workspace: run scripts/ship_connections.py");
+        // (round five) Each is told apart by its label where an administrator and the Accounts screen list them.
+        let mut labels: Vec<&str> = shipped.iter().map(|c| c["label"].as_str().unwrap_or_default()).collect();
+        labels.sort_unstable();
+        let before = labels.len();
+        labels.dedup();
+        assert_eq!(labels.len(), before, "two shipped descriptions have the same label");
+        assert!(labels.iter().all(|l| !l.trim().is_empty()));
         for c in shipped {
             let name = c["name"].as_str().unwrap();
             let path = descriptions().into_iter().find(|d| d.0 == name).unwrap().1;
