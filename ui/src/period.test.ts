@@ -19,3 +19,17 @@ describe("the numbers page's arithmetic", () => {
     expect(toCsv([{ name: "a", label: "Name" }, { name: "b" }], [{ a: "x, y", b: "=1+1" }, { a: 'say "hi"', b: 3 }])).toBe("Name,b\n\"x, y\",'=1+1\n\"say \"\"hi\"\"\",3");
   });
 });
+
+describe("native posts among the numbers", () => {
+  const name = (id: string) => ({ a1: "North Social" })[id] ?? id;
+  it("top posts: the report's and the native ones together by the number chosen, native marked", async () => {
+    const { mergeTop, nativeByAccount } = await import("./period");
+    const report = [{ post: "Spring launch", account: "North Social", sent_at: "2030-06-02T10:00:00Z", permalink: null, impressions: 100, engagements: 20, clicks: 3 }];
+    const natives = [{ id: "n1", account: "a1", text: "Posted from the phone", sent_at: "2030-06-03T10:00:00Z", impressions: 900, engagements: 55, clicks: 1, permalink: "https://net.example/p/1" }];
+    const top = mergeTop(report, natives, name, "engagements");
+    expect(top.map((r) => [r.post, r.native])).toEqual([["Posted from the phone", "n1"], ["Spring launch", undefined]]);
+    expect(mergeTop(report, natives, name, "clicks").map((r) => r.post)).toEqual(["Spring launch", "Posted from the phone"]);
+    expect(mergeTop(report, natives, name, "engagements", 1)).toHaveLength(1);
+    expect(nativeByAccount([...natives, { ...natives[0], id: "n2", engagements: 5 }], name)).toEqual([{ account: "North Social", posts: 2, impressions: 1800, engagements: 60, clicks: 2 }]);
+  });
+});

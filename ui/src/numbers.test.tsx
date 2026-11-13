@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { NumbersRoute } from "./Numbers";
+import { NativeRoute } from "./PostNumbers";
 import { draw, fakeServer, settle, until } from "./testkit";
 
 afterEach(() => {
@@ -13,6 +14,7 @@ afterEach(() => {
 });
 
 const col = (name: string, label: string, type = "int") => ({ name, label, type });
+const native = { id: "n1", account: "a1", native: true, text: "Posted from the phone", sent_at: "2030-06-03T10:00:00Z", impressions: 9000, engagements: 500, clicks: 1, permalink: "https://net.example/p/1" };
 const reports = (extra: Parameters<typeof fakeServer>[0] = []) =>
   fakeServer([
     ...extra,
@@ -28,6 +30,10 @@ const reports = (extra: Parameters<typeof fakeServer>[0] = []) =>
     ["GET", "/api/reports/social_by_kind", { columns: [col("kind", "Kind", "data")], rows: [{ kind: "post" }] }],
     ["GET", "/api/reports/social_top_posts", { columns: [col("headline", "Post", "data"), col("engagements", "Engagements")], rows: [{ headline: "Spring launch", engagements: 120 }] }],
     ["GET", "/api/reports/social_best_times", { columns: [col("hour", "Hour", "data")], rows: [{ hour: "09:00" }] }],
+    ["GET", "/api/v1/SocialPublication/n1", native],
+    ["GET", "/api/v1/SocialPublication", { rows: [native] }],
+    ["GET", "/api/v1/SocialAccount", { rows: [{ id: "a1", account_name: "North Social", brand: "b1" }] }],
+    ["GET", "/api/v1/SocialInsight", { rows: [] }],
     ["GET", "/api/v1/SocialBrand", { rows: [{ id: "b1", brand_name: "Northwind" }] }],
   ]);
 
@@ -66,5 +72,31 @@ describe("numbers", () => {
     const host = await draw(<NumbersRoute />, "/numbers", "/numbers");
     await until(() => host.textContent!.includes("Spring launch"));
     expect(host.textContent).toMatch(/access to this/);
+  });
+});
+
+describe("posts made on the network", () => {
+  it("are among the top posts with a mark and a link to their numbers, and in a table of their own by account", async () => {
+    const fake = reports();
+    const host = await draw(<NumbersRoute />, "/numbers", "/numbers");
+    await until(() => host.textContent!.includes("Posted from the phone"));
+    const link = host.querySelector<HTMLAnchorElement>('a[href="/native/n1"]');
+    expect(link).toBeTruthy();
+    expect(link!.parentElement!.textContent).toContain("Made on the network");
+    // the native one (500) outranks the report's (120)
+    const rowsText = [...host.querySelectorAll('section[aria-label="Top posts"] tbody tr')].map((r) => r.textContent);
+    expect(rowsText[0]).toContain("Posted from the phone");
+    expect(host.querySelector('section[aria-label="Made on the network"]')?.textContent).toContain("North Social");
+    expect(fake.seen.some((s) => s.line.includes("SocialPublication") && decodeURIComponent(s.line).includes('"native","=",true'))).toBe(true);
+  });
+
+  it("opening one shows its numbers and where it is, not the composer", async () => {
+    reports();
+    const host = await draw(<NativeRoute />, "/native/:id", "/native/n1");
+    await until(() => host.textContent!.includes("Posted from the phone"));
+    expect(host.textContent).toContain("Made on the network");
+    expect(host.textContent).toContain("9,000");
+    expect(host.querySelector("#post-headline")).toBeNull();
+    expect(host.querySelector('a[href="https://net.example/p/1"]')).toBeTruthy();
   });
 });

@@ -6,11 +6,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, formatDecimal, formatMoment, isolate, t, todayIso } from "@ferrum/client";
-import { Button, EmptyState, Field, ListSkeleton, PageHead, PageStack, Stat, StatGrid } from "@ferrum/kit";
+import { Badge, Button, EmptyState, Field, ListSkeleton, PageHead, PageStack, Stat, StatGrid } from "@ferrum/kit";
 import { type Row, text } from "./data";
-import { before, changeText, lastDays, toCsv } from "./period";
+import { before, changeText, lastDays, mergeTop, nativeByAccount, toCsv, type TopRow } from "./period";
 import { Line } from "./PostNumbers";
-import { Await, Nav, useBrands } from "./ui";
+import { Link } from "react-router";
+import { Await, Nav, useAccounts, useBrands } from "./ui";
+import { rows } from "./data";
 
 interface Report {
   columns: { name: string; label?: string; type?: string }[];
@@ -103,12 +105,80 @@ function Followers({ params }: { params: Record<string, string> }) {
   );
 }
 
+/** Posts made on the network itself and read back (publications with no post of ours) in the period, for the brand chosen. */
+const useNatives = (params: Record<string, string>) =>
+  useQuery({
+    queryKey: ["social", "natives", params],
+    queryFn: () => rows("SocialPublication", [["native", "=", true], ["sent_at", "between", [`${params.from_date}T00:00:00Z`, `${params.to_date}T23:59:59Z`]], ...(params.brand ? [["account.brand", "=", params.brand] as [string, string, unknown]] : [])], { sort: "sent_at desc" }).catch(() => [] as Row[]),
+  });
+
+const MADE = () => t("Made on the network");
+
+/** The top posts: the report's, with the native posts of the period among them by the same number. A native one opens its numbers, not the composer. */
+function TopPosts({ params, by, onBy }: { params: Record<string, string>; by: "engagements" | "impressions" | "clicks"; onBy: (b: "engagements" | "impressions" | "clicks") => void }) {
+  const report = useReport("social_top_posts", { ...params, by, limit: "10" });
+  const natives = useNatives(params);
+  const accounts = useAccounts();
+  const nameOf = (id: string) => text(accounts.data?.find((a) => a.id === id)?.account_name) || id;
+  const merged: TopRow[] = report.data ? mergeTop(report.data.rows, natives.data ?? [], nameOf, by) : [];
+  return (
+    <section className="card card-body stack" aria-label={t("Top posts")}>
+      <div className="row">
+        <h2 className="section-title spacer">{t("Top posts")}</h2>
+        <select className="select" aria-label={t("Top posts by")} value={by} onChange={(e) => onBy(e.target.value as typeof by)}><option value="engagements">{t("By engagements")}</option><option value="impressions">{t("By impressions")}</option><option value="clicks">{t("By clicks")}</option></select>
+      </div>
+      <Await q={report} skeleton={<ListSkeleton rows={3} />}>
+        {() =>
+          merged.length === 0 ? (
+            <p className="muted">{t("Nothing in this period.")}</p>
+          ) : (
+            <div className="table-wrap" tabIndex={0} role="region" aria-label={t("Top posts")}>
+              <table className="table">
+                <thead><tr><th scope="col">{t("Post")}</th><th scope="col">{t("Account")}</th><th scope="col">{t("Sent")}</th><th scope="col" className="num">{t("Impressions")}</th><th scope="col" className="num">{t("Engagements")}</th><th scope="col" className="num">{t("Clicks")}</th></tr></thead>
+                <tbody>
+                  {merged.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.native ? <Link to={`/native/${r.native}`}>{isolate(r.post || t("A post on the network"))}</Link> : isolate(r.post)} {r.native && <Badge tone="purple">{MADE()}</Badge>}</td>
+                      <td>{isolate(r.account)}</td>
+                      <td>{cell(r.sent_at, "datetime")}</td>
+                      <td className="num">{formatDecimal(r.impressions, 0)}</td>
+                      <td className="num">{formatDecimal(r.engagements, 0)}</td>
+                      <td className="num">{formatDecimal(r.clicks, 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+      </Await>
+    </section>
+  );
+}
+
+/** What was made on the network itself, by account. */
+function NativeByAccount({ params }: { params: Record<string, string> }) {
+  const natives = useNatives(params);
+  const accounts = useAccounts();
+  const list = nativeByAccount(natives.data ?? [], (id) => text(accounts.data?.find((a) => a.id === id)?.account_name) || id);
+  if (!list.length) return null;
+  return (
+    <section className="card card-body stack" aria-label={MADE()}>
+      <h2 className="section-title">{MADE()}</h2>
+      <table className="table">
+        <thead><tr><th scope="col">{t("Account")}</th><th scope="col" className="num">{t("Posts out")}</th><th scope="col" className="num">{t("Impressions")}</th><th scope="col" className="num">{t("Engagements")}</th><th scope="col" className="num">{t("Clicks")}</th></tr></thead>
+        <tbody>{list.map((r) => <tr key={r.account}><td>{isolate(r.account)}</td><td className="num">{formatDecimal(r.posts, 0)}</td><td className="num">{formatDecimal(r.impressions, 0)}</td><td className="num">{formatDecimal(r.engagements, 0)}</td><td className="num">{formatDecimal(r.clicks, 0)}</td></tr>)}</tbody>
+      </table>
+    </section>
+  );
+}
+
 export function NumbersRoute() {
   const brands = useBrands();
   const [days, setDays] = useState(28);
   const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
   const [brand, setBrand] = useState("");
-  const [by, setBy] = useState("engagements");
+  const [by, setBy] = useState<"engagements" | "impressions" | "clicks">("engagements");
   const span = custom ?? lastDays(days);
   const params: Record<string, string> = { from_date: span.from, to_date: span.to, ...(brand ? { brand } : {}) };
   const compare = useReport("social_period_compare", params);
@@ -152,8 +222,8 @@ export function NumbersRoute() {
       <Table name="social_by_network" title={t("By network")} params={params} />
       <Table name="social_by_account" title={t("By account")} params={params} />
       <Table name="social_by_kind" title={t("By kind of post")} params={params} />
-      <Table name="social_top_posts" title={t("Top posts")} params={{ ...params, by, limit: "10" }}
-        extra={<select className="select" aria-label={t("Top posts by")} value={by} onChange={(e) => setBy(e.target.value)}><option value="engagements">{t("By engagements")}</option><option value="impressions">{t("By impressions")}</option><option value="clicks">{t("By clicks")}</option></select>} />
+      <NativeByAccount params={params} />
+      <TopPosts params={params} by={by as "engagements"} onBy={setBy} />
       <Table name="social_best_times" title={t("Best times to post")} params={params} />
     </PageStack>
   );
