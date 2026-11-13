@@ -220,8 +220,8 @@ a first connection to each is the first time its real answers are read.
 
 ## What they still cannot do
 
-* **Mastodon**: a mention is a Mention (the old connector told a comment from a mention by comparing the status's
-  parent with the account's own id, which a mapping cannot); the account's own native posts are not read back (the path
+* **Mastodon**: (round three) a mention answering one of the brand's posts is now kept as a Comment (Social compares
+  what it answers with its publications); the account's own native posts are not read back (the path
   needs the account's id from an earlier call); the first pull reads the newest page, not the history; each app is
   registered by hand at the server (its registration is not RFC 7591's).
 * **Bluesky**: a link is a card, or text when there is a picture (a clickable link is a facet with byte offsets, which a

@@ -757,7 +757,11 @@ async fn scenario() {
     assert_eq!(inbox.len(), 2, "read after the wait: {inbox:?}");
     let bo = inbox.iter().find(|m| m["author"] == "bo").unwrap();
     let cy = inbox.iter().find(|m| m["author"] == "cy").unwrap();
-    assert_eq!((bo["kind"].as_str(), cy["kind"].as_str()), (Some("Mention"), Some("Direct")), "a private status is a direct message");
+    assert_eq!(
+        (bo["kind"].as_str(), cy["kind"].as_str()),
+        (Some("Comment"), Some("Direct")),
+        "(round three) a mention answering our post is a comment; a private status is a direct message"
+    );
     assert_eq!(bo["text"], "Is it vegan & local?", "the markup of a server that sends HTML is read as the words it holds");
     assert_eq!(uid(&bo["account"]), on_mastodon, "found by the post it answers");
     assert_eq!(uid(&cy["account"]), on_mastodon, "found by the one account its connection reaches");
