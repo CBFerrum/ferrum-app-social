@@ -70,8 +70,8 @@ const field = (host: HTMLElement, id: string) => host.querySelector<HTMLElement>
 
 describe("the composer", () => {
   it("a new post: choose an account, write, see the count, save with the record's shape", async () => {
-    const fake = server([["POST", "/api/v1/SocialPost", { id: "p9", version: 1, status: "Draft" }]]);
-    const host = await draw(<ComposerRoute />, "/compose", "/compose");
+    const fake = server([["POST", "/api/v1/SocialPost", { id: "p9", version: 1, status: "Draft" }], ["GET", "/api/v1/SocialPost/p9", { id: "p9", version: 1, headline: "Spring", brand: "b1", text: "Spring!", status: "Draft", targets: [{ account: "x" }] }], ["GET", "/api/v1/SocialPost/p9/tags", { tags: [] }]]);
+    const host = await draw(<ComposerRoute />, "/compose/:id?", "/compose");
     await press(host.querySelector<HTMLInputElement>("input[type=checkbox]")!);
     await until(() => !!field(host, "original-item-0"));
     await type(field(host, "post-headline"), "Spring");

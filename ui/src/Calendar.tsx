@@ -12,6 +12,7 @@ import { bootstrap, currentLanguage, formatMoment, fromZonedInput, isolate, refu
 import { Alert, Badge, Button, ButtonLink, Dialog, Field, ListSkeleton, PageHead, PageStack, StatePanel, StatusBadge, toast } from "@ferrum/kit";
 import { addDays, arrowDay, byDay, dayOf, daysOf, moveToDay, type PostingTime, rangeOf, shift, type Slot, slotsOn, timeOf, type View } from "./days";
 import { type Filter, POST_TONES, record, type Row, rows, run, statusWord, text } from "./data";
+import { PostNumbers } from "./PostNumbers";
 import { Await, brandName, Face, firstOf, Nav, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
 
 const FIELDS = "headline,status,scheduled_at,brand,targets,repeat_every,repeat_unit,repeat_until,repeat_count,repeat_index,repeat_of,waiting_for,failure";
@@ -204,6 +205,7 @@ export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: stri
                 </ul>
               )}
             </Await>
+            {["Published", "Sending", "Failed"].includes(status) && <PostNumbers post={id} accounts={accounts} />}
             {canWrite && MOVABLE.includes(status) && (
               <div className="row">
                 <Field label={t("Move to…")} htmlFor="ql-move">
