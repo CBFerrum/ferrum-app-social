@@ -3,3 +3,71 @@
 @import "../../../ferrum/web/src/index.css";
 @source "../../../ferrum/web/src";
 @source ".";
+
+/* An account's or a brand's picture, or its initials. */
+.face {
+  flex: none;
+  width: calc(32 / 14 * 1rem);
+  height: calc(32 / 14 * 1rem);
+  border-radius: 999px;
+  object-fit: cover;
+  background: var(--primary-soft);
+}
+.face-initial {
+  display: inline-grid;
+  place-items: center;
+  color: var(--primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.face-sm {
+  width: calc(20 / 14 * 1rem);
+  height: calc(20 / 14 * 1rem);
+}
+
+/* Small pictures of media, and the neutral card a preview draws. */
+.thumb {
+  flex: none;
+  width: calc(48 / 14 * 1rem);
+  height: calc(48 / 14 * 1rem);
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--surface-2);
+}
+.thumb-kind {
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  overflow: hidden;
+}
+.preview-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.preview-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.preview-follow {
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--border-strong);
+}
+.preview-media {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(96 / 14 * 1rem), 1fr));
+  gap: 4px;
+}
+.preview-media img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+.mark {
+  background: transparent;
+  color: var(--primary);
+}

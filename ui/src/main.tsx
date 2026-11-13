@@ -1,5 +1,5 @@
-// Social's own interface at /social/: posts by day, what waits for approval, the inbox and what posts did, with every
-// record in the records frame's lists and forms.
+// Social's own interface at /social/: the composer, the calendar, posting times and accounts, posts by day, what waits for
+// approval, the inbox and what posts did, with every other record in the records frame's lists and forms.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode, useEffect } from "react";
@@ -8,12 +8,11 @@ import { createBrowserRouter, Link, RouterProvider, useRouteError } from "react-
 import { addCatalogs, routeBase, shell, t, wordsReady } from "@ferrum/client";
 import { ConfirmHost, EmptyState, ErrorState, Toaster } from "@ferrum/kit";
 import { RequireAuth, setFrameMode } from "@ferrum/records/frame";
+import { routes } from "./routes";
 import "./styles.css";
 
 // Its own words in the page's language (src/locales), fetched as the page starts; it is drawn once they are in.
 void addCatalogs({ ar: () => import("./locales/ar.json"), hi: () => import("./locales/hi.json") });
-
-const page = (name: "FormView" | "ListView" | "ReportView" | "AppSettingsPage" | "ScreenPage") => () => import("./records").then((m) => ({ Component: m[name] }));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: 5_000 } } });
 
@@ -48,12 +47,7 @@ const router = createBrowserRouter(
       ),
       errorElement: <RouteError />,
       children: [
-        { index: true, lazy: () => import("./Home").then((m) => ({ Component: m.Home })) },
-        { path: "e/:entity", lazy: page("ListView") },
-        { path: "e/:entity/:id", lazy: page("FormView") },
-        { path: "r/:name", lazy: page("ReportView") },
-        { path: "apps/:app/settings", lazy: page("AppSettingsPage") },
-        { path: "x/:app/:page", lazy: page("ScreenPage") },
+        ...routes,
         { path: "*", element: <NotFound /> },
       ],
     },
