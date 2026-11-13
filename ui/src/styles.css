@@ -204,3 +204,28 @@
   opacity: 0.55;
   transition: opacity var(--duration-state);
 }
+
+/* The media library's grid. */
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(180 / 14 * 1rem), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.media-grid > li[data-picked] {
+  border-color: var(--primary);
+}
+.media-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.media-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

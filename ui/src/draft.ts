@@ -21,6 +21,8 @@ export interface MediaState {
   height?: number;
   seconds?: number;
   bytes?: number;
+  /** The library asset it was taken from; the server fills from it what the line leaves empty. */
+  asset?: string;
 }
 export interface ItemState {
   key: string;
@@ -114,7 +116,7 @@ const lines = (v: unknown): Row[] => (Array.isArray(v) ? (v as Row[]) : []);
 
 function mediaOf(r: Row): MediaState {
   const file = str(r.file);
-  return { key: keyed(), file, name: file.split("/").pop() ?? file, kind: str(r.kind), alt: str(r.alt), thumbnail: str(r.thumbnail), width: num(r.width), height: num(r.height), seconds: num(r.seconds) };
+  return { key: keyed(), file, name: file.split("/").pop() ?? file, kind: str(r.kind), alt: str(r.alt), thumbnail: str(r.thumbnail), width: num(r.width), height: num(r.height), seconds: num(r.seconds), asset: str(r.asset) || undefined };
 }
 
 /** The content one account (or the original, `account` empty) has: its words, then its follow-ups, with the media lines laid on the items they name. */
@@ -158,6 +160,7 @@ const mediaRow = (m: MediaState, item: number, account: string) => ({
   ...(account ? { account } : {}),
   item,
   file: m.file,
+  ...(m.asset ? { asset: m.asset } : {}),
   kind: m.kind,
   alt: m.alt,
   thumbnail: m.thumbnail || null,
@@ -209,4 +212,10 @@ export function toRecord(d: Draft, brand: string | null, rules: Record<string, R
     items,
     media,
   };
+}
+
+/** A library asset (SocialMediaAsset) as a medium of a post. */
+export function mediumOfAsset(a: Row): MediaState {
+  const n = (v: unknown) => (typeof v === "number" ? v : v == null || v === "" ? undefined : Number(v));
+  return { key: keyed(), file: str(a.file), name: str(a.asset_name) || str(a.file), kind: str(a.kind), type: str(a.content_type) || undefined, alt: str(a.alt), thumbnail: "", width: n(a.width), height: n(a.height), seconds: n(a.seconds), bytes: n(a.bytes), asset: a.id };
 }

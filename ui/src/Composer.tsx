@@ -421,6 +421,7 @@ export function ComposerRoute() {
                       snippets={snippets}
                       variables={names}
                       locked={locked}
+                      brand={brand}
                       mentionAccount={here ? (rules[here].mentions ? here : null) : (chosen.find((a) => rules[a].mentions) ?? null)}
                     />
                     {wantsComment && (
