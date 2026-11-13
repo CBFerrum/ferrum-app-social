@@ -7,134 +7,473 @@
       "authorize_url": "https://x.com/i/oauth2/authorize",
       "token_url": "https://api.x.com/2/oauth2/token",
       "revoke_url": "https://api.x.com/2/oauth2/revoke",
-      "scopes": ["tweet.read", "tweet.write", "users.read", "media.write", "like.write", "dm.read", "dm.write", "offline.access"],
+      "scopes": [
+        "tweet.read",
+        "tweet.write",
+        "users.read",
+        "media.write",
+        "like.write",
+        "dm.read",
+        "dm.write",
+        "offline.access"
+      ],
       "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
       "client_secret": "client_secret",
       "client_auth": "basic",
-      "after": ["me"],
-      "keep": ["user_id", "username"],
+      "after": [
+        "me"
+      ],
+      "keep": [
+        "user_id",
+        "username"
+      ],
       "account_at": "/username"
     }
   },
-  "apps": ["social"],
-  "limit": {"concurrent": 10},
+  "apps": [
+    "social"
+  ],
+  "limit": {
+    "concurrent": 10
+  },
   "meta": {
-    "capabilities": {"name": "X", "max_text": 280, "link_length": 23, "images": true, "max_media": 4, "max_image_bytes": 5242880, "alt_text": true, "first_comment": true},
+    "capabilities": {
+      "name": "X",
+      "max_text": 280,
+      "link_length": 23,
+      "images": true,
+      "max_media": 4,
+      "max_image_bytes": 5242880,
+      "alt_text": true,
+      "first_comment": true
+    },
     "social": {
       "name": "X",
-      "text": {"max": 280, "count": "weighted", "link_counts": 23, "format": "plain"},
-      "media": {
-        "kinds": ["image", "video"], "max": 4, "mixes": [{"image": 4}, {"video": 1}],
-        "image": {"max_bytes": 5242880, "types": ["image/jpeg", "image/png", "image/webp", "image/gif"]},
-        "video": {"max_bytes": 536870912, "types": ["video/mp4", "video/quicktime"], "min_seconds": 0.5, "max_seconds": 140},
-        "alt": true, "alt_max": 1000
+      "text": {
+        "max": 280,
+        "count": "weighted",
+        "link_counts": 23,
+        "format": "plain"
       },
-      "kinds": [{"name": "post", "label": "Post"}],
-      "follow_ups": {"as": "thread", "media": true, "max": 24},
-      "mentions": {"operation": "mentions", "inputs": {"usernames": "query"}, "items_at": "/data", "value_at": "/username", "label_at": "/name", "picture_at": "/profile_image_url", "format": "@{{ value }}"},
+      "media": {
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "max": 4,
+        "mixes": [
+          {
+            "image": 4
+          },
+          {
+            "video": 1
+          }
+        ],
+        "image": {
+          "max_bytes": 5242880,
+          "types": [
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/gif"
+          ]
+        },
+        "video": {
+          "max_bytes": 536870912,
+          "types": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "min_seconds": 0.5,
+          "max_seconds": 140
+        },
+        "alt": true,
+        "alt_max": 1000
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Post"
+        }
+      ],
+      "follow_ups": {
+        "as": "thread",
+        "media": true,
+        "max": 24
+      },
+      "mentions": {
+        "operation": "mentions",
+        "inputs": {
+          "usernames": "query"
+        },
+        "items_at": "/data",
+        "value_at": "/username",
+        "label_at": "/name",
+        "picture_at": "/profile_image_url",
+        "format": "@{{ value }}"
+      },
       "first_comment": true,
       "link_preview": true
     }
   },
   "operations": {
     "me": {
-      "path": "/2/users/me", "credentials": false, "headers": {"authorization": "Bearer {{ inputs.access_token }}"},
-      "inputs": ["access_token", "refresh_token", "client_id"],
-      "result": {"user_id": "/data/id", "username": "/data/username"}, "error_at": "/detail"
+      "path": "/2/users/me",
+      "credentials": false,
+      "headers": {
+        "authorization": "Bearer {{ inputs.access_token }}"
+      },
+      "inputs": [
+        "access_token",
+        "refresh_token",
+        "client_id"
+      ],
+      "result": {
+        "user_id": "/data/id",
+        "username": "/data/username"
+      },
+      "error_at": "/detail"
     },
     "create_post": {
-      "method": "POST", "path": "/2/tweets",
+      "method": "POST",
+      "path": "/2/tweets",
       "body": "{\"text\": {{ inputs.text | json }}{% if inputs.media %}, \"media\": {\"media_ids\": {{ inputs.media | json }}}{% endif %}{% if inputs.reply_to %}, \"reply\": {\"in_reply_to_tweet_id\": {{ inputs.reply_to | json }}}{% endif %}}",
-      "inputs": ["text", "media", "reply_to"], "result": {"id": {"at": "/data/id", "required": true}}, "error_at": "/detail"
+      "inputs": [
+        "text",
+        "media",
+        "reply_to"
+      ],
+      "result": {
+        "id": {
+          "at": "/data/id",
+          "required": true
+        }
+      },
+      "error_at": "/detail"
     },
     "publish": {
-      "inputs": ["text_with_link", "media", "reply_to"],
-      "steps": [{"name": "post", "operation": "create_post", "inputs": {"text": "inputs.text_with_link", "media": "inputs.media", "reply_to": "inputs.reply_to"}}],
-      "result": {"id": "/post/id", "url": {"expr": "'https://x.com/i/web/status/' + answer.post.id"}}
+      "inputs": [
+        "text_with_link",
+        "media",
+        "reply_to"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "text": "inputs.text_with_link",
+            "media": "inputs.media",
+            "reply_to": "inputs.reply_to"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": {
+          "expr": "'https://x.com/i/web/status/' + answer.post.id"
+        }
+      }
     },
     "reply": {
-      "inputs": ["text", "in_reply_to"],
-      "steps": [{"name": "post", "operation": "create_post", "inputs": {"text": "inputs.text", "reply_to": "inputs.in_reply_to"}}],
-      "result": {"id": "/post/id"}
+      "inputs": [
+        "text",
+        "in_reply_to"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "text": "inputs.text",
+            "reply_to": "inputs.in_reply_to"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id"
+      }
     },
     "media_init": {
-      "method": "POST", "path": "/2/media/upload/initialize",
+      "method": "POST",
+      "path": "/2/media/upload/initialize",
       "body": "{\"media_type\": {{ inputs.media_type | json }}, \"total_bytes\": {{ inputs.total_bytes | json }}, \"media_category\": {{ inputs.media_category | json }}}",
-      "inputs": ["media_type", "total_bytes", "media_category"], "result": {"id": {"at": "/data/id", "required": true}}, "error_at": "/detail",
+      "inputs": [
+        "media_type",
+        "total_bytes",
+        "media_category"
+      ],
+      "result": {
+        "id": {
+          "at": "/data/id",
+          "required": true
+        }
+      },
+      "error_at": "/detail",
       "idempotency_header": "X-Ferrum-Upload-Key"
     },
     "media_append": {
-      "method": "POST", "path": "/2/media/upload/{{ inputs.id }}/append",
-      "form": {"segment_index": "{{ inputs.index }}", "media": {"file": "{{ inputs.file }}", "max_bytes": 4194304}},
-      "inputs": ["id", "index", "file"], "error_at": "/detail", "idempotency_header": "X-Ferrum-Upload-Key"
+      "method": "POST",
+      "path": "/2/media/upload/{{ inputs.id }}/append",
+      "form": {
+        "segment_index": "{{ inputs.index }}",
+        "media": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 4194304
+        }
+      },
+      "inputs": [
+        "id",
+        "index",
+        "file"
+      ],
+      "error_at": "/detail",
+      "idempotency_header": "X-Ferrum-Upload-Key"
     },
     "media_finalize": {
-      "method": "POST", "path": "/2/media/upload/{{ inputs.id }}/finalize", "body": "{}",
-      "inputs": ["id"], "result": {"id": "/data/id", "state": "/data/processing_info/state"}, "error_at": "/detail"
+      "method": "POST",
+      "path": "/2/media/upload/{{ inputs.id }}/finalize",
+      "body": "{}",
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "id": "/data/id",
+        "state": "/data/processing_info/state"
+      },
+      "error_at": "/detail"
     },
     "media_status": {
-      "path": "/2/media/upload", "query": {"command": "STATUS", "media_id": "{{ inputs.id }}"},
-      "inputs": ["id"], "result": {"id": "/data/id", "state": "/data/processing_info/state", "error": "/data/processing_info/error/message"}, "error_at": "/detail"
+      "path": "/2/media/upload",
+      "query": {
+        "command": "STATUS",
+        "media_id": "{{ inputs.id }}"
+      },
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "id": "/data/id",
+        "state": "/data/processing_info/state",
+        "error": "/data/processing_info/error/message"
+      },
+      "error_at": "/detail"
     },
     "media_alt": {
-      "method": "POST", "path": "/2/media/metadata",
+      "method": "POST",
+      "path": "/2/media/metadata",
       "body": "{\"id\": {{ inputs.id | json }}, \"metadata\": {\"alt_text\": {\"text\": {{ inputs.alt | json }}}}}",
-      "inputs": ["id", "alt"], "error_at": "/detail", "idempotency_header": "X-Ferrum-Upload-Key"
+      "inputs": [
+        "id",
+        "alt"
+      ],
+      "error_at": "/detail",
+      "idempotency_header": "X-Ferrum-Upload-Key"
     },
     "publish_media": {
-      "inputs": ["file", "size", "content_type", "alt"],
-      "steps": [
-        {"name": "init", "operation": "media_init", "inputs": {"media_type": "inputs.content_type", "total_bytes": "inputs.size",
-         "media_category": "'tweet_video' if inputs.content_type is startingwith('video/') else ('tweet_gif' if inputs.content_type == 'image/gif' else 'tweet_image')"}},
-        {"name": "append", "operation": "media_append", "chunks": {"file": "inputs.file", "bytes": 4194304, "restart_from": "init"},
-         "inputs": {"id": "steps.init.id", "index": "chunk.index", "file": "inputs.file"}},
-        {"name": "finalize", "operation": "media_finalize", "inputs": {"id": "steps.init.id"},
-         "confirm": {"operation": "media_status", "inputs": {"id": "sent.id"}, "proves": "result.id"}},
-        {"name": "ready", "operation": "media_status", "inputs": {"id": "steps.init.id"}, "when": "steps.finalize.state",
-         "wait": {"until": "result.state == 'succeeded'", "fail_if": "result.state == 'failed'", "every_secs": 5, "within_secs": 900}},
-        {"name": "alt", "operation": "media_alt", "inputs": {"id": "steps.init.id", "alt": "inputs.alt"}, "when": "inputs.alt"}
+      "inputs": [
+        "file",
+        "size",
+        "content_type",
+        "alt"
       ],
-      "result": {"id": "/init/id"}
+      "steps": [
+        {
+          "name": "init",
+          "operation": "media_init",
+          "inputs": {
+            "media_type": "inputs.content_type",
+            "total_bytes": "inputs.size",
+            "media_category": "'tweet_video' if inputs.content_type is startingwith('video/') else ('tweet_gif' if inputs.content_type == 'image/gif' else 'tweet_image')"
+          }
+        },
+        {
+          "name": "append",
+          "operation": "media_append",
+          "chunks": {
+            "file": "inputs.file",
+            "bytes": 4194304,
+            "restart_from": "init"
+          },
+          "inputs": {
+            "id": "steps.init.id",
+            "index": "chunk.index",
+            "file": "inputs.file"
+          }
+        },
+        {
+          "name": "finalize",
+          "operation": "media_finalize",
+          "inputs": {
+            "id": "steps.init.id"
+          },
+          "confirm": {
+            "operation": "media_status",
+            "inputs": {
+              "id": "sent.id"
+            },
+            "proves": "result.id"
+          }
+        },
+        {
+          "name": "ready",
+          "operation": "media_status",
+          "inputs": {
+            "id": "steps.init.id"
+          },
+          "when": "steps.finalize.state",
+          "wait": {
+            "until": "result.state == 'succeeded'",
+            "fail_if": "result.state == 'failed'",
+            "every_secs": 5,
+            "within_secs": 900
+          }
+        },
+        {
+          "name": "alt",
+          "operation": "media_alt",
+          "inputs": {
+            "id": "steps.init.id",
+            "alt": "inputs.alt"
+          },
+          "when": "inputs.alt"
+        }
+      ],
+      "result": {
+        "id": "/init/id"
+      }
     },
-    "delete": {"method": "DELETE", "path": "/2/tweets/{{ inputs.id }}", "inputs": ["id"], "error_at": "/detail"},
-    "repost": {"method": "POST", "path": "/2/users/{{ auth.user_id }}/retweets", "body": "{\"tweet_id\": {{ inputs.id | json }}}", "inputs": ["id"], "error_at": "/detail"},
-    "like": {"method": "POST", "path": "/2/users/{{ auth.user_id }}/likes", "body": "{\"tweet_id\": {{ inputs.id | json }}}", "inputs": ["id"], "error_at": "/detail"},
+    "delete": {
+      "method": "DELETE",
+      "path": "/2/tweets/{{ inputs.id }}",
+      "inputs": [
+        "id"
+      ],
+      "error_at": "/detail"
+    },
+    "repost": {
+      "method": "POST",
+      "path": "/2/users/{{ auth.user_id }}/retweets",
+      "body": "{\"tweet_id\": {{ inputs.id | json }}}",
+      "inputs": [
+        "id"
+      ],
+      "error_at": "/detail"
+    },
+    "like": {
+      "method": "POST",
+      "path": "/2/users/{{ auth.user_id }}/likes",
+      "body": "{\"tweet_id\": {{ inputs.id | json }}}",
+      "inputs": [
+        "id"
+      ],
+      "error_at": "/detail"
+    },
     "dm": {
-      "method": "POST", "path": "/2/dm_conversations/with/{{ inputs.to }}/messages", "body": "{\"text\": {{ inputs.text | json }}}",
-      "inputs": ["to", "text"], "result": {"id": {"at": "/data/dm_event_id", "required": true}}, "error_at": "/detail"
+      "method": "POST",
+      "path": "/2/dm_conversations/with/{{ inputs.to }}/messages",
+      "body": "{\"text\": {{ inputs.text | json }}}",
+      "inputs": [
+        "to",
+        "text"
+      ],
+      "result": {
+        "id": {
+          "at": "/data/dm_event_id",
+          "required": true
+        }
+      },
+      "error_at": "/detail"
     },
     "send_message": {
-      "inputs": ["to", "text"],
-      "steps": [{"name": "dm", "operation": "dm", "inputs": {"to": "inputs.to", "text": "inputs.text"}}],
-      "result": {"id": "/dm/id"}
+      "inputs": [
+        "to",
+        "text"
+      ],
+      "steps": [
+        {
+          "name": "dm",
+          "operation": "dm",
+          "inputs": {
+            "to": "inputs.to",
+            "text": "inputs.text"
+          }
+        }
+      ],
+      "result": {
+        "id": "/dm/id"
+      }
     },
     "metrics": {
-      "path": "/2/tweets/{{ inputs.id }}", "query": {"tweet.fields": "public_metrics"}, "inputs": ["id"],
+      "path": "/2/tweets/{{ inputs.id }}",
+      "query": {
+        "tweet.fields": "public_metrics"
+      },
+      "inputs": [
+        "id"
+      ],
       "result": {
         "impressions": "/data/public_metrics/impression_count",
-        "engagements": {"expr": "answer.data.public_metrics.like_count + answer.data.public_metrics.retweet_count + answer.data.public_metrics.reply_count + answer.data.public_metrics.quote_count"}
+        "engagements": {
+          "expr": "answer.data.public_metrics.like_count + answer.data.public_metrics.retweet_count + answer.data.public_metrics.reply_count + answer.data.public_metrics.quote_count"
+        }
       },
       "error_at": "/detail"
     },
     "account": {
-      "path": "/2/users/me", "query": {"user.fields": "public_metrics,profile_image_url"},
-      "result": {"followers": "/data/public_metrics/followers_count", "name": "/data/name", "handle": "/data/username", "picture": "/data/profile_image_url"},
+      "path": "/2/users/me",
+      "query": {
+        "user.fields": "public_metrics,profile_image_url"
+      },
+      "result": {
+        "followers": "/data/public_metrics/followers_count",
+        "name": "/data/name",
+        "handle": "/data/username",
+        "picture": "/data/profile_image_url"
+      },
       "error_at": "/detail"
     },
-    "mentions": {"path": "/2/users/by", "query": {"usernames": "{{ inputs.usernames }}", "user.fields": "profile_image_url"}, "inputs": ["usernames"], "error_at": "/detail"},
+    "mentions": {
+      "path": "/2/users/by",
+      "query": {
+        "usernames": "{{ inputs.usernames }}",
+        "user.fields": "profile_image_url"
+      },
+      "inputs": [
+        "usernames"
+      ],
+      "error_at": "/detail"
+    },
     "messages": {
       "path": "/2/users/{{ auth.user_id }}/mentions{% if cursor %}?since_id={{ cursor }}{% endif %}",
-      "query": {"max_results": "50", "tweet.fields": "author_id,conversation_id,referenced_tweets"}, "error_at": "/detail"
+      "query": {
+        "max_results": "50",
+        "tweet.fields": "author_id,conversation_id,referenced_tweets"
+      },
+      "error_at": "/detail"
     }
   },
   "pulls": [
     {
-      "name": "mentions", "operation": "messages", "every_minutes": 15, "items_at": "/data", "cursor": "token", "next_at": "/meta/newest_id", "max_pages": 3,
+      "name": "mentions",
+      "operation": "messages",
+      "every_minutes": 15,
+      "items_at": "/data",
+      "cursor": "token",
+      "next_at": "/meta/newest_id",
+      "max_pages": 3,
       "map": {
-        "entity": "SocialMessage", "outside": true, "by": {"external_id": "/id"},
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "/id"
+        },
         "set": {
           "kind": "has(item.referenced_tweets) && item.referenced_tweets.exists(r, r.type == 'replied_to') ? 'Comment' : 'Mention'",
-          "author": "/author_id", "author_id": "/author_id", "text": "/text", "thread": "/conversation_id",
+          "author": "/author_id",
+          "author_id": "/author_id",
+          "text": "/text",
+          "thread": "/conversation_id",
           "post_external_id": "has(item.referenced_tweets) && item.referenced_tweets.exists(r, r.type == 'replied_to') ? item.referenced_tweets.filter(r, r.type == 'replied_to')[0].id : null",
           "via_connection": "connection.id"
         },

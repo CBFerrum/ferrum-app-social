@@ -43,7 +43,11 @@
             "video/webm"
           ],
           "max_seconds": 600
-        }
+        },
+        "by_address": [
+          "image",
+          "video"
+        ]
       },
       "kinds": [
         {
@@ -70,7 +74,11 @@
                 "image/jpeg",
                 "image/webp"
               ]
-            }
+            },
+            "by_address": [
+              "image",
+              "video"
+            ]
           }
         }
       ],
@@ -78,17 +86,6 @@
         "as": "none"
       },
       "settings": [
-        {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "max": 90,
-          "when": {
-            "kind": [
-              "photo"
-            ]
-          }
-        },
         {
           "key": "privacy",
           "label": "Who can see it",
@@ -154,6 +151,10 @@
         "label_at": "/name",
         "handle_at": "/handle",
         "picture_at": "/picture"
+      },
+      "title": {
+        "required": false,
+        "max": 90
       }
     }
   },
@@ -359,7 +360,8 @@
         "kind",
         "settings",
         "text_with_link",
-        "media_items"
+        "media_items",
+        "title"
       ],
       "steps": [
         {
@@ -383,7 +385,7 @@
           "inputs": {
             "photo_urls": "inputs.media_items | map(attribute='url') | list",
             "caption": "inputs.text_with_link",
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "privacy": "inputs.settings.privacy",
             "disable_comment": "inputs.settings.disable_comment",
             "brand_organic": "inputs.settings.brand_organic",

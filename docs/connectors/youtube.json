@@ -93,14 +93,6 @@
       },
       "settings": [
         {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "required": true,
-          "min": 2,
-          "max": 100
-        },
-        {
           "key": "type",
           "label": "Visibility",
           "type": "select",
@@ -156,7 +148,11 @@
       },
       "first_comment": true,
       "link_preview": false,
-      "scheduling": true
+      "scheduling": true,
+      "title": {
+        "required": true,
+        "max": 100
+      }
     }
   },
   "operations": {
@@ -324,14 +320,15 @@
         "media",
         "media_items",
         "kind",
-        "settings"
+        "settings",
+        "title"
       ],
       "steps": [
         {
           "name": "start",
           "operation": "start_upload",
           "inputs": {
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "description": "inputs.text_with_link",
             "tags": "inputs.settings.tags",
             "category": "inputs.settings.category",

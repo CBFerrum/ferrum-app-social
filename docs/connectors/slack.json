@@ -122,6 +122,10 @@
         "value_at": "/id",
         "label_at": "/name",
         "format": "<@{{ value }}>"
+      },
+      "kind_by_media": {
+        "none": "message",
+        "image": "images"
       }
     }
   },

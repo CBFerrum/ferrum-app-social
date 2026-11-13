@@ -67,13 +67,6 @@
       },
       "settings": [
         {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "required": true,
-          "max": 255
-        },
-        {
           "key": "team",
           "label": "Post as team",
           "type": "select",
@@ -92,6 +85,10 @@
         "label_at": "/name",
         "handle_at": "/handle",
         "picture_at": "/picture"
+      },
+      "title": {
+        "required": true,
+        "max": 255
       }
     }
   },
@@ -236,39 +233,24 @@
         "id"
       ]
     },
-    "publish_media": {
-      "inputs": [
-        "file"
-      ],
-      "changes": false,
-      "steps": [
-        {
-          "name": "me",
-          "operation": "account"
-        }
-      ],
-      "result": {
-        "id": {
-          "expr": "inputs.file"
-        }
-      }
-    },
     "publish": {
       "inputs": [
         "settings",
         "text",
         "media",
-        "created_at"
+        "created_at",
+        "title",
+        "media_items"
       ],
       "steps": [
         {
           "name": "shot",
           "operation": "create_shot",
           "inputs": {
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "description": "inputs.text",
             "team": "inputs.settings.team or ''",
-            "file": "inputs.media[0]"
+            "file": "inputs.media_items[0].file"
           },
           "confirm": {
             "operation": "my_shots",

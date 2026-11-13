@@ -78,6 +78,8 @@ pub struct Media {
     pub alt_max: Option<usize>,
     /// Whether a video's picture (thumbnail) is sent.
     pub thumbnail: bool,
+    /// (round four) Kinds of media the network takes only by a public address it fetches (`url`), not their bytes.
+    pub by_address: Vec<String>,
 }
 
 impl Default for Media {
@@ -96,6 +98,7 @@ impl Default for Media {
             alt_required: false,
             alt_max: None,
             thumbnail: false,
+            by_address: vec![],
         }
     }
 }
@@ -231,7 +234,24 @@ pub struct Rules {
     pub scheduling: bool,
     /// `html` for a network whose messages (the inbox) arrive as HTML: kept as the words they hold.
     pub inbox_format: Option<String>,
+    /// (round four) A title the network takes (`title` input: the post's, or the account's own): needed, how long.
+    pub title: Option<TitleRule>,
+    /// (round four) The kind a post is when the person picks none, by its first medium's kind (`none` without media):
+    /// `{"none": "message", "image": "media", "video": "media"}`.
+    pub kind_by_media: BTreeMap<String, String>,
 }
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TitleRule {
+    pub required: bool,
+    pub max: Option<usize>,
+}
+
+/// (round four) Whether this server gives a stored file a short-lived public address (`url`). It does not yet: it
+/// switches on with the platform's public file addresses, and then a network that takes media by address is no longer
+/// refused here.
+pub const PUBLIC_MEDIA_ADDRESSES: bool = false;
 
 impl Rules {
     /// `meta.social` as written, named `fallback` when it names nothing.
@@ -289,6 +309,11 @@ impl Rules {
         self.operations.get(op).map_or(op, String::as_str)
     }
 
+    /// The kind a copy is: the one picked, else the one its first medium says (`kind_by_media`), else none (the first).
+    pub fn chosen(&self, picked: Option<&str>, first_medium: Option<&str>) -> Option<String> {
+        picked.filter(|k| !k.is_empty()).map(str::to_string).or_else(|| self.kind_by_media.get(first_medium.unwrap_or("none")).cloned())
+    }
+
     pub fn kind(&self, name: Option<&str>) -> Result<Option<&Kind>, String> {
         match name.filter(|n| !n.is_empty()) {
             None => Ok(self.kinds.first()),
@@ -341,6 +366,8 @@ pub struct Item {
 #[derive(Debug, Clone, Default)]
 pub struct Copy {
     pub kind: Option<String>,
+    /// (round four) Its title, where the network takes one.
+    pub title: Option<String>,
     pub items: Vec<Item>,
     pub first_comment: Option<String>,
     pub settings: Map<String, Value>,
@@ -437,7 +464,7 @@ pub fn length(t: &Text, text: &str) -> usize {
 /// does not ask.
 pub fn structural(r: &Rules, copy: &Copy) -> Vec<String> {
     let mut out = vec![];
-    if let Err(why) = r.kind(copy.kind.as_deref()) {
+    if let Err(why) = r.kind(r.chosen(copy.kind.as_deref(), first_kind(copy)).as_deref()) {
         out.push(why);
     }
     out.extend(copy.settings.keys().filter(|k| !r.settings.iter().any(|s| s.key == **k)).map(|k| format!("{} asks nothing called {k}", r.name())));
@@ -445,14 +472,32 @@ pub fn structural(r: &Rules, copy: &Copy) -> Vec<String> {
 }
 
 /// What is wrong with `copy` for a network with these rules, in plain words: empty when nothing is.
+/// The kind of a copy's first medium.
+fn first_kind(copy: &Copy) -> Option<&str> {
+    copy.items.first().and_then(|i| i.media.first()).map(|m| m.kind.as_str())
+}
+
 pub fn problems(r: &Rules, copy: &Copy) -> Vec<String> {
     let name = r.name();
-    let kind = match r.kind(copy.kind.as_deref()) {
+    let chosen = r.chosen(copy.kind.as_deref(), first_kind(copy));
+    let kind = match r.kind(chosen.as_deref()) {
         Ok(k) => k,
         Err(why) => return vec![why],
     };
     let (text, media, follow, first_comment) = r.effective(kind);
     let mut out = vec![];
+    if let Some(t) = &r.title {
+        let n = copy.title.as_deref().map_or(0, |t| t.trim().chars().count());
+        if t.required && n == 0 {
+            out.push(format!("{name} needs a title"));
+        }
+        if let Some(max) = t.max.filter(|m| n > *m) {
+            out.push(format!("{name} takes titles of at most {max} characters, and this one is {n}"));
+        }
+    }
+    if !PUBLIC_MEDIA_ADDRESSES && copy.items.iter().flat_map(|i| &i.media).any(|m| media.by_address.contains(&m.kind)) {
+        out.push(format!("{name} takes {} only by a public address, which this server cannot give a stored file yet", plural(&media.by_address[0])));
+    }
     for (i, item) in copy.items.iter().enumerate() {
         let after = i > 0;
         if after && follow.as_ == FollowAs::None {
@@ -494,7 +539,7 @@ pub fn problems(r: &Rules, copy: &Copy) -> Vec<String> {
     if copy.first_comment.as_deref().is_some_and(|c| !c.trim().is_empty()) && !first_comment {
         out.push(format!("{name} takes no first comment"));
     }
-    out.extend(answers(r, copy.kind.as_deref().or(kind.map(|k| k.name.as_str())), &copy.settings).err().into_iter().flatten());
+    out.extend(answers(r, kind.map(|k| k.name.as_str()).or(chosen.as_deref()), &copy.settings).err().into_iter().flatten());
     out
 }
 
@@ -734,6 +779,42 @@ mod tests {
             Copy { items: vec![Item { text: "one".into(), ..Default::default() }, Item { text: "a".repeat(11), ..Default::default() }], ..Default::default() };
         assert!(says(&problems(&threads, &thread), "T takes 10 characters, and item 2 is 11"));
         assert!(says(&problems(&none, &thread), "takes nothing after the post"));
+    }
+
+    /// (round four) A network's shipped description.
+    fn network(name: &str) -> Rules {
+        let text = std::fs::read_to_string(format!("{}/docs/connectors/{name}.json", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let v: Value = serde_json::from_str(&text).unwrap();
+        Rules::parse(&v["meta"]["social"], name).unwrap_or_else(|e| panic!("{name}: {e}"))
+    }
+
+    #[test]
+    fn every_shipped_network_states_its_rules_in_the_shape() {
+        for entry in std::fs::read_dir(format!("{}/docs/connectors", env!("CARGO_MANIFEST_DIR"))).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "json") {
+                network(path.file_stem().unwrap().to_str().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn a_kind_from_the_media_a_title_and_media_by_address() {
+        let tg = network("telegram");
+        let pictured = |c: Copy| Copy { items: vec![Item { text: "Hi".into(), media: vec![pic("image", "image/jpeg", 1)], ..Default::default() }], ..c };
+        assert_eq!(tg.chosen(None, Some("image")).as_deref(), Some("media"), "a picture makes it a media post");
+        assert_eq!(tg.chosen(None, None).as_deref(), Some("message"));
+        assert!(problems(&tg, &pictured(Copy::default())).is_empty(), "no kind picked by hand");
+        assert!(says(&problems(&tg, &pictured(with(Copy::default(), "message", json!({})))), "takes no pictures"), "a kind picked by hand is kept");
+        let yt = network("youtube");
+        assert!(yt.settings.iter().all(|s| s.key != "title"), "the title is Social's input, not a setting");
+        let video = vec![pic("video", "video/mp4", 10)];
+        assert!(says(&problems(&yt, &post("Desc", video.clone())), "YouTube needs a title"));
+        let long = Copy { title: Some("t".repeat(101)), ..post("Desc", video.clone()) };
+        assert!(says(&problems(&yt, &long), "titles of at most 100 characters, and this one is 101"));
+        let ig = network("instagram");
+        assert_eq!(PUBLIC_MEDIA_ADDRESSES, false, "switches on with the platform's public file addresses");
+        assert!(says(&problems(&ig, &post("Hi", vec![pic("image", "image/jpeg", 1)])), "takes pictures only by a public address"));
     }
 
     #[test]

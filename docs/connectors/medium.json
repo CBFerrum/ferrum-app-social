@@ -51,13 +51,6 @@
       "link_preview": false,
       "settings": [
         {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "required": true,
-          "max": 100
-        },
-        {
           "key": "tags",
           "label": "Tags",
           "type": "text",
@@ -124,6 +117,10 @@
         "label_at": "/name",
         "handle_at": "/handle",
         "picture_at": "/picture"
+      },
+      "title": {
+        "required": true,
+        "max": 100
       }
     }
   },
@@ -296,7 +293,7 @@
           "inputs": {
             "account_id": "inputs.account_id",
             "publication": "inputs.settings.publication",
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "content": "('![' ~ (inputs.media_items[0].alt or '') ~ '](' ~ inputs.media[0] ~ ')\\n\\n' if inputs.media else '') ~ inputs.text_with_link",
             "status": "inputs.settings.status",
             "notify": "inputs.settings.notify",
@@ -312,7 +309,7 @@
           "inputs": {
             "account_id": "inputs.account_id",
             "publication": "inputs.settings.publication",
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "content": "('![' ~ (inputs.media_items[0].alt or '') ~ '](' ~ inputs.media[0] ~ ')\\n\\n' if inputs.media else '') ~ inputs.text_with_link",
             "status": "inputs.settings.status",
             "notify": "inputs.settings.notify",
@@ -335,7 +332,8 @@
         "settings",
         "text_with_link",
         "media",
-        "media_items"
+        "media_items",
+        "title"
       ]
     }
   }

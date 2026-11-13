@@ -46,8 +46,14 @@ impl Reach {
     }
 
     /// Whether an operation only reads (a GET, the default), so calls it without a key.
+    /// (round four) By the operation's `changes` where it says, else by its method (a GET reads); an operation of steps
+    /// without a method changes something unless it says `changes: false`.
     pub fn reads(&self, operation: &str) -> bool {
-        self.desc["operations"][operation]["method"].as_str().is_none_or(|m| m.eq_ignore_ascii_case("GET"))
+        let op = &self.desc["operations"][operation];
+        match op["changes"].as_bool() {
+            Some(changes) => !changes,
+            None => op["method"].as_str().map_or_else(|| op.get("steps").is_none(), |m| m.eq_ignore_ascii_case("GET")),
+        }
     }
 
     /// The inputs an operation declares; none declared means it takes any.

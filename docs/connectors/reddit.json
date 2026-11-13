@@ -120,13 +120,6 @@
           }
         },
         {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "required": true,
-          "max": 300
-        },
-        {
           "key": "flair",
           "label": "Flair",
           "type": "select",
@@ -154,7 +147,11 @@
         }
       ],
       "first_comment": true,
-      "link_preview": true
+      "link_preview": true,
+      "title": {
+        "required": true,
+        "max": 300
+      }
     }
   },
   "operations": {
@@ -397,7 +394,8 @@
         "link",
         "media",
         "kind",
-        "settings"
+        "settings",
+        "title"
       ],
       "steps": [
         {
@@ -406,7 +404,7 @@
           "when": "(inputs.media or []) | length < 2",
           "inputs": {
             "sr": "inputs.settings.subreddit",
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "flair": "inputs.settings.flair",
             "nsfw": "inputs.settings.nsfw",
             "spoiler": "inputs.settings.spoiler",
@@ -428,7 +426,7 @@
           "when": "(inputs.media or []) | length > 1",
           "inputs": {
             "sr": "inputs.settings.subreddit",
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "text": "inputs.text",
             "flair": "inputs.settings.flair",
             "nsfw": "inputs.settings.nsfw",

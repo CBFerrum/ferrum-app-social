@@ -69,7 +69,11 @@
           ],
           "max_bytes": 1073741824,
           "max_seconds": 300
-        }
+        },
+        "by_address": [
+          "image",
+          "video"
+        ]
       },
       "kinds": [
         {

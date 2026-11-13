@@ -37,13 +37,6 @@
       },
       "settings": [
         {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "required": true,
-          "max": 128
-        },
-        {
           "key": "tags",
           "label": "Tags",
           "type": "multi",
@@ -104,6 +97,10 @@
         "label_at": "/name",
         "handle_at": "/handle",
         "picture_at": "/picture"
+      },
+      "title": {
+        "required": true,
+        "max": 128
       }
     }
   },
@@ -298,14 +295,15 @@
       "inputs": [
         "settings",
         "text_with_link",
-        "created_at"
+        "created_at",
+        "title"
       ],
       "steps": [
         {
           "name": "article",
           "operation": "create_article",
           "inputs": {
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "content": "inputs.text_with_link",
             "published": "inputs.settings.published",
             "tags": "inputs.settings.tags",

@@ -781,7 +781,7 @@
         {
           "name": "text",
           "operation": "send_message",
-          "when": "not inputs.media",
+          "when": "not inputs.media_items",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
@@ -791,200 +791,200 @@
         {
           "name": "files_1",
           "operation": "send_files_1",
-          "when": "inputs.media | length == 1",
+          "when": "inputs.media_items | length == 1",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''"
           }
         },
         {
           "name": "files_2",
           "operation": "send_files_2",
-          "when": "inputs.media | length == 2",
+          "when": "inputs.media_items | length == 2",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''"
           }
         },
         {
           "name": "files_3",
           "operation": "send_files_3",
-          "when": "inputs.media | length == 3",
+          "when": "inputs.media_items | length == 3",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "a2": "inputs.media_items[2].alt or ''"
           }
         },
         {
           "name": "files_4",
           "operation": "send_files_4",
-          "when": "inputs.media | length == 4",
+          "when": "inputs.media_items | length == 4",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "a2": "inputs.media_items[2].alt or ''",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "a3": "inputs.media_items[3].alt or ''"
           }
         },
         {
           "name": "files_5",
           "operation": "send_files_5",
-          "when": "inputs.media | length == 5",
+          "when": "inputs.media_items | length == 5",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "a2": "inputs.media_items[2].alt or ''",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "a3": "inputs.media_items[3].alt or ''",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "a4": "inputs.media_items[4].alt or ''"
           }
         },
         {
           "name": "files_6",
           "operation": "send_files_6",
-          "when": "inputs.media | length == 6",
+          "when": "inputs.media_items | length == 6",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "a2": "inputs.media_items[2].alt or ''",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "a3": "inputs.media_items[3].alt or ''",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "a4": "inputs.media_items[4].alt or ''",
-            "f5": "inputs.media_items[5].id",
+            "f5": "inputs.media_items[5].file",
             "a5": "inputs.media_items[5].alt or ''"
           }
         },
         {
           "name": "files_7",
           "operation": "send_files_7",
-          "when": "inputs.media | length == 7",
+          "when": "inputs.media_items | length == 7",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "a2": "inputs.media_items[2].alt or ''",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "a3": "inputs.media_items[3].alt or ''",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "a4": "inputs.media_items[4].alt or ''",
-            "f5": "inputs.media_items[5].id",
+            "f5": "inputs.media_items[5].file",
             "a5": "inputs.media_items[5].alt or ''",
-            "f6": "inputs.media_items[6].id",
+            "f6": "inputs.media_items[6].file",
             "a6": "inputs.media_items[6].alt or ''"
           }
         },
         {
           "name": "files_8",
           "operation": "send_files_8",
-          "when": "inputs.media | length == 8",
+          "when": "inputs.media_items | length == 8",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "a2": "inputs.media_items[2].alt or ''",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "a3": "inputs.media_items[3].alt or ''",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "a4": "inputs.media_items[4].alt or ''",
-            "f5": "inputs.media_items[5].id",
+            "f5": "inputs.media_items[5].file",
             "a5": "inputs.media_items[5].alt or ''",
-            "f6": "inputs.media_items[6].id",
+            "f6": "inputs.media_items[6].file",
             "a6": "inputs.media_items[6].alt or ''",
-            "f7": "inputs.media_items[7].id",
+            "f7": "inputs.media_items[7].file",
             "a7": "inputs.media_items[7].alt or ''"
           }
         },
         {
           "name": "files_9",
           "operation": "send_files_9",
-          "when": "inputs.media | length == 9",
+          "when": "inputs.media_items | length == 9",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "a2": "inputs.media_items[2].alt or ''",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "a3": "inputs.media_items[3].alt or ''",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "a4": "inputs.media_items[4].alt or ''",
-            "f5": "inputs.media_items[5].id",
+            "f5": "inputs.media_items[5].file",
             "a5": "inputs.media_items[5].alt or ''",
-            "f6": "inputs.media_items[6].id",
+            "f6": "inputs.media_items[6].file",
             "a6": "inputs.media_items[6].alt or ''",
-            "f7": "inputs.media_items[7].id",
+            "f7": "inputs.media_items[7].file",
             "a7": "inputs.media_items[7].alt or ''",
-            "f8": "inputs.media_items[8].id",
+            "f8": "inputs.media_items[8].file",
             "a8": "inputs.media_items[8].alt or ''"
           }
         },
         {
           "name": "files_10",
           "operation": "send_files_10",
-          "when": "inputs.media | length == 10",
+          "when": "inputs.media_items | length == 10",
           "inputs": {
             "channel_id": "(inputs.settings.channel if inputs.item == 0 else (inputs.root | split(':') | last))",
             "content": "inputs.text_with_link",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "a0": "inputs.media_items[0].alt or ''",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "a1": "inputs.media_items[1].alt or ''",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "a2": "inputs.media_items[2].alt or ''",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "a3": "inputs.media_items[3].alt or ''",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "a4": "inputs.media_items[4].alt or ''",
-            "f5": "inputs.media_items[5].id",
+            "f5": "inputs.media_items[5].file",
             "a5": "inputs.media_items[5].alt or ''",
-            "f6": "inputs.media_items[6].id",
+            "f6": "inputs.media_items[6].file",
             "a6": "inputs.media_items[6].alt or ''",
-            "f7": "inputs.media_items[7].id",
+            "f7": "inputs.media_items[7].file",
             "a7": "inputs.media_items[7].alt or ''",
-            "f8": "inputs.media_items[8].id",
+            "f8": "inputs.media_items[8].file",
             "a8": "inputs.media_items[8].alt or ''",
-            "f9": "inputs.media_items[9].id",
+            "f9": "inputs.media_items[9].file",
             "a9": "inputs.media_items[9].alt or ''"
           }
         }
@@ -992,23 +992,6 @@
       "result": {
         "id": {
           "expr": "answer.text != null ? answer.text.ref : (answer.files_1 != null ? answer.files_1.ref : (answer.files_2 != null ? answer.files_2.ref : (answer.files_3 != null ? answer.files_3.ref : (answer.files_4 != null ? answer.files_4.ref : (answer.files_5 != null ? answer.files_5.ref : (answer.files_6 != null ? answer.files_6.ref : (answer.files_7 != null ? answer.files_7.ref : (answer.files_8 != null ? answer.files_8.ref : (answer.files_9 != null ? answer.files_9.ref : (answer.files_10 != null ? answer.files_10.ref : ('')))))))))))"
-        }
-      }
-    },
-    "publish_media": {
-      "inputs": [
-        "file"
-      ],
-      "changes": false,
-      "steps": [
-        {
-          "name": "token",
-          "operation": "me"
-        }
-      ],
-      "result": {
-        "id": {
-          "expr": "inputs.file"
         }
       }
     },

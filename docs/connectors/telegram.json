@@ -130,6 +130,12 @@
         "label_at": "/my_chat_member/chat/title",
         "handle_at": "/my_chat_member/chat/username",
         "kind_at": "/my_chat_member/chat/type"
+      },
+      "kind_by_media": {
+        "none": "message",
+        "image": "media",
+        "video": "media",
+        "document": "media"
       }
     }
   },
@@ -327,23 +333,6 @@
         "caption",
         "file"
       ]
-    },
-    "publish_media": {
-      "inputs": [
-        "file"
-      ],
-      "changes": false,
-      "steps": [
-        {
-          "name": "token",
-          "operation": "get_me"
-        }
-      ],
-      "result": {
-        "id": {
-          "expr": "inputs.file"
-        }
-      }
     },
     "delete": {
       "method": "POST",
@@ -828,7 +817,7 @@
         {
           "name": "text",
           "operation": "send_message",
-          "when": "not inputs.media",
+          "when": "not inputs.media_items",
           "inputs": {
             "chat_id": "inputs.account_id",
             "text": "inputs.text_with_link",
@@ -841,7 +830,7 @@
           "when": "inputs.media_items | length == 1 and inputs.media_items[0].kind == 'image'",
           "inputs": {
             "chat_id": "inputs.account_id",
-            "file": "inputs.media_items[0].id",
+            "file": "inputs.media_items[0].file",
             "caption": "inputs.text_with_link"
           }
         },
@@ -851,7 +840,7 @@
           "when": "inputs.media_items | length == 1 and inputs.media_items[0].kind == 'video'",
           "inputs": {
             "chat_id": "inputs.account_id",
-            "file": "inputs.media_items[0].id",
+            "file": "inputs.media_items[0].file",
             "caption": "inputs.text_with_link"
           }
         },
@@ -861,7 +850,7 @@
           "when": "inputs.media_items | length == 1 and inputs.media_items[0].kind in ['document', 'file']",
           "inputs": {
             "chat_id": "inputs.account_id",
-            "file": "inputs.media_items[0].id",
+            "file": "inputs.media_items[0].file",
             "caption": "inputs.text_with_link"
           }
         },
@@ -873,9 +862,9 @@
             "chat_id": "inputs.account_id",
             "caption": "inputs.text_with_link",
             "t0": "'photo' if inputs.media_items[0].kind == 'image' else ('video' if inputs.media_items[0].kind == 'video' else 'document')",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "t1": "'photo' if inputs.media_items[1].kind == 'image' else ('video' if inputs.media_items[1].kind == 'video' else 'document')",
-            "f1": "inputs.media_items[1].id"
+            "f1": "inputs.media_items[1].file"
           }
         },
         {
@@ -886,11 +875,11 @@
             "chat_id": "inputs.account_id",
             "caption": "inputs.text_with_link",
             "t0": "'photo' if inputs.media_items[0].kind == 'image' else ('video' if inputs.media_items[0].kind == 'video' else 'document')",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "t1": "'photo' if inputs.media_items[1].kind == 'image' else ('video' if inputs.media_items[1].kind == 'video' else 'document')",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "t2": "'photo' if inputs.media_items[2].kind == 'image' else ('video' if inputs.media_items[2].kind == 'video' else 'document')",
-            "f2": "inputs.media_items[2].id"
+            "f2": "inputs.media_items[2].file"
           }
         },
         {
@@ -901,13 +890,13 @@
             "chat_id": "inputs.account_id",
             "caption": "inputs.text_with_link",
             "t0": "'photo' if inputs.media_items[0].kind == 'image' else ('video' if inputs.media_items[0].kind == 'video' else 'document')",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "t1": "'photo' if inputs.media_items[1].kind == 'image' else ('video' if inputs.media_items[1].kind == 'video' else 'document')",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "t2": "'photo' if inputs.media_items[2].kind == 'image' else ('video' if inputs.media_items[2].kind == 'video' else 'document')",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "t3": "'photo' if inputs.media_items[3].kind == 'image' else ('video' if inputs.media_items[3].kind == 'video' else 'document')",
-            "f3": "inputs.media_items[3].id"
+            "f3": "inputs.media_items[3].file"
           }
         },
         {
@@ -918,15 +907,15 @@
             "chat_id": "inputs.account_id",
             "caption": "inputs.text_with_link",
             "t0": "'photo' if inputs.media_items[0].kind == 'image' else ('video' if inputs.media_items[0].kind == 'video' else 'document')",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "t1": "'photo' if inputs.media_items[1].kind == 'image' else ('video' if inputs.media_items[1].kind == 'video' else 'document')",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "t2": "'photo' if inputs.media_items[2].kind == 'image' else ('video' if inputs.media_items[2].kind == 'video' else 'document')",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "t3": "'photo' if inputs.media_items[3].kind == 'image' else ('video' if inputs.media_items[3].kind == 'video' else 'document')",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "t4": "'photo' if inputs.media_items[4].kind == 'image' else ('video' if inputs.media_items[4].kind == 'video' else 'document')",
-            "f4": "inputs.media_items[4].id"
+            "f4": "inputs.media_items[4].file"
           }
         },
         {
@@ -937,17 +926,17 @@
             "chat_id": "inputs.account_id",
             "caption": "inputs.text_with_link",
             "t0": "'photo' if inputs.media_items[0].kind == 'image' else ('video' if inputs.media_items[0].kind == 'video' else 'document')",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "t1": "'photo' if inputs.media_items[1].kind == 'image' else ('video' if inputs.media_items[1].kind == 'video' else 'document')",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "t2": "'photo' if inputs.media_items[2].kind == 'image' else ('video' if inputs.media_items[2].kind == 'video' else 'document')",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "t3": "'photo' if inputs.media_items[3].kind == 'image' else ('video' if inputs.media_items[3].kind == 'video' else 'document')",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "t4": "'photo' if inputs.media_items[4].kind == 'image' else ('video' if inputs.media_items[4].kind == 'video' else 'document')",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "t5": "'photo' if inputs.media_items[5].kind == 'image' else ('video' if inputs.media_items[5].kind == 'video' else 'document')",
-            "f5": "inputs.media_items[5].id"
+            "f5": "inputs.media_items[5].file"
           }
         },
         {
@@ -958,19 +947,19 @@
             "chat_id": "inputs.account_id",
             "caption": "inputs.text_with_link",
             "t0": "'photo' if inputs.media_items[0].kind == 'image' else ('video' if inputs.media_items[0].kind == 'video' else 'document')",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "t1": "'photo' if inputs.media_items[1].kind == 'image' else ('video' if inputs.media_items[1].kind == 'video' else 'document')",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "t2": "'photo' if inputs.media_items[2].kind == 'image' else ('video' if inputs.media_items[2].kind == 'video' else 'document')",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "t3": "'photo' if inputs.media_items[3].kind == 'image' else ('video' if inputs.media_items[3].kind == 'video' else 'document')",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "t4": "'photo' if inputs.media_items[4].kind == 'image' else ('video' if inputs.media_items[4].kind == 'video' else 'document')",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "t5": "'photo' if inputs.media_items[5].kind == 'image' else ('video' if inputs.media_items[5].kind == 'video' else 'document')",
-            "f5": "inputs.media_items[5].id",
+            "f5": "inputs.media_items[5].file",
             "t6": "'photo' if inputs.media_items[6].kind == 'image' else ('video' if inputs.media_items[6].kind == 'video' else 'document')",
-            "f6": "inputs.media_items[6].id"
+            "f6": "inputs.media_items[6].file"
           }
         },
         {
@@ -981,21 +970,21 @@
             "chat_id": "inputs.account_id",
             "caption": "inputs.text_with_link",
             "t0": "'photo' if inputs.media_items[0].kind == 'image' else ('video' if inputs.media_items[0].kind == 'video' else 'document')",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "t1": "'photo' if inputs.media_items[1].kind == 'image' else ('video' if inputs.media_items[1].kind == 'video' else 'document')",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "t2": "'photo' if inputs.media_items[2].kind == 'image' else ('video' if inputs.media_items[2].kind == 'video' else 'document')",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "t3": "'photo' if inputs.media_items[3].kind == 'image' else ('video' if inputs.media_items[3].kind == 'video' else 'document')",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "t4": "'photo' if inputs.media_items[4].kind == 'image' else ('video' if inputs.media_items[4].kind == 'video' else 'document')",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "t5": "'photo' if inputs.media_items[5].kind == 'image' else ('video' if inputs.media_items[5].kind == 'video' else 'document')",
-            "f5": "inputs.media_items[5].id",
+            "f5": "inputs.media_items[5].file",
             "t6": "'photo' if inputs.media_items[6].kind == 'image' else ('video' if inputs.media_items[6].kind == 'video' else 'document')",
-            "f6": "inputs.media_items[6].id",
+            "f6": "inputs.media_items[6].file",
             "t7": "'photo' if inputs.media_items[7].kind == 'image' else ('video' if inputs.media_items[7].kind == 'video' else 'document')",
-            "f7": "inputs.media_items[7].id"
+            "f7": "inputs.media_items[7].file"
           }
         },
         {
@@ -1006,23 +995,23 @@
             "chat_id": "inputs.account_id",
             "caption": "inputs.text_with_link",
             "t0": "'photo' if inputs.media_items[0].kind == 'image' else ('video' if inputs.media_items[0].kind == 'video' else 'document')",
-            "f0": "inputs.media_items[0].id",
+            "f0": "inputs.media_items[0].file",
             "t1": "'photo' if inputs.media_items[1].kind == 'image' else ('video' if inputs.media_items[1].kind == 'video' else 'document')",
-            "f1": "inputs.media_items[1].id",
+            "f1": "inputs.media_items[1].file",
             "t2": "'photo' if inputs.media_items[2].kind == 'image' else ('video' if inputs.media_items[2].kind == 'video' else 'document')",
-            "f2": "inputs.media_items[2].id",
+            "f2": "inputs.media_items[2].file",
             "t3": "'photo' if inputs.media_items[3].kind == 'image' else ('video' if inputs.media_items[3].kind == 'video' else 'document')",
-            "f3": "inputs.media_items[3].id",
+            "f3": "inputs.media_items[3].file",
             "t4": "'photo' if inputs.media_items[4].kind == 'image' else ('video' if inputs.media_items[4].kind == 'video' else 'document')",
-            "f4": "inputs.media_items[4].id",
+            "f4": "inputs.media_items[4].file",
             "t5": "'photo' if inputs.media_items[5].kind == 'image' else ('video' if inputs.media_items[5].kind == 'video' else 'document')",
-            "f5": "inputs.media_items[5].id",
+            "f5": "inputs.media_items[5].file",
             "t6": "'photo' if inputs.media_items[6].kind == 'image' else ('video' if inputs.media_items[6].kind == 'video' else 'document')",
-            "f6": "inputs.media_items[6].id",
+            "f6": "inputs.media_items[6].file",
             "t7": "'photo' if inputs.media_items[7].kind == 'image' else ('video' if inputs.media_items[7].kind == 'video' else 'document')",
-            "f7": "inputs.media_items[7].id",
+            "f7": "inputs.media_items[7].file",
             "t8": "'photo' if inputs.media_items[8].kind == 'image' else ('video' if inputs.media_items[8].kind == 'video' else 'document')",
-            "f8": "inputs.media_items[8].id"
+            "f8": "inputs.media_items[8].file"
           }
         }
       ],

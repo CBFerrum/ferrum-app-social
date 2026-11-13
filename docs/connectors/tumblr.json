@@ -777,23 +777,6 @@
         "f9"
       ]
     },
-    "publish_media": {
-      "inputs": [
-        "file"
-      ],
-      "changes": false,
-      "steps": [
-        {
-          "name": "user",
-          "operation": "user_info"
-        }
-      ],
-      "result": {
-        "id": {
-          "expr": "inputs.file"
-        }
-      }
-    },
     "user_info": {
       "path": "/user/info",
       "error_at": "/errors/0/detail",
@@ -818,7 +801,7 @@
         {
           "name": "text",
           "operation": "create_text_post",
-          "when": "not inputs.media",
+          "when": "not inputs.media_items",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
@@ -839,176 +822,176 @@
         {
           "name": "media_1",
           "operation": "create_media_post_1",
-          "when": "inputs.media | length == 1",
+          "when": "inputs.media_items | length == 1",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id"
+            "f0": "inputs.media_items[0].file"
           }
         },
         {
           "name": "media_2",
           "operation": "create_media_post_2",
-          "when": "inputs.media | length == 2",
+          "when": "inputs.media_items | length == 2",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file"
           }
         },
         {
           "name": "media_3",
           "operation": "create_media_post_3",
-          "when": "inputs.media | length == 3",
+          "when": "inputs.media_items | length == 3",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id",
-            "f2": "inputs.media_items[2].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file",
+            "f2": "inputs.media_items[2].file"
           }
         },
         {
           "name": "media_4",
           "operation": "create_media_post_4",
-          "when": "inputs.media | length == 4",
+          "when": "inputs.media_items | length == 4",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id",
-            "f2": "inputs.media_items[2].id",
-            "f3": "inputs.media_items[3].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file",
+            "f2": "inputs.media_items[2].file",
+            "f3": "inputs.media_items[3].file"
           }
         },
         {
           "name": "media_5",
           "operation": "create_media_post_5",
-          "when": "inputs.media | length == 5",
+          "when": "inputs.media_items | length == 5",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id",
-            "f2": "inputs.media_items[2].id",
-            "f3": "inputs.media_items[3].id",
-            "f4": "inputs.media_items[4].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file",
+            "f2": "inputs.media_items[2].file",
+            "f3": "inputs.media_items[3].file",
+            "f4": "inputs.media_items[4].file"
           }
         },
         {
           "name": "media_6",
           "operation": "create_media_post_6",
-          "when": "inputs.media | length == 6",
+          "when": "inputs.media_items | length == 6",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id",
-            "f2": "inputs.media_items[2].id",
-            "f3": "inputs.media_items[3].id",
-            "f4": "inputs.media_items[4].id",
-            "f5": "inputs.media_items[5].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file",
+            "f2": "inputs.media_items[2].file",
+            "f3": "inputs.media_items[3].file",
+            "f4": "inputs.media_items[4].file",
+            "f5": "inputs.media_items[5].file"
           }
         },
         {
           "name": "media_7",
           "operation": "create_media_post_7",
-          "when": "inputs.media | length == 7",
+          "when": "inputs.media_items | length == 7",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id",
-            "f2": "inputs.media_items[2].id",
-            "f3": "inputs.media_items[3].id",
-            "f4": "inputs.media_items[4].id",
-            "f5": "inputs.media_items[5].id",
-            "f6": "inputs.media_items[6].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file",
+            "f2": "inputs.media_items[2].file",
+            "f3": "inputs.media_items[3].file",
+            "f4": "inputs.media_items[4].file",
+            "f5": "inputs.media_items[5].file",
+            "f6": "inputs.media_items[6].file"
           }
         },
         {
           "name": "media_8",
           "operation": "create_media_post_8",
-          "when": "inputs.media | length == 8",
+          "when": "inputs.media_items | length == 8",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id",
-            "f2": "inputs.media_items[2].id",
-            "f3": "inputs.media_items[3].id",
-            "f4": "inputs.media_items[4].id",
-            "f5": "inputs.media_items[5].id",
-            "f6": "inputs.media_items[6].id",
-            "f7": "inputs.media_items[7].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file",
+            "f2": "inputs.media_items[2].file",
+            "f3": "inputs.media_items[3].file",
+            "f4": "inputs.media_items[4].file",
+            "f5": "inputs.media_items[5].file",
+            "f6": "inputs.media_items[6].file",
+            "f7": "inputs.media_items[7].file"
           }
         },
         {
           "name": "media_9",
           "operation": "create_media_post_9",
-          "when": "inputs.media | length == 9",
+          "when": "inputs.media_items | length == 9",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id",
-            "f2": "inputs.media_items[2].id",
-            "f3": "inputs.media_items[3].id",
-            "f4": "inputs.media_items[4].id",
-            "f5": "inputs.media_items[5].id",
-            "f6": "inputs.media_items[6].id",
-            "f7": "inputs.media_items[7].id",
-            "f8": "inputs.media_items[8].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file",
+            "f2": "inputs.media_items[2].file",
+            "f3": "inputs.media_items[3].file",
+            "f4": "inputs.media_items[4].file",
+            "f5": "inputs.media_items[5].file",
+            "f6": "inputs.media_items[6].file",
+            "f7": "inputs.media_items[7].file",
+            "f8": "inputs.media_items[8].file"
           }
         },
         {
           "name": "media_10",
           "operation": "create_media_post_10",
-          "when": "inputs.media | length == 10",
+          "when": "inputs.media_items | length == 10",
           "inputs": {
             "blog": "inputs.account_id",
             "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
             "media_items": "inputs.media_items",
             "state": "inputs.settings.state",
             "tags": "inputs.settings.tags",
-            "f0": "inputs.media_items[0].id",
-            "f1": "inputs.media_items[1].id",
-            "f2": "inputs.media_items[2].id",
-            "f3": "inputs.media_items[3].id",
-            "f4": "inputs.media_items[4].id",
-            "f5": "inputs.media_items[5].id",
-            "f6": "inputs.media_items[6].id",
-            "f7": "inputs.media_items[7].id",
-            "f8": "inputs.media_items[8].id",
-            "f9": "inputs.media_items[9].id"
+            "f0": "inputs.media_items[0].file",
+            "f1": "inputs.media_items[1].file",
+            "f2": "inputs.media_items[2].file",
+            "f3": "inputs.media_items[3].file",
+            "f4": "inputs.media_items[4].file",
+            "f5": "inputs.media_items[5].file",
+            "f6": "inputs.media_items[6].file",
+            "f7": "inputs.media_items[7].file",
+            "f8": "inputs.media_items[8].file",
+            "f9": "inputs.media_items[9].file"
           }
         }
       ],

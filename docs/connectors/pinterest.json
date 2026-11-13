@@ -1,337 +1,339 @@
 {
- "base": "https://api.pinterest.com",
- "auth": {
-  "type": "oauth",
-  "owner": "workspace",
-  "provider": {
-   "authorize_url": "https://www.pinterest.com/oauth/",
-   "token_url": "https://api.pinterest.com/v5/oauth/token",
-   "scopes": [
-    "boards:read",
-    "pins:read",
-    "pins:write",
-    "user_accounts:read"
-   ],
-   "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
-   "client_secret": "client_secret",
-   "client_auth": "basic"
-  }
- },
- "apps": [
-  "social"
- ],
- "allowed_hosts": [
-  "pinterest-media-upload.s3-accelerate.amazonaws.com"
- ],
- "limit": {
-  "concurrent": 10
- },
- "meta": {
-  "capabilities": {
-   "name": "Pinterest",
-   "max_text": 500,
-   "images": true,
-   "max_media": 5,
-   "media_required": true
-  },
-  "social": {
-   "name": "Pinterest",
-   "text": {
-    "max": 500,
-    "format": "plain"
-   },
-   "media": {
-    "kinds": [
-     "image",
-     "video"
-    ],
-    "required": true,
-    "max": 5,
-    "mixes": [
-     {
-      "image": 5
-     },
-     {
-      "video": 1
-     }
-    ],
-    "alt": true,
-    "alt_max": 500,
-    "thumbnail": false,
-    "image": {
-     "max_bytes": 20971520,
-     "types": [
-      "image/jpeg",
-      "image/png",
-      "image/webp"
-     ]
-    },
-    "video": {
-     "min_seconds": 4,
-     "max_seconds": 900,
-     "max_bytes": 26214400
+  "base": "https://api.pinterest.com",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://www.pinterest.com/oauth/",
+      "token_url": "https://api.pinterest.com/v5/oauth/token",
+      "scopes": [
+        "boards:read",
+        "pins:read",
+        "pins:write",
+        "user_accounts:read"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "basic"
     }
-   },
-   "kinds": [
-    {
-     "name": "pin",
-     "label": "Pin"
-    }
-   ],
-   "follow_ups": {
-    "as": "none"
-   },
-   "settings": [
-    {
-     "key": "board",
-     "label": "Board",
-     "type": "select",
-     "required": true,
-     "choices": {
-      "operation": "boards",
-      "items_at": "/items",
-      "value_at": "/id",
-      "label_at": "/name",
-      "inputs": {}
-     }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "pinterest-media-upload.s3-accelerate.amazonaws.com"
+  ],
+  "limit": {
+    "concurrent": 10
+  },
+  "meta": {
+    "capabilities": {
+      "name": "Pinterest",
+      "max_text": 500,
+      "images": true,
+      "max_media": 5,
+      "media_required": true
     },
-    {
-     "key": "title",
-     "label": "Title",
-     "type": "text",
-     "max": 100
-    },
-    {
-     "key": "link",
-     "label": "Destination link",
-     "type": "text"
-    },
-    {
-     "key": "dominant_color",
-     "label": "Colour",
-     "type": "text"
-    }
-   ]
-  }
- },
- "operations": {
-  "boards": {
-   "path": "/v5/boards",
-   "query": {
-    "page_size": "100"
-   },
-   "error_at": "/message"
-  },
-  "register_video": {
-   "method": "POST",
-   "path": "/v5/media",
-   "body": "{\"media_type\": \"video\"}",
-   "result": {
-    "id": {
-     "at": "/media_id",
-     "required": true
-    },
-    "upload_url": "/upload_url",
-    "fields": "/upload_parameters"
-   },
-   "error_at": "/message",
-   "idempotency_header": "X-Ferrum-Upload-Key"
-  },
-  "send_video": {
-   "method": "POST",
-   "url": "{{ inputs.url }}",
-   "credentials": false,
-   "form_fields": "{{ inputs.fields | json }}",
-   "form": {
-    "file": {
-     "file": "{{ inputs.file }}",
-     "max_bytes": 26214400
-    }
-   },
-   "inputs": [
-    "url",
-    "fields",
-    "file"
-   ],
-   "error_at": "/Error/Message",
-   "idempotency_header": "X-Ferrum-Upload-Key"
-  },
-  "video_status": {
-   "path": "/v5/media/{{ inputs.id }}",
-   "inputs": [
-    "id"
-   ],
-   "result": {
-    "status": "/status"
-   },
-   "error_at": "/message"
-  },
-  "check": {
-   "path": "/v5/user_account",
-   "result": {
-    "id": "/username"
-   },
-   "error_at": "/message"
-  },
-  "create_pin": {
-   "method": "POST",
-   "path": "/v5/pins",
-   "body": "{\"board_id\": {{ inputs.board | json }}, \"title\": {{ (inputs.title or \"\") | json }}, \"description\": {{ inputs.text | json }}{% if inputs.link %}, \"link\": {{ inputs.link | json }}{% endif %}{% if inputs.alt %}, \"alt_text\": {{ inputs.alt | json }}{% endif %}{% if inputs.color %}, \"dominant_color\": {{ inputs.color | json }}{% endif %}, \"media_source\": {% set m = inputs.media %}{% if m[0] is startingwith(\"video:\") %}{\"source_type\": \"video_id\", \"media_id\": {{ m[0][6:] | json }}, \"cover_image_key_frame_time\": 0}{% elif m | length > 1 %}{\"source_type\": \"multiple_image_urls\", \"items\": [{% for x in m %}{% if not loop.first %}, {% endif %}{\"url\": {{ x[4:] | json }}}{% endfor %}]}{% else %}{\"source_type\": \"image_url\", \"url\": {{ m[0][4:] | json }}}{% endif %}}",
-   "inputs": [
-    "board",
-    "title",
-    "text",
-    "link",
-    "alt",
-    "color",
-    "media"
-   ],
-   "result": {
-    "id": {
-     "at": "/id",
-     "required": true
-    }
-   },
-   "error_at": "/message"
-  },
-  "board_pins": {
-   "path": "/v5/boards/{{ inputs.board }}/pins",
-   "query": {
-    "page_size": "25"
-   },
-   "inputs": [
-    "board",
-    "text"
-   ],
-   "result": {
-    "id": {
-     "expr": "size(answer.items.filter(p, p.description == inputs.text)) > 0 ? answer.items.filter(p, p.description == inputs.text)[0].id : null"
-    }
-   },
-   "error_at": "/message"
-  },
-  "publish_media": {
-   "inputs": [
-    "file",
-    "url",
-    "content_type"
-   ],
-   "steps": [
-    {
-     "name": "check",
-     "operation": "check",
-     "when": "not (inputs.content_type is startingwith('video/'))"
-    },
-    {
-     "name": "register",
-     "operation": "register_video",
-     "when": "inputs.content_type is startingwith('video/')"
-    },
-    {
-     "name": "send",
-     "operation": "send_video",
-     "when": "inputs.content_type is startingwith('video/')",
-     "inputs": {
-      "url": "steps.register.upload_url",
-      "fields": "steps.register.fields",
-      "file": "inputs.file"
-     }
-    },
-    {
-     "name": "ready",
-     "operation": "video_status",
-     "when": "inputs.content_type is startingwith('video/')",
-     "inputs": {
-      "id": "steps.register.id"
-     },
-     "wait": {
-      "until": "result.status == 'succeeded'",
-      "fail_if": "result.status == 'failed'",
-      "every_secs": 5,
-      "within_secs": 900
-     }
-    }
-   ],
-   "result": {
-    "id": {
-     "expr": "answer.register != null ? 'video:' + answer.register.id : 'url:' + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
-    }
-   }
-  },
-  "publish": {
-   "inputs": [
-    "text",
-    "link",
-    "media",
-    "alt",
-    "settings"
-   ],
-   "steps": [
-    {
-     "name": "pin",
-     "operation": "create_pin",
-     "inputs": {
-      "board": "inputs.settings.board",
-      "title": "inputs.settings.title",
-      "text": "inputs.text",
-      "link": "inputs.settings.link or inputs.link",
-      "alt": "inputs.alt",
-      "color": "inputs.settings.dominant_color",
-      "media": "inputs.media"
-     },
-     "confirm": {
-      "operation": "board_pins",
-      "inputs": {
-       "board": "sent.board",
-       "text": "sent.text"
+    "social": {
+      "name": "Pinterest",
+      "text": {
+        "max": 500,
+        "format": "plain"
       },
-      "proves": "result.id"
-     }
+      "media": {
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "required": true,
+        "max": 5,
+        "mixes": [
+          {
+            "image": 5
+          },
+          {
+            "video": 1
+          }
+        ],
+        "alt": true,
+        "alt_max": 500,
+        "thumbnail": false,
+        "image": {
+          "max_bytes": 20971520,
+          "types": [
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+          ]
+        },
+        "video": {
+          "min_seconds": 4,
+          "max_seconds": 900,
+          "max_bytes": 26214400
+        },
+        "by_address": [
+          "image"
+        ]
+      },
+      "kinds": [
+        {
+          "name": "pin",
+          "label": "Pin"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "board",
+          "label": "Board",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "boards",
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name",
+            "inputs": {}
+          }
+        },
+        {
+          "key": "link",
+          "label": "Destination link",
+          "type": "text"
+        },
+        {
+          "key": "dominant_color",
+          "label": "Colour",
+          "type": "text"
+        }
+      ],
+      "title": {
+        "required": false,
+        "max": 100
+      }
     }
-   ],
-   "result": {
-    "id": "/pin/id",
-    "url": {
-     "expr": "'https://www.pinterest.com/pin/' + answer.pin.id + '/'"
-    }
-   }
   },
-  "delete": {
-   "method": "DELETE",
-   "path": "/v5/pins/{{ inputs.id }}",
-   "inputs": [
-    "id"
-   ],
-   "error_at": "/message"
-  },
-  "metrics": {
-   "path": "/v5/pins/{{ inputs.id }}",
-   "query": {
-    "pin_metrics": "true"
-   },
-   "inputs": [
-    "id"
-   ],
-   "result": {
-    "impressions": "/pin_metrics/lifetime_metrics/impression",
-    "clicks": {
-     "expr": "answer.pin_metrics.lifetime_metrics.pin_click + answer.pin_metrics.lifetime_metrics.outbound_click"
+  "operations": {
+    "boards": {
+      "path": "/v5/boards",
+      "query": {
+        "page_size": "100"
+      },
+      "error_at": "/message"
     },
-    "engagements": {
-     "expr": "answer.pin_metrics.lifetime_metrics.save + answer.pin_metrics.lifetime_metrics.reaction + answer.pin_metrics.lifetime_metrics.comment"
+    "register_video": {
+      "method": "POST",
+      "path": "/v5/media",
+      "body": "{\"media_type\": \"video\"}",
+      "result": {
+        "id": {
+          "at": "/media_id",
+          "required": true
+        },
+        "upload_url": "/upload_url",
+        "fields": "/upload_parameters"
+      },
+      "error_at": "/message",
+      "idempotency_header": "X-Ferrum-Upload-Key"
+    },
+    "send_video": {
+      "method": "POST",
+      "url": "{{ inputs.url }}",
+      "credentials": false,
+      "form_fields": "{{ inputs.fields | json }}",
+      "form": {
+        "file": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 26214400
+        }
+      },
+      "inputs": [
+        "url",
+        "fields",
+        "file"
+      ],
+      "error_at": "/Error/Message",
+      "idempotency_header": "X-Ferrum-Upload-Key"
+    },
+    "video_status": {
+      "path": "/v5/media/{{ inputs.id }}",
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "status": "/status"
+      },
+      "error_at": "/message"
+    },
+    "check": {
+      "path": "/v5/user_account",
+      "result": {
+        "id": "/username"
+      },
+      "error_at": "/message"
+    },
+    "create_pin": {
+      "method": "POST",
+      "path": "/v5/pins",
+      "body": "{\"board_id\": {{ inputs.board | json }}, \"title\": {{ (inputs.title or \"\") | json }}, \"description\": {{ inputs.text | json }}{% if inputs.link %}, \"link\": {{ inputs.link | json }}{% endif %}{% if inputs.alt %}, \"alt_text\": {{ inputs.alt | json }}{% endif %}{% if inputs.color %}, \"dominant_color\": {{ inputs.color | json }}{% endif %}, \"media_source\": {% set m = inputs.media %}{% if m[0] is startingwith(\"video:\") %}{\"source_type\": \"video_id\", \"media_id\": {{ m[0][6:] | json }}, \"cover_image_key_frame_time\": 0}{% elif m | length > 1 %}{\"source_type\": \"multiple_image_urls\", \"items\": [{% for x in m %}{% if not loop.first %}, {% endif %}{\"url\": {{ x[4:] | json }}}{% endfor %}]}{% else %}{\"source_type\": \"image_url\", \"url\": {{ m[0][4:] | json }}}{% endif %}}",
+      "inputs": [
+        "board",
+        "title",
+        "text",
+        "link",
+        "alt",
+        "color",
+        "media"
+      ],
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        }
+      },
+      "error_at": "/message"
+    },
+    "board_pins": {
+      "path": "/v5/boards/{{ inputs.board }}/pins",
+      "query": {
+        "page_size": "25"
+      },
+      "inputs": [
+        "board",
+        "text"
+      ],
+      "result": {
+        "id": {
+          "expr": "size(answer.items.filter(p, p.description == inputs.text)) > 0 ? answer.items.filter(p, p.description == inputs.text)[0].id : null"
+        }
+      },
+      "error_at": "/message"
+    },
+    "publish_media": {
+      "inputs": [
+        "file",
+        "url",
+        "content_type"
+      ],
+      "steps": [
+        {
+          "name": "check",
+          "operation": "check",
+          "when": "not (inputs.content_type is startingwith('video/'))"
+        },
+        {
+          "name": "register",
+          "operation": "register_video",
+          "when": "inputs.content_type is startingwith('video/')"
+        },
+        {
+          "name": "send",
+          "operation": "send_video",
+          "when": "inputs.content_type is startingwith('video/')",
+          "inputs": {
+            "url": "steps.register.upload_url",
+            "fields": "steps.register.fields",
+            "file": "inputs.file"
+          }
+        },
+        {
+          "name": "ready",
+          "operation": "video_status",
+          "when": "inputs.content_type is startingwith('video/')",
+          "inputs": {
+            "id": "steps.register.id"
+          },
+          "wait": {
+            "until": "result.status == 'succeeded'",
+            "fail_if": "result.status == 'failed'",
+            "every_secs": 5,
+            "within_secs": 900
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.register != null ? 'video:' + answer.register.id : 'url:' + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "text",
+        "link",
+        "media",
+        "alt",
+        "settings",
+        "title"
+      ],
+      "steps": [
+        {
+          "name": "pin",
+          "operation": "create_pin",
+          "inputs": {
+            "board": "inputs.settings.board",
+            "title": "inputs.title",
+            "text": "inputs.text",
+            "link": "inputs.settings.link or inputs.link",
+            "alt": "inputs.alt",
+            "color": "inputs.settings.dominant_color",
+            "media": "inputs.media"
+          },
+          "confirm": {
+            "operation": "board_pins",
+            "inputs": {
+              "board": "sent.board",
+              "text": "sent.text"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/pin/id",
+        "url": {
+          "expr": "'https://www.pinterest.com/pin/' + answer.pin.id + '/'"
+        }
+      }
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/v5/pins/{{ inputs.id }}",
+      "inputs": [
+        "id"
+      ],
+      "error_at": "/message"
+    },
+    "metrics": {
+      "path": "/v5/pins/{{ inputs.id }}",
+      "query": {
+        "pin_metrics": "true"
+      },
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "impressions": "/pin_metrics/lifetime_metrics/impression",
+        "clicks": {
+          "expr": "answer.pin_metrics.lifetime_metrics.pin_click + answer.pin_metrics.lifetime_metrics.outbound_click"
+        },
+        "engagements": {
+          "expr": "answer.pin_metrics.lifetime_metrics.save + answer.pin_metrics.lifetime_metrics.reaction + answer.pin_metrics.lifetime_metrics.comment"
+        }
+      },
+      "error_at": "/message"
+    },
+    "account": {
+      "path": "/v5/user_account",
+      "result": {
+        "followers": "/follower_count",
+        "name": "/business_name",
+        "handle": "/username",
+        "picture": "/profile_image"
+      },
+      "error_at": "/message"
     }
-   },
-   "error_at": "/message"
-  },
-  "account": {
-   "path": "/v5/user_account",
-   "result": {
-    "followers": "/follower_count",
-    "name": "/business_name",
-    "handle": "/username",
-    "picture": "/profile_image"
-   },
-   "error_at": "/message"
   }
- }
 }

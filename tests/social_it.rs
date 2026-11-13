@@ -915,6 +915,12 @@ async fn scenario() {
         let (k, r) = n.replies.last().unwrap();
         assert!(k.starts_with("first_comment:") && r["text"] == "More at the link" && r["in_reply_to"] == first_pub[0]["external_id"], "{r}");
     }
+    // (round four) The first comment's id is kept, and it goes when the post is deleted, first.
+    let comment_id = first_pub[0]["first_comment_id"].as_str().expect("the first comment's id kept").to_string();
+    let before_deleted = t.net.lock().unwrap().deleted.len();
+    t.act(&manager, "SocialPublication", uid(&first_pub[0]["id"]), "delete_remote", json!({})).await.unwrap();
+    assert_eq!(t.net.lock().unwrap().deleted[before_deleted..].to_vec(), vec![comment_id, first_pub[0]["external_id"].as_str().unwrap().to_string()]);
+    t.net.lock().unwrap().deleted.truncate(before_deleted);
     t.act(&manager, "SocialPublication", key_pub, "delete_remote", json!({})).await.unwrap();
     let deleted = t.get("SocialPublication", key_pub).await["external_id"].as_str().unwrap().to_string();
     assert_eq!(t.net.lock().unwrap().deleted, vec![deleted]);

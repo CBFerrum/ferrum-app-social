@@ -1,550 +1,559 @@
 {
- "base": "https://graph.instagram.com",
- "auth": {
-  "type": "oauth",
-  "owner": "workspace",
-  "provider": {
-   "authorize_url": "https://www.instagram.com/oauth/authorize",
-   "token_url": "https://api.instagram.com/oauth/access_token",
-   "scopes": [
-    "instagram_business_basic",
-    "instagram_business_content_publish",
-    "instagram_business_manage_comments",
-    "instagram_business_manage_insights"
-   ],
-   "after": [
-    "exchange"
-   ],
-   "refresh": "renew",
-   "keep": [
-    "user_id"
-   ],
-   "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
-   "client_secret": "client_secret",
-   "client_auth": "body"
-  }
- },
- "apps": [
-  "social"
- ],
- "allowed_hosts": [
-  "rupload.facebook.com"
- ],
- "limit": {
-  "concurrent": 8
- },
- "meta": {
-  "capabilities": {
-   "name": "Instagram",
-   "max_text": 2200,
-   "images": true,
-   "max_media": 10,
-   "media_required": true,
-   "first_comment": true
-  },
-  "social": {
-   "name": "Instagram",
-   "text": {
-    "max": 2200,
-    "fold": 125
-   },
-   "media": {
-    "kinds": [
-     "image",
-     "video"
-    ],
-    "required": true,
-    "max": 10,
-    "alt": false,
-    "thumbnail": false,
-    "image": {
-     "types": [
-      "image/jpeg"
-     ],
-     "min_ratio": 0.8,
-     "max_ratio": 1.91,
-     "max_width": 1920
-    },
-    "video": {
-     "max_bytes": 314572800,
-     "max_width": 1920,
-     "types": [
-      "video/mp4",
-      "video/quicktime"
-     ]
-    }
-   },
-   "kinds": [
-    {
-     "name": "post",
-     "label": "Post or carousel"
-    },
-    {
-     "name": "reel",
-     "label": "Reel",
-     "media": {
-      "kinds": [
-       "video"
+  "base": "https://graph.instagram.com",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://www.instagram.com/oauth/authorize",
+      "token_url": "https://api.instagram.com/oauth/access_token",
+      "scopes": [
+        "instagram_business_basic",
+        "instagram_business_content_publish",
+        "instagram_business_manage_comments",
+        "instagram_business_manage_insights"
       ],
-      "required": true,
-      "max": 1,
-      "thumbnail": false,
-      "alt": false,
-      "video": {
-       "max_seconds": 900
-      }
-     },
-     "text": {
-      "max": 2200,
-      "fold": 55
-     }
-    },
-    {
-     "name": "story",
-     "label": "Story",
-     "media": {
-      "kinds": [
-       "image",
-       "video"
+      "after": [
+        "exchange"
       ],
-      "required": true,
-      "max": 1,
-      "alt": false
-     },
-     "follow_ups": {
-      "as": "none"
-     },
-     "first_comment": false,
-     "text": {
-      "max": 0
-     }
+      "refresh": "renew",
+      "keep": [
+        "user_id"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body"
     }
-   ],
-   "follow_ups": {
-    "as": "comment",
-    "media": false,
-    "max": 10
-   },
-   "settings": [
-    {
-     "key": "collaborators",
-     "label": "Collaborators",
-     "type": "multi",
-     "max": 3,
-     "when": {
-      "kind": [
-       "post",
-       "reel"
-      ]
-     },
-     "help": "Their handles, without @; private accounts cannot be"
-    },
-    {
-     "key": "trial_reel",
-     "label": "Trial reel",
-     "type": "bool",
-     "default": false,
-     "when": {
-      "kind": [
-       "reel"
-      ]
-     }
-    }
-   ],
-   "first_comment": true
-  }
- },
- "operations": {
-  "exchange": {
-   "path": "/access_token",
-   "credentials": false,
-   "query": {
-    "grant_type": "ig_exchange_token",
-    "client_secret": "{{ secret.client_secret }}",
-    "access_token": "{{ inputs.access_token }}"
-   },
-   "inputs": [
-    "access_token",
-    "refresh_token",
-    "client_id"
-   ],
-   "result": {
-    "access_token": "/access_token",
-    "expires_in": "/expires_in"
-   },
-   "error_at": "/error/message"
   },
-  "renew": {
-   "path": "/refresh_access_token",
-   "credentials": false,
-   "query": {
-    "grant_type": "ig_refresh_token",
-    "access_token": "{{ inputs.access_token }}"
-   },
-   "inputs": [
-    "access_token",
-    "refresh_token",
-    "client_id"
-   ],
-   "result": {
-    "access_token": "/access_token",
-    "expires_in": "/expires_in"
-   },
-   "error_at": "/error/message"
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "rupload.facebook.com"
+  ],
+  "limit": {
+    "concurrent": 8
   },
-  "create_container": {
-   "method": "POST",
-   "path": "/v25.0/me/media",
-   "body": "{ {% if inputs.media_type %}\"media_type\": {{ inputs.media_type | json }}{% else %}\"image_url\": {{ inputs.image_url | json }}{% endif %}{% if inputs.upload %}, \"upload_type\": \"resumable\"{% endif %}{% if inputs.carousel_item %}, \"is_carousel_item\": true{% endif %}{% if inputs.children %}, \"children\": {{ inputs.children | json }}{% endif %}{% if inputs.caption %}, \"caption\": {{ inputs.caption | json }}{% endif %}{% if inputs.collaborators %}, \"collaborators\": {{ inputs.collaborators | json }}{% endif %}{% if inputs.trial %}, \"trial_params\": {\"graduation_strategy\": \"MANUAL\"}{% endif %} }",
-   "inputs": [
-    "media_type",
-    "image_url",
-    "upload",
-    "carousel_item",
-    "children",
-    "caption",
-    "collaborators",
-    "trial",
-    "file",
-    "size"
-   ],
-   "result": {
-    "id": {
-     "at": "/id",
-     "required": true
+  "meta": {
+    "capabilities": {
+      "name": "Instagram",
+      "max_text": 2200,
+      "images": true,
+      "max_media": 10,
+      "media_required": true,
+      "first_comment": true
     },
-    "uri": "/uri",
-    "file": {
-     "expr": "has(inputs.file) ? inputs.file : null"
-    },
-    "size": {
-     "expr": "has(inputs.size) ? inputs.size : null"
-    }
-   },
-   "idempotency_header": "X-Ferrum-Upload-Key",
-   "error_at": "/error/message"
-  },
-  "upload_bytes": {
-   "method": "POST",
-   "url": "{{ inputs.url }}",
-   "headers": {
-    "offset": "0",
-    "file_size": "{{ inputs.size }}"
-   },
-   "body": {
-    "file": "{{ inputs.file }}"
-   },
-   "inputs": [
-    "url",
-    "size",
-    "file"
-   ],
-   "result": {
-    "success": "/success"
-   },
-   "error_at": "/debug_info/message",
-   "idempotency_header": "X-Ferrum-Upload-Key"
-  },
-  "container_status": {
-   "path": "/v25.0/{{ inputs.id }}",
-   "query": {
-    "fields": "status_code,status"
-   },
-   "inputs": [
-    "id"
-   ],
-   "result": {
-    "status": "/status_code",
-    "said": "/status"
-   },
-   "error_at": "/error/message"
-  },
-  "containers_status": {
-   "path": "/v25.0/",
-   "query": {
-    "ids": "{{ inputs.ids }}",
-    "fields": "status_code"
-   },
-   "inputs": [
-    "ids"
-   ],
-   "result": {
-    "pending": {
-     "expr": "size(answer.filter(k, answer[k].status_code != 'FINISHED'))"
-    },
-    "failed": {
-     "expr": "size(answer.filter(k, answer[k].status_code in ['ERROR', 'EXPIRED']))"
-    }
-   },
-   "error_at": "/error/message"
-  },
-  "media_publish": {
-   "method": "POST",
-   "path": "/v25.0/me/media_publish",
-   "body": "{\"creation_id\": {{ inputs.id | json }}}",
-   "inputs": [
-    "id",
-    "caption"
-   ],
-   "result": {
-    "id": {
-     "at": "/id",
-     "required": true
-    }
-   },
-   "error_at": "/error/message"
-  },
-  "recent_media": {
-   "path": "/v25.0/me/media",
-   "query": {
-    "fields": "id,caption",
-    "limit": "10"
-   },
-   "inputs": [
-    "caption"
-   ],
-   "result": {
-    "id": {
-     "expr": "inputs.caption != '' && size(answer.data.filter(m, has(m.caption) && m.caption == inputs.caption)) > 0 ? answer.data.filter(m, has(m.caption) && m.caption == inputs.caption)[0].id : null"
-    }
-   },
-   "error_at": "/error/message"
-  },
-  "permalink": {
-   "path": "/v25.0/{{ inputs.id }}",
-   "query": {
-    "fields": "permalink"
-   },
-   "inputs": [
-    "id"
-   ],
-   "result": {
-    "url": "/permalink"
-   },
-   "error_at": "/error/message"
-  },
-  "check": {
-   "path": "/v25.0/me",
-   "query": {
-    "fields": "id"
-   },
-   "result": {
-    "id": "/id"
-   },
-   "error_at": "/error/message"
-  },
-  "publish_media": {
-   "inputs": [
-    "file",
-    "url",
-    "content_type"
-   ],
-   "steps": [
-    {
-     "name": "check",
-     "operation": "check",
-     "inputs": {}
-    }
-   ],
-   "result": {
-    "id": {
-     "expr": "inputs.content_type.startsWith('video/') ? 'file:' + string(inputs.file) : 'url:' + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
-    }
-   }
-  },
-  "publish": {
-   "inputs": [
-    "text_with_link",
-    "media",
-    "media_items",
-    "kind",
-    "settings"
-   ],
-   "steps": [
-    {
-     "name": "children",
-     "operation": "create_container",
-     "when": "(inputs.media or []) | length > 1",
-     "for_each": "inputs.media_items",
-     "inputs": {
-      "image_url": "item.id[4:] if item.id is startingwith('url:') else none",
-      "media_type": "'VIDEO' if item.id is startingwith('file:') else none",
-      "upload": "item.id is startingwith('file:')",
-      "carousel_item": "true",
-      "file": "item.id[5:] if item.id is startingwith('file:') else none",
-      "size": "item.size"
-     }
-    },
-    {
-     "name": "children_bytes",
-     "operation": "upload_bytes",
-     "when": "(inputs.media or []) | length > 1",
-     "for_each": "steps.children | selectattr('file') | list",
-     "inputs": {
-      "url": "item.uri",
-      "size": "item.size",
-      "file": "item.file"
-     }
-    },
-    {
-     "name": "children_ready",
-     "operation": "containers_status",
-     "when": "(inputs.media or []) | length > 1",
-     "inputs": {
-      "ids": "steps.children | map(attribute='id') | join(',')"
-     },
-     "wait": {
-      "until": "result.pending == 0",
-      "fail_if": "result.failed > 0",
-      "every_secs": 5,
-      "within_secs": 900
-     }
-    },
-    {
-     "name": "carousel",
-     "operation": "create_container",
-     "when": "(inputs.media or []) | length > 1",
-     "inputs": {
-      "media_type": "'CAROUSEL'",
-      "children": "steps.children | map(attribute='id') | list",
-      "caption": "'' if inputs.kind == 'story' else inputs.text_with_link",
-      "collaborators": "inputs.settings.collaborators if inputs.kind in [none, 'post', 'reel'] else none"
-     }
-    },
-    {
-     "name": "single",
-     "operation": "create_container",
-     "when": "not ((inputs.media or []) | length > 1)",
-     "inputs": {
-      "image_url": "inputs.media[0][4:] if inputs.media[0] is startingwith('url:') else none",
-      "media_type": "'STORIES' if inputs.kind == 'story' else ('REELS' if inputs.media[0] is startingwith('file:') else none)",
-      "upload": "inputs.media[0] is startingwith('file:')",
-      "caption": "'' if inputs.kind == 'story' else inputs.text_with_link",
-      "collaborators": "inputs.settings.collaborators if inputs.kind in [none, 'post', 'reel'] else none",
-      "trial": "inputs.kind == 'reel' and inputs.settings.trial_reel",
-      "file": "inputs.media[0][5:] if inputs.media[0] is startingwith('file:') else none",
-      "size": "inputs.media_items[0].size"
-     }
-    },
-    {
-     "name": "single_bytes",
-     "operation": "upload_bytes",
-     "when": "not ((inputs.media or []) | length > 1) and steps.single.file",
-     "inputs": {
-      "url": "steps.single.uri",
-      "size": "steps.single.size",
-      "file": "steps.single.file"
-     }
-    },
-    {
-     "name": "ready",
-     "operation": "container_status",
-     "inputs": {
-      "id": "(steps.carousel or steps.single).id"
-     },
-     "wait": {
-      "until": "result.status == 'FINISHED'",
-      "fail_if": "result.status in ['ERROR', 'EXPIRED']",
-      "every_secs": 5,
-      "within_secs": 1800
-     }
-    },
-    {
-     "name": "post",
-     "operation": "media_publish",
-     "inputs": {
-      "id": "(steps.carousel or steps.single).id",
-      "caption": "'' if inputs.kind == 'story' else inputs.text_with_link"
-     },
-     "confirm": {
-      "operation": "recent_media",
-      "inputs": {
-       "caption": "sent.caption"
+    "social": {
+      "name": "Instagram",
+      "text": {
+        "max": 2200,
+        "fold": 125
       },
-      "proves": "result.id"
-     }
+      "media": {
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "required": true,
+        "max": 10,
+        "alt": false,
+        "thumbnail": false,
+        "image": {
+          "types": [
+            "image/jpeg"
+          ],
+          "min_ratio": 0.8,
+          "max_ratio": 1.91,
+          "max_width": 1920
+        },
+        "video": {
+          "max_bytes": 314572800,
+          "max_width": 1920,
+          "types": [
+            "video/mp4",
+            "video/quicktime"
+          ]
+        },
+        "by_address": [
+          "image"
+        ]
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Post or carousel"
+        },
+        {
+          "name": "reel",
+          "label": "Reel",
+          "media": {
+            "kinds": [
+              "video"
+            ],
+            "required": true,
+            "max": 1,
+            "thumbnail": false,
+            "alt": false,
+            "video": {
+              "max_seconds": 900
+            },
+            "by_address": [
+              "image"
+            ]
+          },
+          "text": {
+            "max": 2200,
+            "fold": 55
+          }
+        },
+        {
+          "name": "story",
+          "label": "Story",
+          "media": {
+            "kinds": [
+              "image",
+              "video"
+            ],
+            "required": true,
+            "max": 1,
+            "alt": false,
+            "by_address": [
+              "image"
+            ]
+          },
+          "follow_ups": {
+            "as": "none"
+          },
+          "first_comment": false,
+          "text": {
+            "max": 0
+          }
+        }
+      ],
+      "follow_ups": {
+        "as": "comment",
+        "media": false,
+        "max": 10
+      },
+      "settings": [
+        {
+          "key": "collaborators",
+          "label": "Collaborators",
+          "type": "multi",
+          "max": 3,
+          "when": {
+            "kind": [
+              "post",
+              "reel"
+            ]
+          },
+          "help": "Their handles, without @; private accounts cannot be"
+        },
+        {
+          "key": "trial_reel",
+          "label": "Trial reel",
+          "type": "bool",
+          "default": false,
+          "when": {
+            "kind": [
+              "reel"
+            ]
+          }
+        }
+      ],
+      "first_comment": true
+    }
+  },
+  "operations": {
+    "exchange": {
+      "path": "/access_token",
+      "credentials": false,
+      "query": {
+        "grant_type": "ig_exchange_token",
+        "client_secret": "{{ secret.client_secret }}",
+        "access_token": "{{ inputs.access_token }}"
+      },
+      "inputs": [
+        "access_token",
+        "refresh_token",
+        "client_id"
+      ],
+      "result": {
+        "access_token": "/access_token",
+        "expires_in": "/expires_in"
+      },
+      "error_at": "/error/message"
     },
-    {
-     "name": "link",
-     "operation": "permalink",
-     "inputs": {
-      "id": "steps.post.id"
-     }
-    }
-   ],
-   "result": {
-    "id": "/post/id",
-    "url": "/link/url"
-   }
-  },
-  "create_comment": {
-   "method": "POST",
-   "path": "/v25.0/{{ inputs.id }}/comments",
-   "body": "{\"message\": {{ inputs.text | json }}}",
-   "inputs": [
-    "id",
-    "text"
-   ],
-   "result": {
-    "id": {
-     "at": "/id",
-     "required": true
-    }
-   },
-   "error_at": "/error/message"
-  },
-  "reply": {
-   "inputs": [
-    "text",
-    "in_reply_to"
-   ],
-   "steps": [
-    {
-     "name": "comment",
-     "operation": "create_comment",
-     "inputs": {
-      "id": "inputs.in_reply_to",
-      "text": "inputs.text"
-     }
-    }
-   ],
-   "result": {
-    "id": "/comment/id"
-   }
-  },
-  "metrics": {
-   "path": "/v25.0/{{ inputs.id }}/insights",
-   "query": {
-    "metric": "reach,views,likes,comments,shares,saved,total_interactions"
-   },
-   "inputs": [
-    "id"
-   ],
-   "result": {
-    "reach": {
-     "expr": "answer.data.filter(m, m.name == 'reach')[0].values[0].value"
+    "renew": {
+      "path": "/refresh_access_token",
+      "credentials": false,
+      "query": {
+        "grant_type": "ig_refresh_token",
+        "access_token": "{{ inputs.access_token }}"
+      },
+      "inputs": [
+        "access_token",
+        "refresh_token",
+        "client_id"
+      ],
+      "result": {
+        "access_token": "/access_token",
+        "expires_in": "/expires_in"
+      },
+      "error_at": "/error/message"
     },
-    "impressions": {
-     "expr": "answer.data.filter(m, m.name == 'views')[0].values[0].value"
+    "create_container": {
+      "method": "POST",
+      "path": "/v25.0/me/media",
+      "body": "{ {% if inputs.media_type %}\"media_type\": {{ inputs.media_type | json }}{% else %}\"image_url\": {{ inputs.image_url | json }}{% endif %}{% if inputs.upload %}, \"upload_type\": \"resumable\"{% endif %}{% if inputs.carousel_item %}, \"is_carousel_item\": true{% endif %}{% if inputs.children %}, \"children\": {{ inputs.children | json }}{% endif %}{% if inputs.caption %}, \"caption\": {{ inputs.caption | json }}{% endif %}{% if inputs.collaborators %}, \"collaborators\": {{ inputs.collaborators | json }}{% endif %}{% if inputs.trial %}, \"trial_params\": {\"graduation_strategy\": \"MANUAL\"}{% endif %} }",
+      "inputs": [
+        "media_type",
+        "image_url",
+        "upload",
+        "carousel_item",
+        "children",
+        "caption",
+        "collaborators",
+        "trial",
+        "file",
+        "size"
+      ],
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        },
+        "uri": "/uri",
+        "file": {
+          "expr": "has(inputs.file) ? inputs.file : null"
+        },
+        "size": {
+          "expr": "has(inputs.size) ? inputs.size : null"
+        }
+      },
+      "idempotency_header": "X-Ferrum-Upload-Key",
+      "error_at": "/error/message"
     },
-    "engagements": {
-     "expr": "answer.data.filter(m, m.name == 'total_interactions')[0].values[0].value"
+    "upload_bytes": {
+      "method": "POST",
+      "url": "{{ inputs.url }}",
+      "headers": {
+        "offset": "0",
+        "file_size": "{{ inputs.size }}"
+      },
+      "body": {
+        "file": "{{ inputs.file }}"
+      },
+      "inputs": [
+        "url",
+        "size",
+        "file"
+      ],
+      "result": {
+        "success": "/success"
+      },
+      "error_at": "/debug_info/message",
+      "idempotency_header": "X-Ferrum-Upload-Key"
+    },
+    "container_status": {
+      "path": "/v25.0/{{ inputs.id }}",
+      "query": {
+        "fields": "status_code,status"
+      },
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "status": "/status_code",
+        "said": "/status"
+      },
+      "error_at": "/error/message"
+    },
+    "containers_status": {
+      "path": "/v25.0/",
+      "query": {
+        "ids": "{{ inputs.ids }}",
+        "fields": "status_code"
+      },
+      "inputs": [
+        "ids"
+      ],
+      "result": {
+        "pending": {
+          "expr": "size(answer.filter(k, answer[k].status_code != 'FINISHED'))"
+        },
+        "failed": {
+          "expr": "size(answer.filter(k, answer[k].status_code in ['ERROR', 'EXPIRED']))"
+        }
+      },
+      "error_at": "/error/message"
+    },
+    "media_publish": {
+      "method": "POST",
+      "path": "/v25.0/me/media_publish",
+      "body": "{\"creation_id\": {{ inputs.id | json }}}",
+      "inputs": [
+        "id",
+        "caption"
+      ],
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        }
+      },
+      "error_at": "/error/message"
+    },
+    "recent_media": {
+      "path": "/v25.0/me/media",
+      "query": {
+        "fields": "id,caption",
+        "limit": "10"
+      },
+      "inputs": [
+        "caption"
+      ],
+      "result": {
+        "id": {
+          "expr": "inputs.caption != '' && size(answer.data.filter(m, has(m.caption) && m.caption == inputs.caption)) > 0 ? answer.data.filter(m, has(m.caption) && m.caption == inputs.caption)[0].id : null"
+        }
+      },
+      "error_at": "/error/message"
+    },
+    "permalink": {
+      "path": "/v25.0/{{ inputs.id }}",
+      "query": {
+        "fields": "permalink"
+      },
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "url": "/permalink"
+      },
+      "error_at": "/error/message"
+    },
+    "check": {
+      "path": "/v25.0/me",
+      "query": {
+        "fields": "id"
+      },
+      "result": {
+        "id": "/id"
+      },
+      "error_at": "/error/message"
+    },
+    "publish_media": {
+      "inputs": [
+        "file",
+        "url",
+        "content_type"
+      ],
+      "steps": [
+        {
+          "name": "check",
+          "operation": "check",
+          "inputs": {}
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "inputs.content_type.startsWith('video/') ? 'file:' + string(inputs.file) : 'url:' + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "text_with_link",
+        "media",
+        "media_items",
+        "kind",
+        "settings"
+      ],
+      "steps": [
+        {
+          "name": "children",
+          "operation": "create_container",
+          "when": "(inputs.media or []) | length > 1",
+          "for_each": "inputs.media_items",
+          "inputs": {
+            "image_url": "item.id[4:] if item.id is startingwith('url:') else none",
+            "media_type": "'VIDEO' if item.id is startingwith('file:') else none",
+            "upload": "item.id is startingwith('file:')",
+            "carousel_item": "true",
+            "file": "item.id[5:] if item.id is startingwith('file:') else none",
+            "size": "item.size"
+          }
+        },
+        {
+          "name": "children_bytes",
+          "operation": "upload_bytes",
+          "when": "(inputs.media or []) | length > 1",
+          "for_each": "steps.children | selectattr('file') | list",
+          "inputs": {
+            "url": "item.uri",
+            "size": "item.size",
+            "file": "item.file"
+          }
+        },
+        {
+          "name": "children_ready",
+          "operation": "containers_status",
+          "when": "(inputs.media or []) | length > 1",
+          "inputs": {
+            "ids": "steps.children | map(attribute='id') | join(',')"
+          },
+          "wait": {
+            "until": "result.pending == 0",
+            "fail_if": "result.failed > 0",
+            "every_secs": 5,
+            "within_secs": 900
+          }
+        },
+        {
+          "name": "carousel",
+          "operation": "create_container",
+          "when": "(inputs.media or []) | length > 1",
+          "inputs": {
+            "media_type": "'CAROUSEL'",
+            "children": "steps.children | map(attribute='id') | list",
+            "caption": "'' if inputs.kind == 'story' else inputs.text_with_link",
+            "collaborators": "inputs.settings.collaborators if inputs.kind in [none, 'post', 'reel'] else none"
+          }
+        },
+        {
+          "name": "single",
+          "operation": "create_container",
+          "when": "not ((inputs.media or []) | length > 1)",
+          "inputs": {
+            "image_url": "inputs.media[0][4:] if inputs.media[0] is startingwith('url:') else none",
+            "media_type": "'STORIES' if inputs.kind == 'story' else ('REELS' if inputs.media[0] is startingwith('file:') else none)",
+            "upload": "inputs.media[0] is startingwith('file:')",
+            "caption": "'' if inputs.kind == 'story' else inputs.text_with_link",
+            "collaborators": "inputs.settings.collaborators if inputs.kind in [none, 'post', 'reel'] else none",
+            "trial": "inputs.kind == 'reel' and inputs.settings.trial_reel",
+            "file": "inputs.media[0][5:] if inputs.media[0] is startingwith('file:') else none",
+            "size": "inputs.media_items[0].size"
+          }
+        },
+        {
+          "name": "single_bytes",
+          "operation": "upload_bytes",
+          "when": "not ((inputs.media or []) | length > 1) and steps.single.file",
+          "inputs": {
+            "url": "steps.single.uri",
+            "size": "steps.single.size",
+            "file": "steps.single.file"
+          }
+        },
+        {
+          "name": "ready",
+          "operation": "container_status",
+          "inputs": {
+            "id": "(steps.carousel or steps.single).id"
+          },
+          "wait": {
+            "until": "result.status == 'FINISHED'",
+            "fail_if": "result.status in ['ERROR', 'EXPIRED']",
+            "every_secs": 5,
+            "within_secs": 1800
+          }
+        },
+        {
+          "name": "post",
+          "operation": "media_publish",
+          "inputs": {
+            "id": "(steps.carousel or steps.single).id",
+            "caption": "'' if inputs.kind == 'story' else inputs.text_with_link"
+          },
+          "confirm": {
+            "operation": "recent_media",
+            "inputs": {
+              "caption": "sent.caption"
+            },
+            "proves": "result.id"
+          }
+        },
+        {
+          "name": "link",
+          "operation": "permalink",
+          "inputs": {
+            "id": "steps.post.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": "/link/url"
+      }
+    },
+    "create_comment": {
+      "method": "POST",
+      "path": "/v25.0/{{ inputs.id }}/comments",
+      "body": "{\"message\": {{ inputs.text | json }}}",
+      "inputs": [
+        "id",
+        "text"
+      ],
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        }
+      },
+      "error_at": "/error/message"
+    },
+    "reply": {
+      "inputs": [
+        "text",
+        "in_reply_to"
+      ],
+      "steps": [
+        {
+          "name": "comment",
+          "operation": "create_comment",
+          "inputs": {
+            "id": "inputs.in_reply_to",
+            "text": "inputs.text"
+          }
+        }
+      ],
+      "result": {
+        "id": "/comment/id"
+      }
+    },
+    "metrics": {
+      "path": "/v25.0/{{ inputs.id }}/insights",
+      "query": {
+        "metric": "reach,views,likes,comments,shares,saved,total_interactions"
+      },
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "reach": {
+          "expr": "answer.data.filter(m, m.name == 'reach')[0].values[0].value"
+        },
+        "impressions": {
+          "expr": "answer.data.filter(m, m.name == 'views')[0].values[0].value"
+        },
+        "engagements": {
+          "expr": "answer.data.filter(m, m.name == 'total_interactions')[0].values[0].value"
+        }
+      },
+      "error_at": "/error/message"
+    },
+    "account": {
+      "path": "/v25.0/me",
+      "query": {
+        "fields": "followers_count,username,name,profile_picture_url"
+      },
+      "result": {
+        "followers": "/followers_count",
+        "name": "/name",
+        "handle": "/username",
+        "picture": "/profile_picture_url"
+      },
+      "error_at": "/error/message"
     }
-   },
-   "error_at": "/error/message"
-  },
-  "account": {
-   "path": "/v25.0/me",
-   "query": {
-    "fields": "followers_count,username,name,profile_picture_url"
-   },
-   "result": {
-    "followers": "/followers_count",
-    "name": "/name",
-    "handle": "/username",
-    "picture": "/profile_picture_url"
-   },
-   "error_at": "/error/message"
   }
- }
 }

@@ -381,6 +381,7 @@ impl T {
     }
     /// A post to `targets` (each `{account, kind?, settings?}`), saved, sent for review and approved.
     async fn post(&self, text: &str, targets: Vec<Value>, extra: Value) -> Uuid {
+        let targets = titled(targets);
         let mut p = json!({"headline": "Spring launch", "brand": self.brand.to_string(), "text": text,
                            "scheduled_at": (Utc::now() + Duration::hours(1)).to_rfc3339(), "targets": targets});
         for (k, v) in extra.as_object().unwrap() {
@@ -393,6 +394,7 @@ impl T {
     }
     /// The same, refused at review: what it said.
     async fn refused(&self, text: &str, targets: Vec<Value>, extra: Value) -> String {
+        let targets = titled(targets);
         let mut p = json!({"headline": "Spring launch", "brand": self.brand.to_string(), "text": text,
                            "scheduled_at": (Utc::now() + Duration::hours(1)).to_rfc3339(), "targets": targets});
         for (k, v) in extra.as_object().unwrap() {
@@ -439,6 +441,20 @@ fn b64(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// (round four) The title is a post's (or an account's) own field, not a setting: what a test writes as a `title` or
+/// `subject` answer is given as the account's own title.
+fn titled(targets: Vec<Value>) -> Vec<Value> {
+    targets
+        .into_iter()
+        .map(|mut t| {
+            if let Some(v) = t["settings"].as_object_mut().and_then(|s| s.remove("title").or_else(|| s.remove("subject"))) {
+                t["title"] = v;
+            }
+            t
+        })
+        .collect()
 }
 
 fn target(account: Uuid) -> Value {
@@ -1175,7 +1191,7 @@ async fn wordpress(t: &T) {
     assert_eq!(tags["choices"], json!([{"value": "7", "label": "spring"}]));
     let article = |settings: Value| target_with(blog, "article", settings);
     let e = t.refused("<p>No title</p>", vec![article(json!({}))], json!({})).await;
-    assert!(e.contains("Title is needed"), "{e}");
+    assert!(e.contains("needs a title"), "{e}");
 
     // An article with a cover picture: the picture first (its bytes as the body, then its description), then the post.
     net.clear();
@@ -2752,8 +2768,8 @@ async fn moltbook(t: &T) {
     t.delete_remote(&out).await;
     assert_eq!(
         net.order(),
-        ["DELETE /api/v1/comments/c1", "DELETE /api/v1/posts/p1"],
-        "the follow-up, then the post; Social keeps no id for a first comment, so it stays"
+        ["DELETE /api/v1/comments/c2", "DELETE /api/v1/comments/c1", "DELETE /api/v1/posts/p1"],
+        "(round four) the first comment, the follow-up, then the post: Social keeps the first comment's id"
     );
 }
 
@@ -2872,7 +2888,7 @@ async fn tiktok_business(t: &T) {
     assert_eq!(net.to("GET", "publish/status").len(), 2, "polled until it was done");
     let photos = call(
         "publish",
-        json!({"kind": "photo", "settings": {"title": "Gallery", "privacy": "SELF_ONLY"}, "text_with_link": "Two views",
+        json!({"kind": "photo", "title": "Gallery", "settings": {"privacy": "SELF_ONLY"}, "text_with_link": "Two views",
                "media_items": [{"id": "f1", "kind": "image", "url": "https://media.northwind.example/a.jpg"}, {"id": "f2", "kind": "image", "url": "https://media.northwind.example/b.jpg"}]}),
         "tt-photos",
     )
@@ -2893,11 +2909,10 @@ async fn tiktok_business(t: &T) {
     let n = call("metrics", json!({"id": "7300000001"}), "tt-n").await.unwrap();
     assert_eq!((n["impressions"].as_i64(), n["engagements"].as_i64()), (Some(640), Some(15)));
 
-    // Through Social, today: the stored video goes with no address, TikTok refuses (its words are in its answer's `message`;
-    // the platform shows "the answer has no share_id": see the notes) and nothing is posted.
-    let p = t.post("A clip", vec![target_with(me, "video", json!({}))], json!({"media": [json!({"item": 1, "file": t.mp4["url"]})]})).await;
-    t.upkeep().await;
-    assert_eq!(t.get("SocialPost", p).await["status"], "Failed");
+    // (round four) Through Social, today: a stored video has no public address yet, so Social refuses it plainly before
+    // anything is sent (it goes once the platform gives stored files their addresses).
+    let e = t.refused("A clip", vec![target_with(me, "video", json!({}))], json!({"media": [json!({"item": 1, "file": t.mp4["url"]})]})).await;
+    assert!(e.contains("only by a public address"), "{e}");
     assert_eq!(published.lock().unwrap().len(), 2);
 }
 
