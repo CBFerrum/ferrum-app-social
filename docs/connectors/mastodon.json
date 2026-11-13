@@ -32,6 +32,7 @@
     "concurrent": 10
   },
   "meta": {
+    "label": "Mastodon (any server)",
     "carries": {
       "network": "Mastodon",
       "provider": "mastodon",

@@ -44,6 +44,7 @@
     "concurrent": 1
   },
   "meta": {
+    "label": "Reddit",
     "capabilities": {
       "name": "Reddit",
       "max_text": 40000,

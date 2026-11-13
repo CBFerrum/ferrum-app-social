@@ -41,6 +41,7 @@
     }
   },
   "meta": {
+    "label": "Short links: Dub",
     "note": "Secret: api_key (a workspace API key). Dub answers the total clicks for interval all."
   }
 }

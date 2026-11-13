@@ -71,6 +71,7 @@
     }
   },
   "meta": {
+    "label": "Instagram with its own sign-in",
     "capabilities": {
       "name": "Instagram",
       "max_text": 2200,

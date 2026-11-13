@@ -18,6 +18,7 @@
   ],
   "timeout_ms": 30000,
   "meta": {
+    "label": "TikTok Business account",
     "carries": {
       "network": "TikTok Business",
       "provider": "tiktok_business"

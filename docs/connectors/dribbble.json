@@ -29,6 +29,7 @@
     "concurrent": 2
   },
   "meta": {
+    "label": "Dribbble",
     "carries": {
       "network": "Dribbble",
       "provider": "dribbble"

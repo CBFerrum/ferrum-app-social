@@ -30,6 +30,7 @@
     "concurrent": 3
   },
   "meta": {
+    "label": "Google Business Profile",
     "capabilities": {
       "name": "Google Business Profile",
       "max_text": 1500,

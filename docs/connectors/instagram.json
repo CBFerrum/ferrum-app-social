@@ -71,6 +71,7 @@
     }
   },
   "meta": {
+    "label": "Instagram through a Facebook Page",
     "capabilities": {
       "name": "Instagram",
       "max_text": 2200,

@@ -27,6 +27,7 @@
     "concurrent": 10
   },
   "meta": {
+    "label": "Pinterest",
     "capabilities": {
       "name": "Pinterest",
       "max_text": 500,

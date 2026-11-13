@@ -13,6 +13,7 @@
   ],
   "timeout_ms": 30000,
   "meta": {
+    "label": "Farcaster (through Neynar)",
     "carries": {
       "network": "Farcaster",
       "provider": "farcaster"

@@ -52,6 +52,7 @@
     }
   },
   "meta": {
+    "label": "GIFs: GIPHY",
     "social": {
       "media_search": {
         "items_at": "/data",

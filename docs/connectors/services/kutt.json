@@ -36,6 +36,7 @@
     }
   },
   "meta": {
+    "label": "Short links: Kutt",
     "note": "Secret: api_key. A self-hosted Kutt: change base."
   }
 }

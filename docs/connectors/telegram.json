@@ -16,6 +16,7 @@
     "concurrent": 2
   },
   "meta": {
+    "label": "Telegram (a bot in a chat)",
     "carries": {
       "network": "Telegram",
       "provider": "telegram"

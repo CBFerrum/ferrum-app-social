@@ -204,7 +204,7 @@ async fn scenario() {
         tx.commit().await.unwrap();
         t
     };
-    assert!(text.contains("Northwind Mastodon: in Administration, Connections, add the secrets of Mastodon (Northwind Mastodon)"), "{text}");
+    assert!(text.contains("Northwind Mastodon: in Administration, Connections, add the secrets of Mastodon (any server) (Northwind Mastodon)"), "{text}");
     assert!(text.contains("Northwind Bluesky"), "{text}");
     // A post for an account that cannot be reached waits, saying so; it does not fail, and nothing is lost.
     for post in &posts {

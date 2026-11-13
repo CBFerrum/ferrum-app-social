@@ -22,6 +22,7 @@
     "concurrent": 3
   },
   "meta": {
+    "label": "Discord (a bot in a server)",
     "carries": {
       "network": "Discord",
       "provider": "discord"

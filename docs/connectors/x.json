@@ -37,6 +37,7 @@
     "concurrent": 10
   },
   "meta": {
+    "label": "X (Twitter)",
     "capabilities": {
       "name": "X",
       "max_text": 280,

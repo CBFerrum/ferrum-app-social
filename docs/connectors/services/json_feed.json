@@ -17,6 +17,7 @@
     }
   },
   "meta": {
+    "label": "Feeds: JSON Feed",
     "feed": {
       "items_at": "/items",
       "id_at": "/id",

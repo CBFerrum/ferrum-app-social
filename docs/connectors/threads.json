@@ -33,6 +33,7 @@
     "concurrent": 20
   },
   "meta": {
+    "label": "Threads",
     "capabilities": {
       "name": "Threads",
       "max_text": 500,

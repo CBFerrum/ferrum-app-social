@@ -74,6 +74,7 @@
     }
   },
   "meta": {
+    "label": "Facebook Page",
     "capabilities": {
       "name": "Facebook",
       "max_text": 63206,

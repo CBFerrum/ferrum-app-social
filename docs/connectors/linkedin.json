@@ -34,6 +34,7 @@
     "concurrent": 8
   },
   "meta": {
+    "label": "LinkedIn person",
     "capabilities": {
       "name": "LinkedIn",
       "max_text": 3000,
