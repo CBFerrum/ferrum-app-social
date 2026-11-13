@@ -293,3 +293,13 @@ describe("a decision shows at once", () => {
     expect(fake.seen.filter((s) => s.line.startsWith("GET /api/v1/SocialPost/p1/approval")).length).toBeGreaterThan(1);
   });
 });
+
+describe("every checkbox has a name", () => {
+  it("the account checkboxes say the account and its state", async () => {
+    server();
+    const host = await draw(<ComposerRoute />, "/compose", "/compose");
+    const box = host.querySelector<HTMLInputElement>("fieldset input[type=checkbox]")!;
+    expect(box.getAttribute("aria-label")).toBe("North, Connected");
+    for (const b of host.querySelectorAll<HTMLInputElement>("input[type=checkbox]")) expect(b.getAttribute("aria-label") || b.closest("label")?.textContent?.trim()).toBeTruthy();
+  });
+});
