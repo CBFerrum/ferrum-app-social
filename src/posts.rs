@@ -113,7 +113,8 @@ async fn conn_misses(tx: &mut Tx, ctx: &Ctx, a: &Doc, r: &Rules, v: &Version, na
     if !offers("publish") {
         return Ok(Some(format!("{name}'s connection cannot publish posts")));
     }
-    if v.items.iter().any(|i| !i.media.is_empty()) && !offers("publish_media") {
+    let steps = conn.as_ref().is_some_and(|c| c.has_steps(r.op("publish")));
+    if v.items.iter().any(|i| !i.media.is_empty()) && !offers("publish_media") && !steps {
         return Ok(Some(format!("{name}'s connection cannot publish pictures")));
     }
     if v.items.len() > 1 && follow(r, v) == FollowAs::Comment && !offers("reply") {
@@ -585,7 +586,10 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     };
     // Each medium first, under a key of its own; 0.7.0 kept the first item's picture in `media_ref`.
     let mut media: Vec<String> = vec![];
-    for (i, m) in item.media.iter().enumerate() {
+    // A description whose `publish` uploads its media in its own steps has no `publish_media`: it gets the stored files
+    // in `media_items` instead (BD-53 to BD-55).
+    let uploads = conn.has(r.op("publish_media"));
+    for (i, m) in item.media.iter().enumerate().filter(|_| uploads) {
         if n == 0
             && i == 0
             && let Some(kept) = s(&p, "media_ref")
@@ -606,13 +610,20 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     let described: Vec<Value> = item
         .media
         .iter()
-        .zip(&media)
-        .map(|(m, id)| json!({"id": id, "kind": m.kind, "alt": m.alt, "content_type": m.content_type, "size": m.bytes, "width": m.width, "height": m.height, "seconds": m.seconds}))
+        .enumerate()
+        .map(|(i, m)| {
+            json!({"id": media.get(i), "file": m.file.to_string(), "name": m.name, "kind": m.kind, "alt": if r.media.alt { m.alt.clone() } else { None },
+                   "content_type": m.content_type, "size": m.bytes, "width": m.width, "height": m.height, "seconds": m.seconds,
+                   "thumbnail": if r.media.thumbnail { m.thumbnail.map(|t| t.to_string()) } else { None },
+                   // ponytail: no short-lived public address for a stored file yet (the platform has none an app can make).
+                   "public_url": Value::Null})
+        })
         .collect();
     let mut inputs = json!({"text": item.text, "link": link, "text_with_link": link.map_or_else(|| item.text.clone(), |l| format!("{} {l}", item.text)),
                             "media": media, "media_id": media.first(), "media_items": described, "alt": first.and_then(|m| m.alt.clone()), "created_at": created,
                             "picture_type": first.map(|m| m.content_type.clone()), "picture_size": first.map(|m| m.bytes),
-                            "reply_to": text_of(&before["id"]), "root": text_of(&root), "previous": before, "in_reply_to": text_of(&root)});
+                            "reply_to": text_of(&before["id"]), "root": text_of(&root), "previous": before, "in_reply_to": text_of(&root),
+                            "root_item": sent.first().cloned()});
     for (k2, val) in common.as_object().into_iter().flatten() {
         inputs[k2] = val.clone();
     }

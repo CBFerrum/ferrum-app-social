@@ -47,6 +47,16 @@ answer can still post twice (see "What they still cannot do").
   inputs, `in_reply_to` the first item's id; and for the post's First Comment after every item (`text`, `in_reply_to`,
   `root`), where the rules take one. Also the inbox's answers (`text`, `in_reply_to`, `author`, `thread`,
   `created_at`). Result `id`.
+* (round three) **A `publish` made of steps** (BD-53 to BD-55) may upload its own media: then the description needs no
+  `publish_media`, Social asks for none, and the item's media come only in `media_items`: `[{id (null: nothing uploaded
+  apart), file (the stored file's id, for a step's `range`, `chunks` or a file body), name, kind, content_type, size,
+  width, height, seconds, alt (when `media.alt`), thumbnail (a stored file's id, when `media.thumbnail`), public_url}]`.
+  `public_url` is null today: the platform gives an app no short-lived public address for a stored file (a file
+  uploaded `public` has `/files/public/{id}`, for good, pictures and PDFs only, and an app cannot mark one public or
+  ask whether it is). A network that pulls media by address needs that call (`Kernel::file_link(file, seconds)` or the
+  like). Each item also gets `root_item` (the first item as kept: `{item, id, url, media, sent_at, answer}`, `answer`
+  holding every other field its `result` maps, a `cid` say) beside `previous` (the item before, the same shape):
+  `inputs.previous.answer.cid`, `inputs.root_item.url`.
 * `publish_media`, before the item that carries the medium, for each medium (inputs `file`, the stored file's id, for a
   part or a body; `name`, `content_type`, `size`, `kind`, `alt` when `media.alt`, `thumbnail` (a stored file's id) when
   `media.thumbnail`, `width`, `height`, `seconds`, `item`, `index` (its place in the item), `account_id`, `handle`,
