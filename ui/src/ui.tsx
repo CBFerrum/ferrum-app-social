@@ -50,8 +50,9 @@ export function firstOf(...qs: UseQueryResult<unknown>[]): UseQueryResult<unknow
 }
 
 /** An account's or a brand's picture, else its initials. */
-export function Face({ name, picture }: { name: string; picture?: string | null }) {
-  return picture ? <img className="face" src={picture} alt="" loading="lazy" /> : <span className="face face-initial" aria-hidden="true">{initials(name)}</span>;
+export function Face({ name, picture, small }: { name: string; picture?: string | null; small?: boolean }) {
+  const size = small ? "face face-sm" : "face";
+  return picture ? <img className={size} src={picture} alt="" loading="lazy" /> : <span className={`${size} face-initial`} aria-hidden="true">{initials(name)}</span>;
 }
 
 export const useBrands = () => useQuery({ queryKey: ["social", "brands"], queryFn: () => rows("SocialBrand", [], { sort: "brand_name asc" }) });
