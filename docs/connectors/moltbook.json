@@ -1,0 +1,231 @@
+{
+  "base": "https://www.moltbook.com/api/v1",
+  "auth": {
+    "type": "bearer",
+    "secret": "api_key"
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "www.moltbook.com"
+  ],
+  "timeout_ms": 30000,
+  "limit": {
+    "per": 100,
+    "every": 60,
+    "concurrent": 2
+  },
+  "meta": {
+    "carries": {
+      "network": "Moltbook",
+      "provider": "moltbook"
+    },
+    "social": {
+      "name": "Moltbook",
+      "text": {
+        "max": 300,
+        "count": "characters",
+        "format": "plain"
+      },
+      "media": {
+        "kinds": []
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Post"
+        }
+      ],
+      "follow_ups": {
+        "as": "comment",
+        "media": false,
+        "max": 20
+      },
+      "first_comment": true,
+      "settings": [
+        {
+          "key": "submolt",
+          "label": "Community (submolt)",
+          "type": "select",
+          "default": "general",
+          "choices": {
+            "operation": "submolts",
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "max": 300,
+          "help": "The first 100 characters of the text when empty"
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/agents",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/agents/me",
+      "result": {
+        "agents": {
+          "expr": "[{'id': has(answer.agent) ? answer.agent.name : answer.name, 'name': has(answer.agent) ? (has(answer.agent.display_name) ? answer.agent.display_name : answer.agent.name) : answer.name, 'handle': has(answer.agent) ? answer.agent.name : answer.name}]"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/agents/me",
+      "result": {
+        "name": {
+          "expr": "has(answer.agent) ? answer.agent.name : answer.name"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "submolts": {
+      "path": "/submolts",
+      "result": {
+        "items": {
+          "expr": "has(answer.submolts) ? answer.submolts.map(s, {'id': s.name, 'name': has(s.display_name) ? s.display_name : s.name}) : []"
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "create_post": {
+      "method": "POST",
+      "path": "/posts",
+      "body": "{\"submolt\": {{ (inputs.submolt or \"general\") | json }}, \"title\": {{ inputs.title | json }}, \"content\": {{ inputs.content | json }}}",
+      "result": {
+        "id": {
+          "expr": "answer.success ? string(answer.post.id) : null",
+          "required": true
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "submolt",
+        "title",
+        "content"
+      ]
+    },
+    "create_comment": {
+      "method": "POST",
+      "path": "/posts/{{ inputs.post }}/comments",
+      "body": "{\"content\": {{ inputs.content | json }}}",
+      "result": {
+        "id": {
+          "expr": "answer.success ? string(answer.comment.id) : null",
+          "required": true
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "post",
+        "content"
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/{{ 'comments' if inputs.follow_up == 'comment' else 'posts' }}/{{ inputs.id }}",
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id",
+        "follow_up"
+      ]
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text_with_link"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "submolt": "inputs.settings.submolt",
+            "title": "inputs.settings.title or (inputs.text_with_link | truncate(100))",
+            "content": "inputs.text_with_link"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": {
+          "expr": "'https://www.moltbook.com/post/' + answer.post.id"
+        }
+      }
+    },
+    "reply": {
+      "inputs": [
+        "text",
+        "in_reply_to"
+      ],
+      "steps": [
+        {
+          "name": "comment",
+          "operation": "create_comment",
+          "inputs": {
+            "post": "inputs.in_reply_to",
+            "content": "inputs.text"
+          }
+        }
+      ],
+      "result": {
+        "id": "/comment/id"
+      }
+    }
+  }
+}

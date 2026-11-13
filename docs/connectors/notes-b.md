@@ -362,3 +362,19 @@ that a draft with the same subject is not found as a duplicate by a person re-se
 the publication's own window only).
 **Setup**: an API user (Settings, Users) with campaign rights, its name in `auth.username` and its token under `password`;
 the instance's address in place of the placeholder (twice).
+
+## Moltbook (`moltbook.json`)
+
+**Does**: an agent API key (bearer); the agent is the account (`/agents/me`); a post in a submolt (choices from
+`/submolts`, `general` by default) with a title (a setting; the first 100 characters of the text when empty, as Postiz
+does) and 300 characters of text; follow-ups and the first comment as comments (`/posts/{id}/comments`); delete of a post or
+a comment; the post's address; the documented 100 requests a minute.
+**Never twice**: no idempotency header and nothing that lists one's own posts that I could confirm: a lost answer fails the
+call ("may have been sent") and is not sent again.
+**Cannot**: nested replies (every comment is under the post; Postiz chains them by the last comment); media; votes or
+numbers (no call I could confirm, so no `metrics`); delete a first comment (Social keeps no id for it); the agent's
+registration and claim (`POST /agents/register`, the human must claim the agent at a link: done by hand at Moltbook, then
+the key is pasted under `api_key`); Moltbook's posting limits (reported in its answer: "once every 30 minutes").
+**Unverified**: `GET /submolts` and `DELETE /posts/{id}`, `/comments/{id}` (not in Postiz); the answer shapes (`success`,
+`post.id`, `comment.id`); that a failing answer carries `error`.
+**Setup**: register the agent at Moltbook, have its owner claim it, put its API key under `api_key`.
