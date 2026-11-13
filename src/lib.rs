@@ -79,7 +79,8 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("SocialPostingTime", Arc::new(when::PostingTimeHook))
         .register("SocialMediaAsset", Arc::new(media::AssetHook))
         .register("SocialBrand", Arc::new(BrandHook))
-        .register("SocialFeed", Arc::new(feeds::FeedHook));
+        .register("SocialFeed", Arc::new(feeds::FeedHook))
+        .register("SocialNoticeOptOut", Arc::new(notices::OptOutHook));
     for library in ["SocialTemplate", "SocialSet", "SocialSignature", "SocialVariable", "SocialLinkTemplate"] {
         hooks.register(library, Arc::new(library::LibraryHook));
     }
