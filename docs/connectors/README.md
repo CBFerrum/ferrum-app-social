@@ -91,7 +91,8 @@ profile's own fields are read as 0.7.0 read them. Order: `meta.social`, then `me
     "min": 0,
     "count": "characters",                   // characters | graphemes | utf16 | bytes | weighted
     "link_counts": 23,                       // a web address in the text (and the post's link) counts as this, whatever its length
-    "format": "plain"                        // plain | markdown | html: what the composer edits and previews
+    "format": "plain",                       // plain | markdown | html: what the composer edits and previews
+    "fold": 125                              // (round two) characters after which the network shows "see more": the preview's, never checked
   },
   "media": {
     "kinds": ["image", "video"],             // kinds taken; absent or []: none. A medium's kind is its own (`kind` on the media
