@@ -554,6 +554,9 @@ async fn scenario() {
     if wanted("mewe") {
         mewe(&t).await;
     }
+    if wanted("listmonk") {
+        listmonk(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -2520,4 +2523,119 @@ async fn mewe(t: &T) {
     assert_eq!(checked["read"]["display_name"], "North Wind", "{checked}");
     // No delete: MeWe returned no id.
     assert!(t.act(&t.manager, "SocialPublication", uid(&out["id"]), "delete_remote", Value::Null).await.is_err());
+}
+
+// ───────────── Listmonk ─────────────
+
+async fn listmonk(t: &T) {
+    // API (listmonk.app/docs/apis): basic auth, /settings, /lists, /templates, /campaigns (a draft), PUT
+    // /campaigns/{id}/status to start it, GET /campaigns/{id} for the counts.
+    let campaigns: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (c2, l2) = (campaigns.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, m: &str| status(code, json!({"message": m}));
+        if r.header("authorization") != format!("Basic {}", b64(b"api:lm-token")) {
+            return err(403, "invalid session");
+        }
+        let mut cs = c2.lock().unwrap();
+        let q = r.query();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/api/settings") => ok(json!({"data": {"app.site_name": "Northwind News", "app.logo_url": ""}})),
+            ("GET", "/api/lists") => {
+                assert_eq!(q["per_page"], "all");
+                ok(json!({"data": {"results": [{"id": 3, "name": "Customers"}, {"id": 4, "name": "Press"}]}}))
+            }
+            ("GET", "/api/templates") => ok(json!({"data": [{"id": 6, "name": "Newsletter", "type": "campaign"}]})),
+            ("POST", "/api/campaigns") => {
+                let b = r.json();
+                if b["subject"] == "Forbidden" {
+                    return err(400, "Invalid list(s): 99");
+                }
+                assert_eq!((b["type"].as_str(), b["content_type"].as_str(), b["messenger"].as_str()), (Some("regular"), Some("html"), Some("email")));
+                let id = 70 + cs.len() as i64;
+                cs.push(json!({"id": id, "subject": b["subject"], "status": "draft", "lists": b["lists"], "template_id": b["template_id"], "body": b["body"],
+                               "created_at": Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(), "views": 120, "clicks": 17, "sent": 900}));
+                if l2.lock().unwrap().as_deref() == Some("create:") && b["subject"] == "Lost create" {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"data": {"id": id, "uuid": "u"}}))
+            }
+            ("GET", "/api/campaigns") => ok(json!({"data": {"results": cs.iter().rev().cloned().collect::<Vec<_>>()}})),
+            ("GET", p) if p.starts_with("/api/campaigns/") => {
+                let id: i64 = p.rsplit('/').next().unwrap().parse().unwrap();
+                ok(json!({"data": cs.iter().find(|c| c["id"] == id).cloned().expect("a campaign")}))
+            }
+            ("PUT", p) if p.ends_with("/status") => {
+                let id: i64 = p.split('/').nth(3).unwrap().parse().unwrap();
+                assert_eq!(r.json(), json!({"status": "running"}));
+                let c = cs.iter_mut().find(|c| c["id"] == id).expect("a campaign");
+                c["status"] = json!("running");
+                c["starts"] = json!(c["starts"].as_i64().unwrap_or(0) + 1);
+                if l2.lock().unwrap().as_deref() == Some("start:") && c["subject"] == "Lost start" {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"data": {"id": id, "status": "running"}}))
+            }
+            ("DELETE", p) => {
+                let id: i64 = p.rsplit('/').next().unwrap().parse().unwrap();
+                cs.retain(|c| c["id"] != id);
+                ok(json!({"data": true}))
+            }
+            _ => err(404, "not found"),
+        }
+    })
+    .await;
+    let conn = t
+        .connect("listmonk_north", "listmonk", &[("https://listmonk.example", &net.base)], json!({"password": "lm-token"}), |d| {
+            d["auth"]["username"] = json!("api")
+        })
+        .await;
+    let site = t.account("Northwind newsletter", "news", conn, "Northwind News").await;
+    let rules = t.rules(site).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["format"].as_str()), (Some("Listmonk"), Some("html")));
+    let lists = t.act(&t.author, "SocialAccount", site, "choices", json!({"setting": "list"})).await.unwrap();
+    assert_eq!(lists["choices"], json!([{"value": "3", "label": "Customers"}, {"value": "4", "label": "Press"}]));
+    let templates = t.act(&t.author, "SocialAccount", site, "choices", json!({"setting": "template"})).await.unwrap();
+    assert_eq!(templates["choices"], json!([{"value": "0", "label": "Default"}, {"value": "6", "label": "Newsletter"}]));
+    let mail = |settings: Value| target_with(site, "campaign", settings);
+
+    // A campaign: created as a draft for the list and template, then started.
+    net.clear();
+    let p = t.post("<p>Spring is <b>here</b></p>", vec![mail(json!({"subject": "Spring", "list": "3", "template": "6"}))], json!({})).await;
+    let out = t.out(p, site).await;
+    assert_eq!(out["external_id"], "70");
+    assert_eq!(out["permalink"], format!("{}/admin/campaigns/70", net.base));
+    assert_eq!(
+        net.order().iter().filter(|o| o.starts_with("POST") || o.starts_with("PUT")).cloned().collect::<Vec<_>>(),
+        ["POST /api/campaigns", "PUT /api/campaigns/70/status"],
+        "made, then started"
+    );
+    {
+        let c = campaigns.lock().unwrap()[0].clone();
+        assert_eq!((c["lists"].clone(), c["template_id"].as_i64(), c["body"].as_str()), (json!([3]), Some(6), Some("<p>Spring is <b>here</b></p>")));
+    }
+    // Lost answers: the campaign made but not seen is found again (not made twice); one started but not seen is read and not started twice.
+    *lose.lock().unwrap() = Some("create:".into());
+    let p = t.post("<p>x</p>", vec![mail(json!({"subject": "Lost create", "list": "4"}))], json!({})).await;
+    let kept = t.out(p, site).await;
+    assert!(kept["sent_at"].is_string());
+    assert_eq!(campaigns.lock().unwrap().iter().filter(|c| c["subject"] == "Lost create").count(), 1, "one campaign");
+    *lose.lock().unwrap() = Some("start:".into());
+    let p = t.post("<p>y</p>", vec![mail(json!({"subject": "Lost start", "list": "4"}))], json!({})).await;
+    let kept = t.out(p, site).await;
+    assert!(kept["sent_at"].is_string());
+    assert_eq!(campaigns.lock().unwrap().iter().find(|c| c["subject"] == "Lost start").unwrap()["starts"], 1, "started once");
+    // A refusal in Listmonk's words.
+    let p = t.post("<p>z</p>", vec![mail(json!({"subject": "Forbidden", "list": "4"}))], json!({})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("Invalid list(s): 99"));
+    t.later_upkeep().await;
+    let numbers = t.rows("SocialMetric", json!({})).await;
+    assert!(numbers.iter().any(|m| m["impressions"] == 120 && m["clicks"] == 17 && m["reach"] == 900), "{numbers:?}");
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(net.order(), ["DELETE /api/campaigns/70"]);
 }
