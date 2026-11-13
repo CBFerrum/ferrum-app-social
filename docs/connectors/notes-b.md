@@ -71,3 +71,30 @@ the privileged Server Members intent (it does in the docs I know); the `User-Age
 **Setup**: a Discord application with a bot (discord.com/developers), the bot token under `bot_token`, the bot invited
 with View Channel, Send Messages, Attach Files, Create Public Threads, Send Messages in Threads (and Manage Messages to
 delete other people's), the Server Members intent for mentions.
+
+## Slack (`slack.json`)
+
+**Does**: OAuth v2 (the workspace's Slack app, bot token; the workspace is the account, picked from `auth.test`); the
+channel is a required setting with choices from `conversations.list`; two kinds: `message` (4000 characters) and `images`
+(3000, a section block and one image block for each of up to 10 pictures); pictures through Slack's external upload
+flow (`files.getUploadURLExternal`, the bytes to the signed address with no credentials, `files.completeUploadExternal`);
+follow-ups as replies in the first message's thread (`thread_ts`); delete (`chat.delete`, the id is `<channel>:<ts>`);
+the message's permalink (`chat.getPermalink`); mentions (`<@id>`, from `users.list`); the workspace's name.
+**Never twice**: Slack has no idempotency header. Each post carries the call's key in the message's `metadata`; if the
+answer is lost the call reads the channel's recent messages (`conversations.history` with `include_all_metadata`) and
+takes the message with that key as the answer. If it cannot prove it (the bot is not a member of the channel, so it cannot
+read it) the call fails and is not sent again. The upload's completion is read back (`files.info`) the same way.
+**Cannot**: say why Slack refused in Slack's words. Slack answers 200 with `{"ok": false, "error": "channel_not_found"}`
+and the platform reads an `error_at` only on a failing status; the description makes the missing id fail the call
+(`required`), so the person sees "the answer has no id". *Needed from the platform*: a way to say that a 2xx answer is a
+refusal (an expression over the answer, e.g. `fail_if: "not answer.ok"`) and read `error_at` from it. Also: numbers
+(Slack gives none for a bot's post); mrkdwn is shown as plain text in the composer (no `mrkdwn` text format in
+`meta.social`); posts to a channel the bot is not in need `chat:write.public` and cannot be read back; user-scope
+tokens; token rotation (`never_expires` is set; a workspace that turns rotation on must connect again).
+**Unverified**: that the platform's space-separated `scope` is taken by Slack (its docs say comma-separated; the
+platform's `params` may not set `scope`); that an image block's `slack_file` may name a file completed without a
+`channel_id` (Slack's docs say the file must be visible to the bot; Postiz shares the file into the channel); that
+`chat.getPermalink` needs no scope beyond `chat:write`; the `Retry-After` of a 429 (Slack sends it).
+**Setup**: a Slack app (api.slack.com/apps) with the redirect `{PUBLIC_URL}/api/connections/callback`, the client id in
+the description and the client secret under `client_secret`; the bot scopes the description lists; add the bot to
+the channels it posts to (or leave `chat:write.public`, losing the read-back there).

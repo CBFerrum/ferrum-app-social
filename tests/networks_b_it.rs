@@ -332,11 +332,13 @@ impl T {
     async fn act(&self, who: &Ctx, entity: &str, id: Uuid, action: &str, params: Value) -> ferrum_kernel::Result<Value> {
         self.k.run_action(who, entity, id, action, params).await
     }
-    async fn sign_in(&self, conn: Uuid, code: &str) {
+    /// Signs in as `code` stands for at the fake provider; gives the address the browser was sent to.
+    async fn sign_in(&self, conn: Uuid, code: &str) -> reqwest::Url {
         let session = Uuid::now_v7();
-        let url = self.k.connect_start(&self.admin, conn, session).await.unwrap();
-        let state = reqwest::Url::parse(&url).unwrap().query_pairs().find(|(k, _)| k == "state").unwrap().1.to_string();
+        let url = reqwest::Url::parse(&self.k.connect_start(&self.admin, conn, session).await.unwrap()).unwrap();
+        let state = url.query_pairs().find(|(k, _)| k == "state").unwrap().1.to_string();
         self.k.connect_finish(&self.admin, session, &state, Some(code), None).await.unwrap();
+        url
     }
     /// A connection from the file `file`, its hosts (`from` → the fake's address) put where the real ones are.
     async fn connect(&self, name: &str, file: &str, hosts: &[(&str, &str)], secrets: Value, edit: impl FnOnce(&mut Value)) -> Uuid {
@@ -482,6 +484,9 @@ async fn scenario() {
     }
     if wanted("discord") {
         discord(&t).await;
+    }
+    if wanted("slack") {
+        slack(&t).await;
     }
 }
 
@@ -796,4 +801,188 @@ async fn discord(t: &T) {
     assert_eq!(checked["read"]["display_name"], "Northwind HQ", "{checked}");
     let n = t.rows("SocialMetric", json!({})).await;
     let _ = n;
+}
+
+// ───────────── Slack ─────────────
+
+async fn slack(t: &T) {
+    // Web API (api.slack.com/methods): always 200 with `ok`, a bearer token, OAuth v2, uploads
+    // by the external-upload flow (a slot, the bytes, the completion), a message's `metadata` read back by
+    // conversations.history.
+    let messages: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let files: Arc<Mutex<HashMap<String, Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (m2, f2, l2) = (messages.clone(), files.clone(), lose.clone());
+    let base: Arc<Mutex<String>> = Arc::default();
+    let b2 = base.clone();
+    let net = fake(move |r| {
+        let no = |e: &str| ok(json!({"ok": false, "error": e}));
+        let mut messages = m2.lock().unwrap();
+        let mut files = f2.lock().unwrap();
+        if r.path() == "/api/oauth.v2.access" {
+            let f = r.form();
+            if f.get("code").map(String::as_str) != Some("CODE-north") || f.get("client_secret").map(String::as_str) != Some("slack-client-secret") || !f.contains_key("client_id") {
+                return no("invalid_code");
+            }
+            return ok(json!({"ok": true, "access_token": "xoxb-1", "token_type": "bot", "scope": "chat:write", "bot_user_id": "UB",
+                             "team": {"id": "T1", "name": "Northwind"}, "authed_user": {"id": "U1"}}));
+        }
+        if let Some(id) = r.path().strip_prefix("/upload/") {
+            assert!(r.header("authorization").is_empty(), "the upload address is signed already: no credentials");
+            assert_eq!(r.body, PNG, "the bytes are the body");
+            files.get_mut(id).expect("a slot").as_object_mut().unwrap().insert("bytes".into(), json!(r.body.len()));
+            return Resp::Answer(200, vec![], format!("OK - {}", r.body.len()));
+        }
+        if r.header("authorization") != "Bearer xoxb-1" {
+            return no("invalid_auth");
+        }
+        let q = r.query();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/api/auth.test") => ok(json!({"ok": true, "team_id": "T1", "team": "Northwind", "user": "northwind_bot"})),
+            ("GET", "/api/conversations.list") => ok(json!({"ok": true, "channels": [{"id": "C1", "name": "general", "is_member": true}, {"id": "C2", "name": "launches"}]})),
+            ("GET", "/api/users.list") => ok(json!({"ok": true, "members": [
+                {"id": "U9", "name": "ana", "real_name": "Ana Lima", "deleted": false}, {"id": "U8", "name": "bot", "real_name": "Robot", "is_bot": true, "deleted": false}]})),
+            ("GET", "/api/files.getUploadURLExternal") => {
+                let id = format!("F{}", files.len() + 1);
+                files.insert(id.clone(), json!({"name": q.get("filename"), "length": q.get("length")}));
+                ok(json!({"ok": true, "upload_url": format!("{}/upload/{id}", b2.lock().unwrap()), "file_id": id}))
+            }
+            ("POST", "/api/files.completeUploadExternal") => {
+                let b = r.json();
+                let id = b["files"][0]["id"].as_str().unwrap().to_string();
+                let f = files.get_mut(&id).expect("a slot");
+                assert!(f["bytes"].is_number(), "the bytes came before the completion");
+                f.as_object_mut().unwrap().insert("title".into(), b["files"][0]["title"].clone());
+                ok(json!({"ok": true, "files": [{"id": id, "title": b["files"][0]["title"]}]}))
+            }
+            ("GET", "/api/files.info") => match files.get(q.get("file").map(String::as_str).unwrap_or_default()) {
+                Some(f) if f["title"].is_string() => ok(json!({"ok": true, "file": {"id": q["file"], "title": f["title"]}})),
+                _ => no("file_not_found"),
+            },
+            ("POST", "/api/chat.postMessage") => {
+                assert_eq!(r.header("content-type"), "application/json");
+                let b = r.json();
+                if !["C1", "C2"].contains(&b["channel"].as_str().unwrap_or_default()) {
+                    return no("channel_not_found");
+                }
+                let ts = format!("17000000{:02}.000100", messages.len() + 10);
+                let m = json!({"channel": b["channel"], "ts": ts, "text": b["text"], "thread_ts": b["thread_ts"], "blocks": b["blocks"], "metadata": b["metadata"]});
+                messages.push(m);
+                if l2.lock().unwrap().as_deref() == b["text"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"ok": true, "channel": b["channel"], "ts": ts}))
+            }
+            ("GET", "/api/conversations.history") => {
+                assert_eq!(q.get("include_all_metadata").map(String::as_str), Some("true"));
+                let mine: Vec<Value> = messages.iter().filter(|m| m["channel"] == q["channel"].as_str()).rev().cloned().collect();
+                ok(json!({"ok": true, "messages": mine}))
+            }
+            ("GET", "/api/chat.getPermalink") => ok(json!({"ok": true, "permalink": format!("https://northwind.slack.test/archives/{}/p{}", q["channel"], q["message_ts"].replace('.', ""))})),
+            ("POST", "/api/chat.delete") => {
+                let b = r.json();
+                let before = messages.len();
+                messages.retain(|m| !(m["channel"] == b["channel"] && m["ts"] == b["ts"]));
+                if messages.len() == before { no("message_not_found") } else { ok(json!({"ok": true})) }
+            }
+            _ => no("unknown_method"),
+        }
+    })
+    .await;
+    *base.lock().unwrap() = net.base.clone();
+    let conn = t
+        .connect(
+            "slack_north",
+            "slack",
+            &[("https://slack.com", &net.base), ("https://files.slack.com", &net.base)],
+            json!({"client_secret": "slack-client-secret"}),
+            |d| {
+                d["auth"]["provider"]["client_id"] = json!("slack-client-id");
+            },
+        )
+        .await;
+    // Connecting: the browser is sent to the authorize address with the scopes, the code is exchanged
+    // for the bot token, the workspace is the account.
+    let sent_to = t.sign_in(conn, "CODE-north").await;
+    let q: HashMap<String, String> = sent_to.query_pairs().into_owned().collect();
+    assert_eq!(sent_to.path(), "/oauth/v2/authorize");
+    assert!(q["scope"].starts_with("chat:write chat:write.public channels:read") && q["client_id"] == "slack-client-id", "{sent_to}");
+    let ws = t.account("Northwind Slack", "northwind_bot", conn, "T1").await;
+    let rules = t.rules(ws).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["max"].as_u64(), rules["settings"][0]["key"].as_str()), (Some("Slack"), Some(4000), Some("channel")));
+    let channels = t.act(&t.author, "SocialAccount", ws, "choices", json!({"setting": "channel"})).await.unwrap();
+    assert_eq!(channels["choices"], json!([{"value": "C1", "label": "general"}, {"value": "C2", "label": "launches"}]));
+    let found = t.act(&t.author, "SocialAccount", ws, "mentions", json!({"query": "ana"})).await.unwrap();
+    assert_eq!(found["mentions"], json!([{"value": "U9", "label": "Ana Lima", "picture": null, "text": "<@U9>"}]));
+    let on = |kind: &str, channel: &str| target_with(ws, kind, json!({"channel": channel}));
+
+    // A text post with a threaded follow-up, a permalink.
+    let p = t
+        .post("Spring is here", vec![on("message", "C1")], json!({"link": "https://northwind.example/spring", "items": [{"text": "More in the thread"}]}))
+        .await;
+    let first = t.out(p, ws).await;
+    let (head, reply) = {
+        let m = messages.lock().unwrap();
+        (m[0].clone(), m[1].clone())
+    };
+    assert_eq!(first["external_id"], format!("C1:{}", head["ts"].as_str().unwrap()));
+    assert_eq!((head["text"].as_str(), head["blocks"].is_null()), (Some("Spring is here https://northwind.example/spring"), true));
+    assert!(head["metadata"]["event_payload"]["ref"].as_str().unwrap().starts_with("publish:"), "the call's key, to read it back by");
+    assert_eq!((reply["text"].as_str(), reply["thread_ts"].clone()), (Some("More in the thread"), head["ts"].clone()), "in the thread of the first");
+    assert!(first["permalink"].as_str().unwrap().starts_with("https://northwind.slack.test/archives/C1/p"), "{first:?}");
+
+    // Pictures: for each, a slot, the bytes, the completion (in that order), then image blocks that name the files.
+    net.clear();
+    let p = t.post("Two views", vec![on("images", "C2")], json!({"media": [t.media(&t.png, "front"), t.media(&t.png, "back")]})).await;
+    let pics = t.out(p, ws).await;
+    let order: Vec<String> = net.order().into_iter().filter(|o| !o.contains("getPermalink") && !o.contains("auth.test")).collect();
+    assert_eq!(
+        order,
+        [
+            "GET /api/files.getUploadURLExternal",
+            "POST /upload/F1",
+            "POST /api/files.completeUploadExternal",
+            "GET /api/files.getUploadURLExternal",
+            "POST /upload/F2",
+            "POST /api/files.completeUploadExternal",
+            "POST /api/chat.postMessage"
+        ]
+    );
+    let q = net.to("GET", "getUploadURLExternal")[0].query();
+    assert_eq!((q["filename"].as_str(), q["length"].parse::<usize>().unwrap()), ("cat.png", PNG.len()));
+    let blocks = messages.lock().unwrap().last().unwrap()["blocks"].clone();
+    assert_eq!(blocks[0]["text"]["text"], "Two views");
+    assert_eq!(
+        (blocks[1]["slack_file"]["id"].clone(), blocks[1]["alt_text"].clone(), blocks[2]["slack_file"]["id"].clone(), blocks[2]["alt_text"].clone()),
+        (json!("F1"), json!("front"), json!("F2"), json!("back"))
+    );
+
+    // A lost answer: the message exists; the call reads it back by the key in its metadata and does not send again.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost one", vec![on("message", "C1")], json!({})).await;
+    let kept = t.out(p, ws).await;
+    assert!(kept["sent_at"].is_string(), "{kept:?}");
+    assert_eq!(net.to("POST", "chat.postMessage").len(), 1, "sent once");
+    assert_eq!(net.to("GET", "conversations.history").len(), 1, "and read back");
+    assert_eq!(messages.lock().unwrap().iter().filter(|m| m["text"] == "Lost one").count(), 1);
+    assert_eq!(kept["external_id"].as_str().unwrap().split(':').next(), Some("C1"));
+
+    // A refusal: Slack answers 200 with ok false. The call fails, once (the words are the platform's limit; see the notes).
+    net.clear();
+    let p = t.post("Nowhere", vec![on("message", "C9")], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert_eq!(post["status"], "Failed", "{post:?}");
+    assert_eq!(net.to("POST", "chat.postMessage").len(), 1, "a refusal is not sent again");
+
+    // Delete: by channel and timestamp.
+    net.clear();
+    t.delete_remote(&pics).await;
+    let del = net.to("POST", "chat.delete")[0].json();
+    assert_eq!(del["channel"], "C2");
+    assert!(!messages.lock().unwrap().iter().any(|m| m["text"] == "Two views"));
+    let checked = t.act(&t.manager, "SocialAccount", ws, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
 }
