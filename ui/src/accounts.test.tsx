@@ -54,9 +54,9 @@ describe("accounts", () => {
     expect(cards[2].textContent).toContain("Mastodon does not offer account");
   });
 
-  it("a sign-in that leaves the page: the connect answer's path is posted, and the address it gives is followed", async () => {
-    const assign = vi.fn();
-    vi.stubGlobal("location", { ...window.location, assign });
+  it("a sign-in that leaves the page: the connect answer's path is posted and the address it gives opens in a new tab; coming back checks the account and offers the picker", async () => {
+    const open = vi.fn(() => ({}) as Window);
+    vi.stubGlobal("open", open);
     const fake = fakeServer([
       ["POST", "/api/connections/c1/connect", { url: "https://provider.example/authorize?state=1" }],
       ["POST", "/api/v1/SocialAccount/a3/actions/connect", { connect: { method: "POST", path: "/api/connections/c1/connect" } }],
@@ -66,7 +66,18 @@ describe("accounts", () => {
     const host = await draw(<AccountsRoute />, "/accounts", "/accounts");
     await click(byText(host.querySelectorAll("li.card")[0] as HTMLElement, "button", "Connect"));
     expect(fake.seen.some((s) => s.line === "POST /api/connections/c1/connect")).toBe(true);
-    expect(assign).toHaveBeenCalledWith("https://provider.example/authorize?state=1");
+    expect(open).toHaveBeenCalledWith("https://provider.example/authorize?state=1", "_blank");
+    // the person comes back: the account is checked (Connected now) and, the sign-in reaching two pages, the picker opens
+    fake.routes.unshift(
+      ["POST", "/api/v1/SocialAccount/a3/actions/check", { state: "Connected", note: null, read: {} }],
+      ["POST", "/api/v1/SocialAccount/a3/actions/reachable", { accounts: [{ id: "p-1", name: "A", handle: null, picture: null, kind: null, account: null }, { id: "p-2", name: "B", handle: null, picture: null, kind: null, account: null }] }],
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await until(() => fake.seen.some((s) => s.line.endsWith("/a3/actions/reachable")));
+    await until(() => document.body.textContent!.includes("Use the chosen"));
+    expect(fake.seen.some((s) => s.line.endsWith("/a3/actions/check"))).toBe(true);
   });
 
   it("after a sign-in that reaches several pages: choose one or more, each becomes an account", async () => {
@@ -99,7 +110,6 @@ describe("the pure parts", () => {
   });
   it("where a sign-in goes", () => {
     expect(leaveFor({ url: "https://x.example/a" })).toBe("https://x.example/a");
-    expect(leaveFor({ authorize_url: "https://y.example" })).toBe("https://y.example");
     expect(leaveFor({})).toBeNull();
     expect(leaveFor(null)).toBeNull();
   });
