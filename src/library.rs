@@ -32,6 +32,12 @@ async fn variables(k: &Kernel, ctx: &Ctx, tx: &mut Tx, brand: Option<Uuid>, acco
     Ok(out.into_iter().map(|(k, (_, v))| (k, v)).collect())
 }
 
+/// `text` with the variables of `account` of `brand` filled.
+pub(crate) async fn fill_for(k: &Kernel, ctx: &Ctx, tx: &mut Tx, brand: Option<Uuid>, account: Option<Uuid>, text: &str) -> Result<String> {
+    let values = variables(k, ctx, tx, brand, account).await?;
+    fill(text, &values).map_err(|name| Error::field("text", format!("no variable is called {name}")))
+}
+
 /// `text` with each `{{name}}` filled, or the first name that has no value.
 pub(crate) fn fill(text: &str, values: &HashMap<String, String>) -> std::result::Result<String, String> {
     let mut out = String::with_capacity(text.len());
