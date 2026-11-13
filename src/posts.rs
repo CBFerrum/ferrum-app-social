@@ -70,7 +70,9 @@ fn follow(r: &Rules, v: &Version) -> FollowAs {
 
 /// Why account `a`'s copy of `doc` cannot go, in plain words naming the account; `None` when it can. Also what its
 /// connection must offer for it.
-pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc, any_profiles: bool) -> Result<Option<(String, String)>> {
+/// `strict`: everything a post must be to leave Draft; else what even a draft may not hold (structure: a kind or a
+/// setting the network does not have, a medium for an item there is not).
+pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc, any_profiles: bool, strict: bool) -> Result<Option<(String, String)>> {
     let name = s(a, "account_name").unwrap_or_default().to_string();
     let v = content::version(k, ctx, tx, doc, a).await.map_err(|e| match e {
         Error::Validation(f) => Error::Validation(
@@ -86,15 +88,19 @@ pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc
     let r = match rules_of(k, ctx, tx, a).await? {
         Some(r) => r,
         // A workspace not yet updated has no profiles: nothing says what its networks take.
-        None if any_profiles => {
+        None if any_profiles && strict => {
             return Ok(Some(("targets".into(), format!("{name} has no network profile, so it is not known what its network takes"))));
         }
+        None if !strict => return Ok(None),
         None => {
             let open = Rules::default();
             return Ok(conn_misses(tx, ctx, a, &open, &v, &name).await?.map(|why| ("targets".into(), why)));
         }
     };
-    if let Some(why) = rules::problems(&r, &v.copy()).into_iter().next() {
+    if !strict {
+        return Ok(rules::structural(&r, &v.copy()).into_iter().next().map(|why| ("targets".into(), format!("for {name}: {why}"))));
+    }
+    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy())).next() {
         return Ok(Some(("text".into(), format!("for {name}: {why}"))));
     }
     Ok(conn_misses(tx, ctx, a, &r, &v, &name).await?.map(|why| (if why.contains("pictures") { "image" } else { "targets" }.into(), why)))
@@ -116,6 +122,19 @@ async fn conn_misses(tx: &mut Tx, ctx: &Ctx, a: &Doc, r: &Rules, v: &Version, na
     Ok(None)
 }
 
+/// Refused, in the words `unfit` gives, unless every account's copy of `doc` may leave Draft.
+pub(crate) async fn ready(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+    let system = elevated(hc.ctx);
+    let profiles = any_profile(hc).await?;
+    for account in content::accounts(doc) {
+        let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
+        if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles, true).await? {
+            return Err(Error::field(&field, why));
+        }
+    }
+    Ok(())
+}
+
 pub struct PostHook;
 
 #[async_trait]
@@ -129,6 +148,13 @@ impl DocHook for PostHook {
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        crate::media::fill_lines(hc, doc).await?;
+        // Asked for by a body sent to `_calc` (nothing written): each account's copy, as `copies` answers it.
+        if doc.get("want_checks").and_then(Value::as_bool) == Some(true) {
+            let checks = copies_of(hc.kernel, hc.ctx, hc.tx, doc).await?;
+            doc.insert("checks".into(), checks);
+            doc.insert("want_checks".into(), json!(false));
+        }
         if s(doc, "author").is_none() && !hc.ctx.email.is_empty() {
             doc.insert("author".into(), json!(hc.ctx.email.to_lowercase()));
         }
@@ -183,7 +209,9 @@ impl DocHook for PostHook {
             if !a.get("active").and_then(Value::as_bool).unwrap_or(true) {
                 return Err(Error::field("targets", format!("{name} is paused")));
             }
-            if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles).await? {
+            // A draft keeps what is wrong with its content (`copies` says it); it is refused when it leaves Draft.
+            let strict = !matches!(s(doc, "status").unwrap_or("Draft"), "Draft" | "Rejected");
+            if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles, strict).await? {
                 return Err(Error::field(&field, why));
             }
         }
@@ -205,6 +233,9 @@ impl DocHook for PostHook {
             return Ok(Some(out));
         }
         if let Some(out) = crate::library::post_action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        if let Some(out) = crate::writing::action(hc, "SocialPost", name, doc, params).await? {
             return Ok(Some(out));
         }
         if name == "copies" {
@@ -230,15 +261,20 @@ impl DocHook for PostHook {
 /// `copies`: what each account gets, its words final (variables filled, signature added), each item's length as its
 /// network counts it against its most, and what is wrong, for the composer's preview and counters.
 async fn copies(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> {
-    let system = elevated(hc.ctx);
+    copies_of(hc.kernel, hc.ctx, hc.tx, doc).await
+}
+
+/// What `copies` answers, for a saved post or an unsaved body; accounts read with the caller's rights; no network called.
+pub(crate) async fn copies_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> Result<Value> {
     let mut out = vec![];
     for account in content::accounts(doc) {
-        let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
-        let r = rules_of(hc.kernel, hc.ctx, hc.tx, &a).await?.unwrap_or_default();
-        let (v, mut problems) = match content::version(hc.kernel, hc.ctx, hc.tx, doc, &a).await {
+        let a = k.get_tx(ctx, tx, "SocialAccount", account, false).await?;
+        let r = rules_of(k, ctx, tx, &a).await?.unwrap_or_default();
+        let (v, mut problems) = match content::version(k, ctx, tx, doc, &a).await {
             Ok(v) => (v, vec![]),
             Err(e) => (Version::default(), vec![e.to_string()]),
         };
+        problems.extend(v.problems.iter().cloned());
         problems.extend(rules::problems(&r, &v.copy()));
         let kind = r.kind(v.kind.as_deref()).ok().flatten();
         let (text, _, follow, _) = r.effective(kind);
@@ -249,7 +285,7 @@ async fn copies(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> {
             .map(|(n, i)| {
                 let t = if n > 0 { follow.text.as_ref().unwrap_or(&text) } else { &text };
                 let length = rules::length(t, &i.text) + i.link.as_deref().map_or(0, |l| t.link_counts.unwrap_or_else(|| rules::length(t, l)) + 1);
-                json!({"text": i.text, "link": i.link, "delay_minutes": i.delay, "length": length, "max": t.max,
+                json!({"text": i.text, "link": i.link, "delay_minutes": i.delay, "length": length, "max": t.max, "fold": t.fold,
                        "media": i.media.iter().map(|m| json!({"file": format!("/files/{}", m.file), "kind": m.kind, "alt": m.alt, "name": m.name})).collect::<Vec<_>>()})
             })
             .collect();
@@ -503,7 +539,7 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     // What its network takes may have been changed since the post was approved: looked at again.
     let r = rules_of(k, &ctx, &mut tx, &account).await?.ok_or_else(|| Error::invalid(format!("{name} has no network profile")))?;
     let v = content::version(k, &ctx, &mut tx, &post, &account).await?;
-    if let Some(why) = rules::problems(&r, &v.copy()).into_iter().next() {
+    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy())).next() {
         return Err(Error::invalid(format!("for {name}: {why}")));
     }
     let kind = r.kind(v.kind.as_deref()).ok().flatten().map(|k| k.name.clone());
@@ -513,7 +549,10 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     let Some(n) = (0..v.items.len()).find(|n| !sent.iter().any(|s| s["item"].as_u64() == Some(*n as u64))) else {
         return finish(k, &ctx, tx, publication, &post, &r, &conn, &calling, &sent).await.map(Step::Done);
     };
-    let item = &v.items[n];
+    let mut short = p.get("short_links").and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut shortened = v.items[n].clone();
+    crate::links::shorten(k, &ctx, &mut tx, publication, &mut short, &mut shortened.text, &mut shortened.link).await?;
+    let item = &shortened;
     if n > 0 && item.delay > 0 {
         let before = sent
             .iter()
@@ -579,7 +618,8 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     answer.remove("id");
     answer.remove("url");
     sent.push(json!({"item": n, "id": external, "url": text_of(&out["url"]), "media": media, "sent_at": Utc::now().to_rfc3339(), "answer": answer}));
-    let mut values = json!({"sent_items": sent, "next_at": null, "failure": null, "follow_ups": if v.items.len() > 1 { Some(format!("{as_:?}").to_lowercase()) } else { None }});
+    let mut values = json!({"sent_items": sent, "next_at": null, "failure": null, "follow_ups": if v.items.len() > 1 { Some(format!("{as_:?}").to_lowercase()) } else { None },
+                            "kind": kind, "short_links": if short.is_empty() { Value::Null } else { Value::Object(short) }});
     if n == 0 {
         values["external_id"] = json!(external);
         values["permalink"] = json!(text_of(&out["url"]));
@@ -671,8 +711,12 @@ pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<
             json!({"status": "Failed", "failure": failures.join("\n")})
         };
         k.set_values_tx(ctx, tx, "SocialPost", post, obj(values)).await?;
+        let to = crate::notices::author(tx, ctx, &doc).await?;
         if failures.is_empty() {
+            crate::notices::send(k, ctx, tx, "went_out", to, Some(post), json!({})).await?;
             crate::when::repeat(k, ctx, tx, &doc).await?;
+        } else {
+            crate::notices::send(k, ctx, tx, "failed", to, Some(post), json!({"failures": failures})).await?;
         }
     }
     Ok(())

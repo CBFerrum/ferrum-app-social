@@ -35,6 +35,8 @@ pub struct Text {
     pub link_counts: Option<usize>,
     /// `plain`, `markdown` or `html`: what the network shows its text as (the interface's editor and preview).
     pub format: Option<String>,
+    /// (round two) Characters after which the network shows "see more": for the preview only, never checked.
+    pub fold: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -431,6 +433,17 @@ pub fn length(t: &Text, text: &str) -> usize {
     n + unit(&text[at..])
 }
 
+/// What is wrong with `copy` that no draft may hold: a kind the network does not have, an answer to a setting it
+/// does not ask.
+pub fn structural(r: &Rules, copy: &Copy) -> Vec<String> {
+    let mut out = vec![];
+    if let Err(why) = r.kind(copy.kind.as_deref()) {
+        out.push(why);
+    }
+    out.extend(copy.settings.keys().filter(|k| !r.settings.iter().any(|s| s.key == **k)).map(|k| format!("{} asks nothing called {k}", r.name())));
+    out
+}
+
 /// What is wrong with `copy` for a network with these rules, in plain words: empty when nothing is.
 pub fn problems(r: &Rules, copy: &Copy) -> Vec<String> {
     let name = r.name();
@@ -796,6 +809,9 @@ mod tests {
         thread.items.push(Item { text: "more".into(), ..Default::default() });
         assert!(problems(&dc, &thread).is_empty());
         assert_eq!(dc.text.format.as_deref(), Some("markdown"));
+        let ig = example("instagram");
+        assert_eq!((ig.text.fold, ig.kinds[1].text.as_ref().and_then(|t| t.fold)), (Some(125), Some(55)), "a fold, per kind");
+        assert!(problems(&ig, &with(post(&"a".repeat(300), vec![pic("image", "image/jpeg", 1)]), "post", json!({}))).is_empty(), "never checked");
         // Google Business: what kind of update, its event's title and dates only for an event, a call to action.
         let gmb = example("google_business");
         assert!(problems(&gmb, &with(post("Open late", vec![]), "standard", json!({"cta": "NONE"}))).is_empty());

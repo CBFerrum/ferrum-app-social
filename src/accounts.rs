@@ -35,6 +35,11 @@ impl Reach {
         self.desc["operations"].get(operation).is_some()
     }
 
+    /// Where its calls go.
+    pub fn base(&self) -> &str {
+        self.desc["base"].as_str().unwrap_or("\u{0}")
+    }
+
     /// Whether an operation only reads (a GET, the default), so calls it without a key.
     pub fn reads(&self, operation: &str) -> bool {
         self.desc["operations"][operation]["method"].as_str().is_none_or(|m| m.eq_ignore_ascii_case("GET"))
@@ -160,9 +165,18 @@ pub(crate) async fn state_of(tx: &mut Tx, tenant: Uuid, account: &Doc) -> Result
 pub(crate) async fn refresh(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) -> Result<(&'static str, Option<String>)> {
     let (state, note, provider) = state_of(tx, ctx.tenant, account).await?;
     let changed = s(account, "state") != Some(state) || s(account, "state_note") != note.as_deref() || s(account, "provider_account") != provider.as_deref();
-    if let (true, Some(account)) = (changed, id(account, "id")) {
+    if let (true, Some(account_id)) = (changed, id(account, "id")) {
         let values = obj(json!({"state": state, "state_note": note, "provider_account": provider}));
-        k.set_values_tx(&elevated(ctx), tx, "SocialAccount", account, values).await?;
+        k.set_values_tx(&elevated(ctx), tx, "SocialAccount", account_id, values).await?;
+        // Told once, as it happens: whoever connected it, else the Social Managers.
+        if state == "Needs Reconnecting" && s(account, "state") != Some(state) {
+            let to = match person(tx, ctx.tenant, s(account, "connected_by")).await? {
+                Some(u) => vec![ferrum_kernel::messages::Recipient::user(u)],
+                None => crate::notices::holders(k, ctx, tx, account, "Social Manager").await?,
+            };
+            let accounts = json!([{"account": s(account, "account_name"), "label": s(account, "network")}]);
+            crate::notices::send(k, ctx, tx, "reconnect", to, None, json!({"count": 1, "accounts": accounts, "reason": "refused"})).await?;
+        }
     }
     Ok((state, note))
 }

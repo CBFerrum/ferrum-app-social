@@ -27,16 +27,23 @@
 
 mod accounts;
 mod content;
+mod feeds;
 mod inbox;
 mod insights;
 mod library;
+mod links;
+mod media;
 mod metrics;
+mod notices;
+mod outside;
 mod picker;
+mod plugs;
 mod posts;
 mod review;
 mod rules;
 mod upgrade;
 mod when;
+mod writing;
 
 use chrono::{DateTime, Utc};
 use ferrum_domain::reports::ReportSource;
@@ -69,8 +76,11 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("SocialPublication", Arc::new(insights::InsightHook))
         .register("SocialMessage", Arc::new(inbox::MessageHook))
         .register("SocialReply", Arc::new(inbox::ReplyHook))
-        .register("SocialPostingTime", Arc::new(when::PostingTimeHook));
-    for library in ["SocialTemplate", "SocialSet", "SocialSignature", "SocialVariable"] {
+        .register("SocialPostingTime", Arc::new(when::PostingTimeHook))
+        .register("SocialMediaAsset", Arc::new(media::AssetHook))
+        .register("SocialBrand", Arc::new(BrandHook))
+        .register("SocialFeed", Arc::new(feeds::FeedHook));
+    for library in ["SocialTemplate", "SocialSet", "SocialSignature", "SocialVariable", "SocialLinkTemplate"] {
         hooks.register(library, Arc::new(library::LibraryHook));
     }
     hooks.add_job_handler(Arc::new(posts::PublishJob)).add_job_handler(Arc::new(inbox::ReplyJob));
@@ -109,8 +119,13 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             review::settle(k, &ctx, &mut tx).await?;
             posts::send_due(k, &ctx, &mut tx, now).await?;
             posts::mark_sent(k, &ctx, &mut tx, now).await?;
+            notices::digest(k, &ctx, &mut tx, now).await?;
+            metrics::brand_numbers(k, &ctx, &mut tx, now.with_timezone(&when::zone(&ctx)).date_naive()).await?;
             tx.commit().await?;
             metrics::pull(k, tenant, now).await?;
+            links::clicks(k, tenant, now).await?;
+            plugs::run(k, tenant, now).await?;
+            feeds::read(k, tenant, now).await?;
             Ok::<(), Error>(())
         };
         if let Err(e) = run.await {
@@ -118,6 +133,23 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
         }
     }
     first_error.map_or(Ok(()), Err)
+}
+
+/// The brand's actions: its media library's ways in, and writing help from a blank start.
+pub struct BrandHook;
+
+#[async_trait::async_trait]
+impl ferrum_kernel::DocHook for BrandHook {
+    fn name(&self) -> &'static str {
+        "social.brand"
+    }
+
+    async fn action(&self, hc: &mut ferrum_kernel::HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
+        if let Some(out) = media::action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        writing::action(hc, "SocialBrand", name, doc, params).await
+    }
 }
 
 /// A document from JSON.

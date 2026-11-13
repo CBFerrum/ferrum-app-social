@@ -9,9 +9,14 @@ modules:
     label: Social
     icon: share-2
     order: 66
-    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialTemplate, SocialSet, SocialSnippet, SocialSignature, SocialVariable, SocialReview, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
+    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialTemplate, SocialSet, SocialSnippet, SocialSignature, SocialVariable, SocialMediaAsset, SocialLinkTemplate, SocialFeed, SocialFeedItem, SocialPlug, SocialPlugRun, SocialNoticeOptOut, SocialDigestRun, SocialWritingPreset, SocialWritingUse, SocialReview, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
 
 roles:
+  - name: Social Writing Help
+    description: (round two) May ask writing help to write, rewrite, adapt, describe and draw; each use is kept.
+    permissions:
+      - {entity: SocialWritingPreset, read: true}
+      - {entity: SocialWritingUse, read: true}
   - name: Social Author
     description: Writes posts and answers the inbox; someone else approves the posts.
     permissions:
@@ -26,6 +31,11 @@ roles:
       - {entity: SocialSignature, read: true}
       - {entity: SocialVariable, read: true}
       - {entity: SocialReview, read: true}
+      - {entity: SocialMediaAsset, read: true, write: true, create: true}
+      - {entity: SocialLinkTemplate, read: true}
+      - {entity: SocialPlug, read: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
+      - {entity: SocialPlugRun, read: true}
       - {entity: SocialPost, read: true, write: true, create: true, import: true}
       - {entity: SocialPublication, read: true}
       - {entity: SocialInsight, read: true}
@@ -46,6 +56,11 @@ roles:
       - {entity: SocialSignature, read: true}
       - {entity: SocialVariable, read: true}
       - {entity: SocialReview, read: true, export: true}
+      - {entity: SocialMediaAsset, read: true}
+      - {entity: SocialLinkTemplate, read: true}
+      - {entity: SocialPlug, read: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
+      - {entity: SocialPlugRun, read: true}
       - {entity: SocialPost, read: true, write: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}
@@ -67,6 +82,16 @@ roles:
       - {entity: SocialSignature, read: true, write: true, create: true, delete: true}
       - {entity: SocialVariable, read: true, write: true, create: true, delete: true}
       - {entity: SocialReview, read: true}
+      - {entity: SocialMediaAsset, read: true, write: true, create: true, delete: true}
+      - {entity: SocialLinkTemplate, read: true, write: true, create: true, delete: true}
+      - {entity: SocialWritingPreset, read: true, write: true, create: true, delete: true}
+      - {entity: SocialWritingUse, read: true, export: true}
+      - {entity: SocialPlug, read: true, write: true, create: true, delete: true}
+      - {entity: SocialPlugRun, read: true, export: true}
+      - {entity: SocialNoticeOptOut, read: true, write: true, create: true, delete: true}
+      - {entity: SocialDigestRun, read: true}
+      - {entity: SocialFeed, read: true, write: true, create: true, delete: true}
+      - {entity: SocialFeedItem, read: true, export: true}
       - {entity: SocialPost, read: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}
@@ -81,11 +106,23 @@ personal_data:
   - {entity: SocialMessage, match: author, name: author, erase: [author, author_id, account_handle, text, contact_id, contact_entity]}
   - {entity: SocialReply, match: message, erase: [text, in_reply_to]}
   # Who reviewed a post through its link (the address or name it was given for) and what they said.
+  # (round two) The notices a person turned off.
+  - {entity: SocialNoticeOptOut, match: person, erase: [person]}
+  # (round two) What someone asked writing help, and what came back: it may hold anything they wrote.
+  - {entity: SocialWritingUse, match: by, erase: [prompt, answer]}
   - {entity: SocialReview, match: reviewer, name: reviewer_name, erase: [reviewer, reviewer_name, text]}
 
 # What the networks took in a post before network profiles were records: the same numbers, now
 # editable. An account whose network is named like one of them is linked to it by the upkeep.
 seed:
+  - entity: SocialWritingPreset
+    key: [preset_name]
+    records:
+      - {preset_name: Shorter, instruction: "Make it shorter, keeping what matters."}
+      - {preset_name: Longer, instruction: "Make it longer, adding a useful detail, not filler."}
+      - {preset_name: Friendlier, instruction: "Make it warmer and friendlier."}
+      - {preset_name: More Formal, instruction: "Make it more formal."}
+      - {preset_name: Fix Grammar, instruction: "Correct spelling and grammar only; change nothing else."}
   - entity: SocialProfile
     key: [profile_name]
     records:
@@ -114,19 +151,23 @@ approvals:
       steps:
         - {label: Social Approver, approvers: {role: Social Approver}}
       reset_on: [text, link, image, image_alt, first_comment, targets, items, media, scheduled_at, add_signature, signature]
+      message: social.review
 
 # Told once to the workspace's administrators when an upgrade made connections for accounts that need connecting again.
 messages:
   - key: social.reconnect
     label: Social accounts to connect again
     category: operational
-    channels: [inapp]
-    values: [count, accounts]
+    channels: [inapp, email]
+    values: [count, accounts, reason]
     languages:
       en:
         inapp:
           title: "{{ values.count }} Social account{% if values.count != 1 %}s{% endif %} to connect again"
-          text: "{% for a in values.accounts %}{{ a.account }}: in Administration, Connections, add the secrets of {{ a.label }} and turn it on, then Connect the account in Social.{% if not loop.last %} {% endif %}{% endfor %}"
+          text: "{% if values.reason == 'refused' %}{% for a in values.accounts %}{{ a.account }}: its network no longer takes the sign-in. Connect the account again in Social.{% endfor %}{% else %}{% for a in values.accounts %}{{ a.account }}: in Administration, Connections, add the secrets of {{ a.label }} and turn it on, then Connect the account in Social.{% if not loop.last %} {% endif %}{% endfor %}{% endif %}"
+        email:
+          subject: "{{ values.count }} Social account{% if values.count != 1 %}s{% endif %} to connect again"
+          body: "<p>{% for a in values.accounts %}{{ a.account }}{% if not loop.last %}, {% endif %}{% endfor %}: {% if values.reason == 'refused' %}the network no longer takes the sign-in. Connect again in Social.{% else %}add the connection's secrets in Administration, Connections, turn it on, then Connect the account in Social.{% endif %}</p>"
   # A review link for someone outside: what the post is and where to look at it.
   - key: social.review_link
     label: A post to review
@@ -139,3 +180,100 @@ messages:
         email:
           subject: "{{ values.from }} asks you to look at a post: {{ doc.headline }}"
           body: "<p>Hello{% if values.name %} {{ values.name }}{% endif %},</p><p>{{ values.from }} would like to know what you think of a post before it goes out{% if doc.scheduled_at %}, at {{ doc.scheduled_at }}{% endif %}: <a href=\"{{ values.url }}\">look at it here</a>. The link works until {{ values.expires_at }}.</p>"
+
+  # (round two) Notices, each a template a workspace edits; a person turns one off with a Notice Opt-out.
+  - key: social.went_out
+    label: A post went out
+    category: operational
+    entity: SocialPost
+    channels: [inapp, email]
+    languages:
+      en:
+        inapp: {title: "Out: {{ doc.headline }}", text: "Your post went out to every account it names."}
+        email: {subject: "Out: {{ doc.headline }}", body: "<p>Your post {{ doc.headline }} went out to every account it names.</p>"}
+  - key: social.failed
+    label: A post did not go out
+    category: operational
+    entity: SocialPost
+    channels: [inapp, email]
+    values: [failures]
+    languages:
+      en:
+        inapp: {title: "Not out: {{ doc.headline }}", text: "{% for f in values.failures %}{{ f }}{% if not loop.last %}; {% endif %}{% endfor %}"}
+        email: {subject: "Not out: {{ doc.headline }}", body: "<p>Your post {{ doc.headline }} did not go out everywhere:</p><ul>{% for f in values.failures %}<li>{{ f }}</li>{% endfor %}</ul><p>Retry sends it to the accounts it did not reach.</p>"}
+  - key: social.review
+    label: A post's review
+    category: operational
+    entity: SocialPost
+    channels: [inapp, email]
+    values: [notice, title]
+    languages:
+      en:
+        inapp:
+          title: "{% if values.notice == 'approved' %}Approved{% elif values.notice == 'rejected' %}Sent back{% elif values.notice == 'not_done' %}Approved, not done{% else %}To review{% endif %}: {{ doc.headline }}"
+          text: "{% if values.notice == 'rejected' %}{{ doc.review_note }}{% elif values.notice == 'waiting' or values.notice == 'reminder' or values.notice == 'escalated' %}A post waits for your review.{% else %}{{ values.title }}{% endif %}"
+        email:
+          subject: "{% if values.notice == 'approved' %}Approved{% elif values.notice == 'rejected' %}Sent back{% else %}To review{% endif %}: {{ doc.headline }}"
+          body: "<p>{% if values.notice == 'rejected' %}{{ doc.headline }} was sent back: {{ doc.review_note }}{% elif values.notice == 'approved' %}{{ doc.headline }} was approved.{% else %}{{ doc.headline }} waits for your review.{% endif %}</p>"
+  - key: social.repeat_stopped
+    label: A post stopped repeating
+    category: operational
+    entity: SocialPost
+    channels: [inapp, email]
+    values: [why, times]
+    languages:
+      en:
+        inapp: {title: "No longer repeating: {{ doc.headline }}", text: "{% if values.why %}Its next time could not be made: {{ values.why }}{% else %}It went out {{ values.times }} times, as it was to.{% endif %}"}
+        email: {subject: "No longer repeating: {{ doc.headline }}", body: "<p>{% if values.why %}Its next time could not be made: {{ values.why }}{% else %}It went out {{ values.times }} times, as it was to.{% endif %}</p>"}
+  - key: social.digest
+    label: Social's week
+    category: operational
+    channels: [email, inapp]
+    values: [week, went_out, coming, failed, top]
+    languages:
+      en:
+        email:
+          subject: "Social, week {{ values.week }}"
+          body: "<p>Out: {{ values.went_out|length }}. Coming: {{ values.coming|length }}. Not out: {{ values.failed|length }}.</p>{% if values.top %}<p>Top post: {{ values.top.headline }} ({{ values.top.engagements }} engagements)</p>{% endif %}{% if values.failed %}<ul>{% for f in values.failed %}<li>{{ f.headline }}: {{ f.failure }}</li>{% endfor %}</ul>{% endif %}{% if values.coming %}<p>Coming:</p><ul>{% for c in values.coming %}<li>{{ c.headline }}, {{ c.at }}</li>{% endfor %}</ul>{% endif %}"
+        inapp: {title: "Social, week {{ values.week }}", text: "Out: {{ values.went_out|length }}. Coming: {{ values.coming|length }}. Not out: {{ values.failed|length }}."}
+  # (round two) The weekly report document's mail.
+  - key: social.brand_report_mail
+    label: A brand's week on social media
+    category: operational
+    entity: SocialBrand
+    channels: [email]
+    languages:
+      en:
+        email:
+          subject: "{{ doc.brand_name }}: the week on social media"
+          body: "<p>The numbers of {{ doc.brand_name }}'s posts over the last seven days are attached.</p>"
+  # (round two) What writing help asks, a workspace editing the words (read for the person asking, never sent).
+  - {"key": "social.prompt_system", "label": "Writing help: what it is told first", "category": "operational", "channels": ["email"], "values": ["brand", "voice"], "languages": {"en": {"email": {"subject": "Writing help: what it is told first", "body": "<p>Writing help: what it is told first</p>"}, "text": {"text": "You write social media posts{% if values.brand %} for {{ values.brand }}{% endif %}.{% if values.voice %} How it speaks: {{ values.voice }}{% endif %} Answer with the text asked for and nothing else."}}}}
+  - {"key": "social.prompt_write", "label": "Writing help: write a post", "category": "operational", "channels": ["email"], "values": ["brand", "voice", "prompt"], "languages": {"en": {"email": {"subject": "Writing help: write a post", "body": "<p>Writing help: write a post</p>"}, "text": {"text": "Write a social media post about: {{ values.prompt }}"}}}}
+  - {"key": "social.prompt_rewrite", "label": "Writing help: rewrite a post", "category": "operational", "channels": ["email"], "values": ["brand", "voice", "instruction", "text"], "languages": {"en": {"email": {"subject": "Writing help: rewrite a post", "body": "<p>Writing help: rewrite a post</p>"}, "text": {"text": "Rewrite this post. {{ values.instruction }}\n\n{{ values.text }}"}}}}
+  - {"key": "social.prompt_adapt", "label": "Writing help: adapt a post for a network", "category": "operational", "channels": ["email"], "values": ["brand", "voice", "network", "max", "format", "kind", "text"], "languages": {"en": {"email": {"subject": "Writing help: adapt a post for a network", "body": "<p>Writing help: adapt a post for a network</p>"}, "text": {"text": "Adapt this post for {{ values.network }}{% if values.kind %} as a {{ values.kind }}{% endif %}{% if values.max %}, in at most {{ values.max }} characters{% endif %}, written as {{ values.format }} text.\n\n{{ values.text }}"}}}}
+  - {"key": "social.prompt_hashtags", "label": "Writing help: hashtags", "category": "operational", "channels": ["email"], "values": ["brand", "voice", "text", "count"], "languages": {"en": {"email": {"subject": "Writing help: hashtags", "body": "<p>Writing help: hashtags</p>"}, "text": {"text": "Suggest {{ values.count }} hashtags for this post, each starting with #, separated by spaces.\n\n{{ values.text }}"}}}}
+  - {"key": "social.prompt_alt", "label": "Writing help: describe a picture", "category": "operational", "channels": ["email"], "values": ["brand", "voice", "text"], "languages": {"en": {"email": {"subject": "Writing help: describe a picture", "body": "<p>Writing help: describe a picture</p>"}, "text": {"text": "Describe this picture for someone who cannot see it, in one or two sentences, for a post that says: {{ values.text }}"}}}}
+  - {"key": "social.prompt_thread", "label": "Writing help: split into a thread", "category": "operational", "channels": ["email"], "values": ["brand", "voice", "text", "parts"], "languages": {"en": {"email": {"subject": "Writing help: split into a thread", "body": "<p>Writing help: split into a thread</p>"}, "text": {"text": "Split this into a thread of {{ values.parts }} posts, each on its own, separated by a line holding only ---.\n\n{{ values.text }}"}}}}
+  - {"key": "social.prompt_picture", "label": "Writing help: a picture", "category": "operational", "channels": ["email"], "values": ["brand", "voice", "prompt"], "languages": {"en": {"email": {"subject": "Writing help: a picture", "body": "<p>Writing help: a picture</p>"}, "text": {"text": "A picture for a social media post{% if values.brand %} by {{ values.brand }}{% endif %}: {{ values.prompt }}"}}}}
+
+# (round two) Each brand's numbers as a document, each Monday at 09:00 on the workspace's clock, to the address the
+# brand names (none named: nothing is sent). A workspace edits the template and the mail, or switches the automation off.
+documents:
+  - key: social.brand_report
+    label: A brand's week on social media
+    entity: SocialBrand
+    output: page
+    languages:
+      en:
+        body: "<h1>{{ doc.brand_name }}</h1>{% set n = doc.numbers %}{% if n %}<p>{{ n.from }} to {{ n.to }}</p><table><tr><th></th><th>These seven days</th><th>The seven before</th></tr><tr><td>Posts out</td><td>{{ n.publications }}</td><td>{{ n.before.publications }}</td></tr><tr><td>Impressions</td><td>{{ n.impressions }}</td><td>{{ n.before.impressions }}</td></tr><tr><td>Engagements</td><td>{{ n.engagements }}</td><td>{{ n.before.engagements }}</td></tr><tr><td>Clicks</td><td>{{ n.clicks }}</td><td>{{ n.before.clicks }}</td></tr></table>{% if n.top %}<p>Top post: {{ n.top.headline }} ({{ n.top.engagements }} engagements)</p>{% endif %}{% else %}<p>No numbers yet.</p>{% endif %}"
+
+automations:
+  - name: social_weekly_report
+    entity: SocialBrand
+    event: scheduled
+    schedule: {every: {period: week, at: "09:00", on: 1}}
+    condition: "!isEmpty(doc.report_to)"
+    actions:
+      - {type: generate, template: social.brand_report, name: "'Social week ' + doc.brand_name", replace: true}
+      - {type: message, template: social.brand_report_mail, to: "field:report_to", channels: [email], attachments: ["results[0]"]}

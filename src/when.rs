@@ -181,6 +181,7 @@ pub(crate) async fn action(hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: 
     let system = elevated(hc.ctx);
     let out = match name {
         "add_to_queue" => {
+            crate::posts::ready(hc, doc).await?;
             let when = free_time(hc.kernel, hc.ctx, hc.tx, post, doc, Utc::now()).await?;
             set_time(hc.kernel, hc.ctx, hc.tx, post, doc, Some(when)).await?;
             json!({"scheduled_at": when.to_rfc3339(), "status": s(doc, "status")})
@@ -251,7 +252,11 @@ pub(crate) async fn repeat(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> Res
     }
     let Some(first) = at(doc, "repeat_from").or_else(|| at(doc, "scheduled_at")) else { return Ok(()) };
     let index = doc.get("repeat_index").and_then(Value::as_i64).unwrap_or(1);
-    let Some(next) = next_of(zone(ctx), doc, first, index) else { return Ok(()) };
+    let Some(next) = next_of(zone(ctx), doc, first, index) else {
+        let to = crate::notices::author(tx, ctx, doc).await?;
+        crate::notices::send(k, ctx, tx, "repeat_stopped", to, Some(post), json!({"why": null, "times": index})).await?;
+        return Ok(());
+    };
     let origin = id(doc, "repeat_of").unwrap_or(post);
     let mut values = content::content_of(doc, json!({"scheduled_at": next.to_rfc3339()}));
     for f in ["repeat_every", "repeat_unit", "repeat_until", "repeat_count"] {
@@ -273,6 +278,8 @@ pub(crate) async fn repeat(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> Res
         Err(e) if !e.is_retryable() => {
             sqlx::query("rollback to savepoint social_repeat").execute(&mut **tx).await?;
             k.set_values_tx(ctx, tx, "SocialPost", post, obj(json!({"repeat_note": e.to_string()}))).await?;
+            let to = crate::notices::author(tx, ctx, doc).await?;
+            crate::notices::send(k, ctx, tx, "repeat_stopped", to, Some(post), json!({"why": e.to_string(), "times": index})).await?;
         }
         Err(e) => return Err(e),
     }
