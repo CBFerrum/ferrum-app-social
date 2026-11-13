@@ -55,6 +55,8 @@
     - {name: metrics_days, type: int, default: 30, min: 1, max: 366, label: Read a Post's Numbers For (Days), description: "How long after it went out each post's numbers are read"}
     - {name: metrics_hours, type: int, default: 6, min: 1, max: 168, label: Read Again After (Hours), description: "The soonest an account's or a post's numbers are read again"}
     - {name: media_sources, type: text, label: Picture and GIF Sources, description: "Connections searched for stock pictures and GIFs (search_media, fetch_media), by name, one a line; the first is the default"}
+    - {name: digest_day, type: select, options: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday, Never], default: Monday, label: Weekly Digest On}
+    - {name: digest_time, type: data, default: "09:00", label: Weekly Digest At, description: "On the workspace's clock, as 09:00"}
     - {name: writing_connection, type: data, label: Writing Help Through, description: "The connection whose write (and picture) writing help uses; empty: writing help is off"}
     - {name: writing_model, type: data, default: claude-sonnet-5-5, label: Writing Model, description: "Passed to write as model, where the description uses it"}
     - {name: shorten_connection, type: data, label: Shorten Links Through, description: "The connection whose shorten makes short links (and link_clicks reads their clicks); empty: links go as they are"}
@@ -566,3 +568,29 @@
     - {name: external_id, type: data, read_only: true}
     - {name: at, type: datetime, read_only: true, in_list: true}
   list: {columns: [plug, publication, account, state, at], sort: at desc}
+
+- name: SocialNoticeOptOut
+  label: Notice Opt-out
+  label_plural: Notice Opt-outs
+  kind: master
+  module: social
+  title_field: person
+  description: "A notice someone does not want: Social leaves them out of it."
+  fields:
+    - {name: person, type: email, required: true, in_list: true, in_filter: true}
+    - {name: notice, type: select, options: [went_out, failed, review, reconnect, repeat_stopped, digest], required: true, in_list: true, in_filter: true}
+  unique: [[person, notice]]
+  list: {columns: [person, notice], sort: person asc}
+
+- name: SocialDigestRun
+  label: Digest Run
+  label_plural: Digest Runs
+  kind: master
+  module: social
+  title_field: week
+  description: "Each week's digest, sent once."
+  fields:
+    - {name: week, type: data, required: true, unique: true, read_only: true, in_list: true}
+    - {name: sent_at, type: datetime, read_only: true, in_list: true}
+    - {name: people, type: int, read_only: true, in_list: true}
+  list: {columns: [week, sent_at, people], sort: week desc}

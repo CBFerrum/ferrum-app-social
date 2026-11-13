@@ -33,6 +33,7 @@ mod library;
 mod links;
 mod media;
 mod metrics;
+mod notices;
 mod outside;
 mod picker;
 mod plugs;
@@ -116,6 +117,7 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             review::settle(k, &ctx, &mut tx).await?;
             posts::send_due(k, &ctx, &mut tx, now).await?;
             posts::mark_sent(k, &ctx, &mut tx, now).await?;
+            notices::digest(k, &ctx, &mut tx, now).await?;
             metrics::brand_numbers(k, &ctx, &mut tx, now.with_timezone(&when::zone(&ctx)).date_naive()).await?;
             tx.commit().await?;
             metrics::pull(k, tenant, now).await?;

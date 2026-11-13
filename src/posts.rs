@@ -711,8 +711,12 @@ pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<
             json!({"status": "Failed", "failure": failures.join("\n")})
         };
         k.set_values_tx(ctx, tx, "SocialPost", post, obj(values)).await?;
+        let to = crate::notices::author(tx, ctx, &doc).await?;
         if failures.is_empty() {
+            crate::notices::send(k, ctx, tx, "went_out", to, Some(post), json!({})).await?;
             crate::when::repeat(k, ctx, tx, &doc).await?;
+        } else {
+            crate::notices::send(k, ctx, tx, "failed", to, Some(post), json!({"failures": failures})).await?;
         }
     }
     Ok(())
