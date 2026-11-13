@@ -41,6 +41,7 @@ describe("the calendar", () => {
   it("a month: posts as chips on their days with time and headline, a repeat marked, the server asked for the range", async () => {
     const fake = server();
     const host = await draw(<CalendarRoute />, "/calendar", at);
+    await until(() => !!host.querySelector('[data-post="p1"]'));
     expect(chip(host, "p1").closest("[data-day]")?.getAttribute("data-day")).toBe("2030-06-12");
     expect(chip(host, "p1").textContent).toContain("Spring sale");
     expect(chip(host, "p1").textContent).toContain("09:00");
@@ -169,5 +170,32 @@ describe("reading the posts", () => {
     const fake = server([["GET", "/api/v1/SocialPost", bare]]);
     await draw(<CalendarRoute />, "/calendar", at);
     expect(fake.seen.filter((s) => s.line.startsWith("GET /api/v1/SocialPost?")).length).toBe(2);
+  });
+});
+
+describe("the quick look opens at once", () => {
+  it("shows the headline, time, status and accounts from the calendar's own row before anything else is read", async () => {
+    // neither the record nor the copies can be read: what the calendar already has is still shown
+    server([["POST", "/api/v1/SocialPost/p1/actions/copies", { error: "invalid", message: "slow" }, 422], ["GET", "/api/v1/SocialPost/p1", { error: "not_found", message: "x" }, 404]]);
+    const host = await draw(<CalendarRoute />, "/calendar", at);
+    await act(async () => chip(host, "p1").click());
+    const dlg = document.querySelector("dialog")!;
+    expect(dlg.textContent).toContain("Spring sale");
+    expect(dlg.textContent).toContain("Approved");
+    expect(dlg.querySelectorAll(".face").length).toBeGreaterThan(0);
+  });
+});
+
+describe("at phone width", () => {
+  it("the calendar's layout stacks: the agenda list replaces the grid, columns become one, the chip clips", async () => {
+    server();
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    const host = await draw(<CalendarRoute />, "/calendar", at);
+    expect(host.querySelector(".agenda-list")).toBeTruthy();
+    expect(host.querySelector(".cal-grid")).toBeNull();
+    const css = (await import("node:fs")).readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    expect(css).toMatch(/@media \(max-width: 720px\)[^}]*\.cal-cols[^}]*grid-template-columns: minmax\(0, 1fr\)/s);
+    expect(css).toMatch(/\.inbox-desk[^}]*grid-template-columns: minmax\(0, 1fr\)/s);
+    expect(css).toMatch(/\.cal-chip \{\s*overflow: hidden/);
   });
 });

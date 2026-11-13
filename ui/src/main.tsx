@@ -6,7 +6,7 @@ import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Link, RouterProvider, useRouteError } from "react-router";
 import { addCatalogs, routeBase, shell, t, wordsReady } from "@ferrum/client";
-import { ConfirmHost, EmptyState, ErrorState, Toaster } from "@ferrum/kit";
+import { ConfirmHost, EmptyState, ErrorState, FormSkeleton, Toaster } from "@ferrum/kit";
 import { RequireAuth, setFrameMode } from "@ferrum/records/frame";
 import { routes } from "./routes";
 import "./styles.css";
@@ -46,6 +46,8 @@ const router = createBrowserRouter(
         </>
       ),
       errorElement: <RouteError />,
+      // Drawn while the router starts: the kit's page skeleton, so no "No HydrateFallback" warning and no blank page.
+      HydrateFallback: FormSkeleton,
       children: [
         ...routes,
         { path: "*", element: <NotFound /> },

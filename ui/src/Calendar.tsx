@@ -131,13 +131,13 @@ export function repeatWords(post: Row): string {
 }
 
 /** A post looked at without leaving the calendar: its accounts' copies, its state and why, and what may be done with it. */
-export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: string; accounts: Row[]; brands: Row[]; onClose: () => void; onMoved: (id: string, at: string) => Promise<boolean> }) {
+export function QuickLook({ id, seed, accounts, brands, onClose, onMoved }: { id: string; /** The calendar's own row: shown at once while the record and the copies are read. */ seed?: Placed; accounts: Row[]; brands: Row[]; onClose: () => void; onMoved: (id: string, at: string) => Promise<boolean> }) {
   const client = useQueryClient();
   const post = useQuery({ queryKey: ["social", "post", id], queryFn: () => record("SocialPost", id) });
   const copies = useQuery({
-    queryKey: ["social", "copies", id, post.data?.version],
+    queryKey: ["social", "copies", id, post.data?.version ?? "seed"],
     queryFn: () => run<{ copies: { account: string; account_name: string; title?: string | null; items: { text: string; length: number; max: number | null }[]; problems: string[] }[] }>("SocialPost", id, "copies").then((r) => r.copies),
-    enabled: !!post.data,
+    enabled: !!(post.data ?? seed),
     retry: false,
   });
   const [at, setAt] = useState("");
@@ -161,7 +161,7 @@ export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: stri
       setBusy(null);
     }
   };
-  const p = post.data;
+  const p: Row | undefined = post.data ?? seed;
   const status = text(p?.status);
   return (
     <Dialog
@@ -179,10 +179,11 @@ export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: stri
         </>
       }
     >
-      <Await q={post} skeleton={<ListSkeleton rows={3} />}>
-        {(row) => (
+      <Await q={p ? ({ isPending: false, isError: false, data: p } as never) : post} skeleton={<ListSkeleton rows={3} />}>
+        {(row: Row) => (
           <div className="stack">
             <div className="row">
+              {seed && <Faces ids={seed._accounts} accounts={accounts} max={6} />}
               <StatusBadge value={status} tones={POST_TONES} label={statusWord(status)} />
               {repeatWords(row) && <Badge>{repeatWords(row)}</Badge>}
               {text(row.repeat_of) && <Link to={`/compose/${text(row.repeat_of)}`}>{t("The first of the repeats")}</Link>}
@@ -462,7 +463,7 @@ export function CalendarRoute() {
           );
         }}
       </Await>
-      {looking && <QuickLook id={looking} accounts={accounts.data ?? []} brands={brands.data ?? []} onClose={() => setLooking(null)} onMoved={reschedule} />}
+      {looking && <QuickLook id={looking} seed={shown.find((x) => x.id === looking)} accounts={accounts.data ?? []} brands={brands.data ?? []} onClose={() => setLooking(null)} onMoved={reschedule} />}
       <p className="muted"><Link to="/queue">{t("Posting times")}</Link></p>
     </PageStack>
   );
