@@ -9,7 +9,7 @@ license: AGPL-3.0-only
 homepage: https://github.com/CBFerrum/ferrum-app-social
 support: https://github.com/CBFerrum/ferrum-app-social/issues
 runtime: native
-platform: ">=0.3.7, <0.4"
+platform: ">=0.3.8, <0.4"
 packages: [social]
 uninstall: ask
 # Its own interface at /social/: the calendar of posts, what waits for approval, the inbox, and what
