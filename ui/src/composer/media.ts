@@ -2,7 +2,7 @@
 // and for a picture or a video its dimensions and length) so the rules can be checked before the post is saved.
 
 import { api } from "@ferrum/client";
-import { keyed, type MediaState } from "../draft";
+import type { MediaState } from "../draft";
 
 /** What the browser can say of a file without a server: width, height, seconds. Anything it cannot read is left out (the server checks only what it is told). */
 export async function factsOf(file: File): Promise<Pick<MediaState, "width" | "height" | "seconds">> {
@@ -35,24 +35,9 @@ export async function factsOf(file: File): Promise<Pick<MediaState, "width" | "h
   return {};
 }
 
-/** Stores `file` and gives it as a medium of a post. */
-export async function uploadMedium(file: File): Promise<MediaState> {
-  const form = new FormData();
-  form.append("file", file);
-  const [stored, facts] = await Promise.all([api.post<{ url: string }>("/api/files", form), factsOf(file)]);
-  return { key: keyed(), file: stored.url, name: file.name, kind: "", type: file.type || undefined, alt: "", thumbnail: "", bytes: file.size, ...facts };
-}
-
 /** Stores a thumbnail picture and gives its address. */
 export async function uploadThumbnail(file: File): Promise<string> {
   const form = new FormData();
   form.append("file", file);
   return (await api.post<{ url: string }>("/api/files", form)).url;
-}
-
-/** The `accept` of a file chooser for the kinds a network takes. */
-export function acceptOf(kinds: string[]): string | undefined {
-  if (!kinds.length) return undefined;
-  const parts = kinds.flatMap((k) => (k === "image" ? ["image/*"] : k === "video" ? ["video/*"] : k === "document" ? ["application/pdf"] : []));
-  return parts.length ? parts.join(",") : undefined;
 }

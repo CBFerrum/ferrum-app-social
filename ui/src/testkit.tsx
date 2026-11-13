@@ -6,6 +6,7 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { vi } from "vitest";
+import { ConfirmHost } from "@ferrum/kit";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -51,6 +52,7 @@ export async function draw(ui: ReactNode, pattern: string, path: string) {
     createRoot(host).render(
       <QueryClientProvider client={qc}>
         <RouterProvider router={router} />
+        <ConfirmHost />
       </QueryClientProvider>,
     );
   });

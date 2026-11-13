@@ -8,8 +8,9 @@ import { useRef, useState } from "react";
 import { errorMessage, formatDecimal, isolate, t } from "@ferrum/client";
 import { Alert, Button, Field, Icon, useDebounced } from "@ferrum/kit";
 import { run } from "../data";
-import { blankItem, type Content, type ItemState, kindOfMedium, keyed, type MediaState } from "../draft";
-import { acceptOf, uploadMedium, uploadThumbnail } from "./media";
+import { blankItem, type Content, type ItemState, kindOfMedium, keyed, type MediaState, mediumOfAsset } from "../draft";
+import { uploadThumbnail } from "./media";
+import { MediaPicker } from "../media/Library";
 import type { MediaRule } from "../model";
 
 /** The `@name` being typed just before the caret, if any: where it starts and what has been typed after the @. */
@@ -90,6 +91,7 @@ export function Items({
   locked,
   idPrefix,
   mentionAccount,
+  brand,
 }: {
   content: Content;
   onChange: (c: Content) => void;
@@ -106,6 +108,8 @@ export function Items({
   idPrefix: string;
   /** The account whose network is asked for people to mention (when its rules offer a lookup); none: no `@` lookup. */
   mentionAccount?: string | null;
+  /** The post's brand: the library the media picker opens on. */
+  brand?: string | null;
 }) {
   const areas = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const lastUsed = useRef(0);
@@ -128,8 +132,6 @@ export function Items({
     set(token.item, { text: words.slice(0, token.start) + what + " " + words.slice(token.end) });
     setToken(null);
   };
-  const [uploading, setUploading] = useState<number | null>(null);
-  const [failed, setFailed] = useState("");
   const set = (i: number, patch: Partial<ItemState>) => onChange({ items: content.items.map((it, n) => (n === i ? { ...it, ...patch } : it)) });
   const insert = (what: string) => {
     const i = Math.min(lastUsed.current, content.items.length - 1);
@@ -142,20 +144,7 @@ export function Items({
       el?.setSelectionRange(a + what.length, a + what.length);
     });
   };
-  const add = async (i: number, files: FileList | null) => {
-    if (!files?.length) return;
-    setUploading(i);
-    setFailed("");
-    try {
-      const added: MediaState[] = [];
-      for (const f of Array.from(files)) added.push(await uploadMedium(f));
-      set(i, { media: [...content.items[i].media, ...added] });
-    } catch (e) {
-      setFailed(errorMessage(e));
-    } finally {
-      setUploading(null);
-    }
-  };
+  const [picking, setPicking] = useState<number | null>(null);
   const moveMedium = (i: number, j: number, by: -1 | 1) => {
     const list = [...content.items[i].media];
     [list[j], list[j + by]] = [list[j + by], list[j]];
@@ -187,14 +176,12 @@ export function Items({
           )}
         </div>
       )}
-      {failed && <Alert tone="error">{failed}</Alert>}
       {content.items.map((it, i) => {
         const count = counts?.[i];
         const n = count?.length ?? 0;
         const over = !!count && count.max != null && n > count.max;
         const label = i === 0 ? t("The post") : followLabel ? t("{word} {n}", { word: followLabel, n: String(i) }) : t("Follow-up {n}", { n: String(i) });
         const id = `${idPrefix}-item-${i}`;
-        const fileInput = `${id}-file`;
         return (
           <fieldset key={it.key} className="card card-body stack" disabled={locked}>
             <legend className="field-label">{label}</legend>
@@ -234,8 +221,7 @@ export function Items({
               </ul>
             )}
             <div className="row">
-              <input id={fileInput} type="file" multiple hidden accept={acceptOf(media?.kinds ?? [])} onChange={(e) => { void add(i, e.target.files); e.target.value = ""; }} />
-              <Button size="sm" icon="upload" loading={uploading === i} onClick={() => document.getElementById(fileInput)?.click()}>
+              <Button size="sm" icon="upload" onClick={() => setPicking(i)}>
                 {t("Add media")}
               </Button>
               <span className="spacer" />
@@ -248,6 +234,9 @@ export function Items({
           </fieldset>
         );
       })}
+      {picking !== null && (
+        <MediaPicker brandId={brand ?? undefined} onClose={() => setPicking(null)} onPick={(assets) => { const at = picking; onChange({ items: content.items.map((it, n) => (n === at ? { ...it, media: [...it.media, ...assets.map(mediumOfAsset)] } : it)) }); }} />
+      )}
       {!locked && (
         <div>
           <Button size="sm" icon="plus" onClick={() => onChange({ items: [...content.items, { ...blankItem(), key: keyed() }] })}>
