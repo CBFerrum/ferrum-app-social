@@ -161,7 +161,8 @@
           "post_external_id": "/reasonSubject",
           "thread": "has(item.record.reply) ? item.record.reply.root.uri + ' ' + item.record.reply.root.cid + ' ' + item.cid : item.uri + ' ' + item.cid + ' ' + item.cid",
           "via_connection": "connection.id"
-        }
+        },
+        "as": "system"
       }
     }
   ]

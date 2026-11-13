@@ -166,7 +166,8 @@
           "thread": "/status/visibility",
           "post_external_id": "/status/in_reply_to_id",
           "via_connection": "connection.id"
-        }
+        },
+        "as": "system"
       }
     }
   ]

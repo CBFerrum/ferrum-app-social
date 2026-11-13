@@ -812,11 +812,30 @@ async fn scenario() {
     t.pull(own, "mentions").await;
     assert_eq!(t.net().notif_reads.iter().map(|r| r.0.as_str()).collect::<HashSet<_>>(), HashSet::from(["pia"]), "with her sign-in, not the workspace's");
     let dee = t.rows("SocialMessage", json!({"author": "dee"})).await;
-    assert_eq!(dee.len(), 1, "made as her (she holds the role that creates it)");
+    assert_eq!(dee.len(), 1, "made by her pull, written as the system (as: system), so its read-only id is set");
     t.pull(own, "mentions").await;
     assert_eq!(t.rows("SocialMessage", json!({"author": "dee"})).await.len(), 1, "read again, not made again");
     assert_eq!(dee[0]["external_id"], "s201", "its id kept, so that it is not made again");
     assert_eq!(uid(&dee[0]["account"]), on_pia, "to the account she connected, not the workspace's");
+
+    // (round three) A description of before, whose mapping does not write as the system: her pull is refused plainly,
+    // nothing half made (a person may not create messages: only a mapping writing as the system does).
+    let old = t
+        .connect("mastodon_old", "mastodon", json!({"client_secret": "pia-client-secret"}), |d| {
+            d["auth"]["owner"] = json!("person");
+            d["roles"] = json!(["Social Author"]);
+            d["pulls"][0]["map"].as_object_mut().unwrap().remove("as");
+        })
+        .await;
+    let mut pia_old = account("Pia Mastodon Old", "pia_old", old);
+    pia_old["connected_by"] = json!("pia@brands.test");
+    t.insert(&manager, "SocialAccount", pia_old).await;
+    t.net().notifs.insert("pia".into(), vec![notification(202, "eve", "public", "<p>Old way</p>", None)]);
+    t.sign_in(&pia, old, "CODE-pia").await;
+    t.pull(old, "mentions").await;
+    assert!(t.rows("SocialMessage", json!({"author": "eve"})).await.is_empty(), "nothing made without its id");
+    let said = t.k.connection_pulls(&t.admin, old).await.unwrap();
+    assert!(said.iter().any(|p| p["last_error"].as_str().is_some_and(|e| !e.is_empty())), "the pull says why: {said:?}");
 
     // Her numbers are read as her too (the upkeep calls the account's connection as the person who connected it).
     t.upkeep(later + Duration::hours(14)).await;
