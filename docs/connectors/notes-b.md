@@ -179,3 +179,25 @@ method, whether it reads).
 it; Postiz still calls the old `gql-beta` address); the mutation limit of 500 a minute that `limit` sets; that unknown
 tag slugs are accepted; the 250-character title limit.
 **Setup**: a personal access token (hashnode.com/settings/developer) under `access_token`.
+
+## Tumblr (`tumblr.json`)
+
+**Does**: OAuth 2 (the workspace's Tumblr app; scopes `basic write offline_access`, refreshed by the platform); the
+blogs the sign-in reaches are the accounts to pick (the blog's name is its id); posts in NPF: the text split into a
+text block for each paragraph (blank line), tags (text, commas) and a state (published, draft, queue, private); up
+to 10 pictures and videos in one post (one operation for each count, the post as the `json` part and each file as a part
+the blocks name by `identifier`), a picture's description as `alt_text`; the post's address; delete
+(`post/delete`; the id is `<blog>:<post>`); the post's notes (`note_count`) as engagements; the blog's name and followers;
+the documented limit of 1000 requests an hour.
+**Never twice**: no idempotency header. After a lost answer the call reads the blog's ten latest posts (`npf=true`)
+for one made since the publication began whose first text block is this post's first paragraph; a post without
+text cannot be found that way, so a lost answer there fails the call.
+**Cannot**: formatting (bold, links inside the text: NPF takes them as `formatting` ranges with offsets, which a template
+cannot count; the text is plain and a link is written after it); reblogs, polls, audio, links as link blocks; the 250 posts
+a day limit is Tumblr's, not counted here; a video above 25 MB (the platform's part limit; Tumblr takes 100 MB);
+follow-ups (none); mentions; the account's picture is Tumblr's avatar address.
+**Unverified**: that the `json` part needs no content type of its own; that the token address takes the client secret in
+the body; the error text pointer (`/errors/0/detail`; an answer without it shows the raw body); `timestamp()` of the
+publication's moment against a post's epoch `timestamp`.
+**Setup**: a Tumblr app (tumblr.com/oauth/apps) with the redirect `{PUBLIC_URL}/api/connections/callback`; the consumer
+key as `client_id` in the description and the consumer secret under `client_secret`.

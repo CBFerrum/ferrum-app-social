@@ -1,0 +1,1059 @@
+{
+  "base": "https://api.tumblr.com/v2",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://www.tumblr.com/oauth2/authorize",
+      "token_url": "https://api.tumblr.com/v2/oauth2/token",
+      "scopes": [
+        "basic",
+        "write",
+        "offline_access"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body",
+      "account_at": "/response/user/name"
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.tumblr.com"
+  ],
+  "timeout_ms": 60000,
+  "limit": {
+    "per": 1000,
+    "every": 3600,
+    "concurrent": 3
+  },
+  "meta": {
+    "carries": {
+      "network": "Tumblr",
+      "provider": "tumblr"
+    },
+    "social": {
+      "name": "Tumblr",
+      "text": {
+        "format": "plain"
+      },
+      "media": {
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "max": 10,
+        "alt": true,
+        "alt_max": 1000,
+        "image": {
+          "max_bytes": 26214400
+        },
+        "video": {
+          "max_bytes": 26214400,
+          "max_seconds": 600
+        }
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Post"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "tags",
+          "label": "Tags",
+          "type": "text",
+          "help": "Separated by commas"
+        },
+        {
+          "key": "state",
+          "label": "State",
+          "type": "select",
+          "default": "published",
+          "options": [
+            "published",
+            "draft",
+            "queue",
+            "private"
+          ]
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/blogs",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/user/info",
+      "result": {
+        "blogs": {
+          "expr": "answer.response.user.blogs.map(b, {'id': b.name, 'name': b.title != '' ? b.title : b.name, 'handle': b.name, 'picture': 'https://api.tumblr.com/v2/blog/' + b.name + '/avatar/128'})"
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/blog/{{ inputs.account_id }}/info",
+      "result": {
+        "name": "/response/blog/title",
+        "handle": "/response/blog/name",
+        "followers": "/response/blog/followers"
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "account_id"
+      ]
+    },
+    "create_text_post": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "body": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags"
+      ]
+    },
+    "recent_posts": {
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "query": {
+        "npf": "true",
+        "limit": "10"
+      },
+      "result": {
+        "id": {
+          "expr": "inputs.first != '' ? answer.response.posts.filter(p, p.timestamp >= int(timestamp(inputs.after)) && size(p.content) > 0 && p.content[0].type == 'text' && p.content[0].text == inputs.first).map(p, p.id_string).join('') : ''"
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "first",
+        "after"
+      ]
+    },
+    "note_count": {
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "query": {
+        "npf": "true",
+        "id": "{{ inputs.post }}"
+      },
+      "result": {
+        "engagements": "/response/posts/0/note_count"
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "post"
+      ]
+    },
+    "delete_post": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/post/delete",
+      "form": {
+        "id": "{{ inputs.post }}"
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "post"
+      ]
+    },
+    "create_media_post_1": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0"
+      ]
+    },
+    "create_media_post_2": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1"
+      ]
+    },
+    "create_media_post_3": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        },
+        "f2": {
+          "file": "{{ inputs.f2 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1",
+        "f2"
+      ]
+    },
+    "create_media_post_4": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        },
+        "f2": {
+          "file": "{{ inputs.f2 }}",
+          "max_bytes": 26214400
+        },
+        "f3": {
+          "file": "{{ inputs.f3 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1",
+        "f2",
+        "f3"
+      ]
+    },
+    "create_media_post_5": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        },
+        "f2": {
+          "file": "{{ inputs.f2 }}",
+          "max_bytes": 26214400
+        },
+        "f3": {
+          "file": "{{ inputs.f3 }}",
+          "max_bytes": 26214400
+        },
+        "f4": {
+          "file": "{{ inputs.f4 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1",
+        "f2",
+        "f3",
+        "f4"
+      ]
+    },
+    "create_media_post_6": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        },
+        "f2": {
+          "file": "{{ inputs.f2 }}",
+          "max_bytes": 26214400
+        },
+        "f3": {
+          "file": "{{ inputs.f3 }}",
+          "max_bytes": 26214400
+        },
+        "f4": {
+          "file": "{{ inputs.f4 }}",
+          "max_bytes": 26214400
+        },
+        "f5": {
+          "file": "{{ inputs.f5 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5"
+      ]
+    },
+    "create_media_post_7": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        },
+        "f2": {
+          "file": "{{ inputs.f2 }}",
+          "max_bytes": 26214400
+        },
+        "f3": {
+          "file": "{{ inputs.f3 }}",
+          "max_bytes": 26214400
+        },
+        "f4": {
+          "file": "{{ inputs.f4 }}",
+          "max_bytes": 26214400
+        },
+        "f5": {
+          "file": "{{ inputs.f5 }}",
+          "max_bytes": 26214400
+        },
+        "f6": {
+          "file": "{{ inputs.f6 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6"
+      ]
+    },
+    "create_media_post_8": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        },
+        "f2": {
+          "file": "{{ inputs.f2 }}",
+          "max_bytes": 26214400
+        },
+        "f3": {
+          "file": "{{ inputs.f3 }}",
+          "max_bytes": 26214400
+        },
+        "f4": {
+          "file": "{{ inputs.f4 }}",
+          "max_bytes": 26214400
+        },
+        "f5": {
+          "file": "{{ inputs.f5 }}",
+          "max_bytes": 26214400
+        },
+        "f6": {
+          "file": "{{ inputs.f6 }}",
+          "max_bytes": 26214400
+        },
+        "f7": {
+          "file": "{{ inputs.f7 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7"
+      ]
+    },
+    "create_media_post_9": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        },
+        "f2": {
+          "file": "{{ inputs.f2 }}",
+          "max_bytes": 26214400
+        },
+        "f3": {
+          "file": "{{ inputs.f3 }}",
+          "max_bytes": 26214400
+        },
+        "f4": {
+          "file": "{{ inputs.f4 }}",
+          "max_bytes": 26214400
+        },
+        "f5": {
+          "file": "{{ inputs.f5 }}",
+          "max_bytes": 26214400
+        },
+        "f6": {
+          "file": "{{ inputs.f6 }}",
+          "max_bytes": 26214400
+        },
+        "f7": {
+          "file": "{{ inputs.f7 }}",
+          "max_bytes": 26214400
+        },
+        "f8": {
+          "file": "{{ inputs.f8 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8"
+      ]
+    },
+    "create_media_post_10": {
+      "method": "POST",
+      "path": "/blog/{{ inputs.blog }}/posts",
+      "form": {
+        "json": "{\"content\": [{% for p in inputs.paras %}{% if not loop.first %},{% endif %}{\"type\": \"text\", \"text\": {{ p | json }}}{% endfor %}{% for m in inputs.media_items %}{% if inputs.paras or not loop.first %},{% endif %}{% if m.kind == \"video\" %}{\"type\": \"video\", \"media\": {\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}}{% else %}{\"type\": \"image\", \"media\": [{\"type\": {{ m.content_type | json }}, \"identifier\": \"f{{ loop.index0 }}\"}], \"alt_text\": {{ (m.alt or \"\") | json }}}{% endif %}{% endfor %}], \"state\": {{ (inputs.state or \"published\") | json }}, \"tags\": {{ (inputs.tags or \"\") | json }}}",
+        "f0": {
+          "file": "{{ inputs.f0 }}",
+          "max_bytes": 26214400
+        },
+        "f1": {
+          "file": "{{ inputs.f1 }}",
+          "max_bytes": 26214400
+        },
+        "f2": {
+          "file": "{{ inputs.f2 }}",
+          "max_bytes": 26214400
+        },
+        "f3": {
+          "file": "{{ inputs.f3 }}",
+          "max_bytes": 26214400
+        },
+        "f4": {
+          "file": "{{ inputs.f4 }}",
+          "max_bytes": 26214400
+        },
+        "f5": {
+          "file": "{{ inputs.f5 }}",
+          "max_bytes": 26214400
+        },
+        "f6": {
+          "file": "{{ inputs.f6 }}",
+          "max_bytes": 26214400
+        },
+        "f7": {
+          "file": "{{ inputs.f7 }}",
+          "max_bytes": 26214400
+        },
+        "f8": {
+          "file": "{{ inputs.f8 }}",
+          "max_bytes": 26214400
+        },
+        "f9": {
+          "file": "{{ inputs.f9 }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "id": {
+          "at": "/response/id_string",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "paras",
+        "media_items",
+        "state",
+        "tags",
+        "f0",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file"
+      ],
+      "changes": false,
+      "steps": [
+        {
+          "name": "user",
+          "operation": "user_info"
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "inputs.file"
+        }
+      }
+    },
+    "user_info": {
+      "path": "/user/info",
+      "error_at": "/errors/0/detail",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "publish": {
+      "inputs": [
+        "account_id",
+        "settings",
+        "text_with_link",
+        "media",
+        "media_items",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "text",
+          "operation": "create_text_post",
+          "when": "not inputs.media",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags"
+          },
+          "confirm": {
+            "operation": "recent_posts",
+            "inputs": {
+              "blog": "sent.blog",
+              "first": "sent.paras[0] if sent.paras else ''",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        },
+        {
+          "name": "media_1",
+          "operation": "create_media_post_1",
+          "when": "inputs.media | length == 1",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id"
+          }
+        },
+        {
+          "name": "media_2",
+          "operation": "create_media_post_2",
+          "when": "inputs.media | length == 2",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id"
+          }
+        },
+        {
+          "name": "media_3",
+          "operation": "create_media_post_3",
+          "when": "inputs.media | length == 3",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id",
+            "f2": "inputs.media_items[2].id"
+          }
+        },
+        {
+          "name": "media_4",
+          "operation": "create_media_post_4",
+          "when": "inputs.media | length == 4",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id",
+            "f2": "inputs.media_items[2].id",
+            "f3": "inputs.media_items[3].id"
+          }
+        },
+        {
+          "name": "media_5",
+          "operation": "create_media_post_5",
+          "when": "inputs.media | length == 5",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id",
+            "f2": "inputs.media_items[2].id",
+            "f3": "inputs.media_items[3].id",
+            "f4": "inputs.media_items[4].id"
+          }
+        },
+        {
+          "name": "media_6",
+          "operation": "create_media_post_6",
+          "when": "inputs.media | length == 6",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id",
+            "f2": "inputs.media_items[2].id",
+            "f3": "inputs.media_items[3].id",
+            "f4": "inputs.media_items[4].id",
+            "f5": "inputs.media_items[5].id"
+          }
+        },
+        {
+          "name": "media_7",
+          "operation": "create_media_post_7",
+          "when": "inputs.media | length == 7",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id",
+            "f2": "inputs.media_items[2].id",
+            "f3": "inputs.media_items[3].id",
+            "f4": "inputs.media_items[4].id",
+            "f5": "inputs.media_items[5].id",
+            "f6": "inputs.media_items[6].id"
+          }
+        },
+        {
+          "name": "media_8",
+          "operation": "create_media_post_8",
+          "when": "inputs.media | length == 8",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id",
+            "f2": "inputs.media_items[2].id",
+            "f3": "inputs.media_items[3].id",
+            "f4": "inputs.media_items[4].id",
+            "f5": "inputs.media_items[5].id",
+            "f6": "inputs.media_items[6].id",
+            "f7": "inputs.media_items[7].id"
+          }
+        },
+        {
+          "name": "media_9",
+          "operation": "create_media_post_9",
+          "when": "inputs.media | length == 9",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id",
+            "f2": "inputs.media_items[2].id",
+            "f3": "inputs.media_items[3].id",
+            "f4": "inputs.media_items[4].id",
+            "f5": "inputs.media_items[5].id",
+            "f6": "inputs.media_items[6].id",
+            "f7": "inputs.media_items[7].id",
+            "f8": "inputs.media_items[8].id"
+          }
+        },
+        {
+          "name": "media_10",
+          "operation": "create_media_post_10",
+          "when": "inputs.media | length == 10",
+          "inputs": {
+            "blog": "inputs.account_id",
+            "paras": "inputs.text_with_link | split('\\n\\n') | map('trim') | reject('equalto', '') | list",
+            "media_items": "inputs.media_items",
+            "state": "inputs.settings.state",
+            "tags": "inputs.settings.tags",
+            "f0": "inputs.media_items[0].id",
+            "f1": "inputs.media_items[1].id",
+            "f2": "inputs.media_items[2].id",
+            "f3": "inputs.media_items[3].id",
+            "f4": "inputs.media_items[4].id",
+            "f5": "inputs.media_items[5].id",
+            "f6": "inputs.media_items[6].id",
+            "f7": "inputs.media_items[7].id",
+            "f8": "inputs.media_items[8].id",
+            "f9": "inputs.media_items[9].id"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "concat(inputs.account_id, ':', answer.text != null ? answer.text.id : (answer.media_1 != null ? answer.media_1.id : (answer.media_2 != null ? answer.media_2.id : (answer.media_3 != null ? answer.media_3.id : (answer.media_4 != null ? answer.media_4.id : (answer.media_5 != null ? answer.media_5.id : (answer.media_6 != null ? answer.media_6.id : (answer.media_7 != null ? answer.media_7.id : (answer.media_8 != null ? answer.media_8.id : (answer.media_9 != null ? answer.media_9.id : (answer.media_10 != null ? answer.media_10.id : (''))))))))))))"
+        },
+        "url": {
+          "expr": "concat('https://', inputs.account_id.contains('.') ? inputs.account_id : inputs.account_id + '.tumblr.com', '/post/', answer.text != null ? answer.text.id : (answer.media_1 != null ? answer.media_1.id : (answer.media_2 != null ? answer.media_2.id : (answer.media_3 != null ? answer.media_3.id : (answer.media_4 != null ? answer.media_4.id : (answer.media_5 != null ? answer.media_5.id : (answer.media_6 != null ? answer.media_6.id : (answer.media_7 != null ? answer.media_7.id : (answer.media_8 != null ? answer.media_8.id : (answer.media_9 != null ? answer.media_9.id : (answer.media_10 != null ? answer.media_10.id : (''))))))))))))"
+        }
+      }
+    },
+    "delete": {
+      "inputs": [
+        "id"
+      ],
+      "steps": [
+        {
+          "name": "gone",
+          "operation": "delete_post",
+          "inputs": {
+            "blog": "inputs.id | split(':') | first",
+            "post": "inputs.id | split(':') | last"
+          }
+        }
+      ]
+    },
+    "metrics": {
+      "inputs": [
+        "id"
+      ],
+      "changes": false,
+      "steps": [
+        {
+          "name": "post",
+          "operation": "note_count",
+          "inputs": {
+            "blog": "inputs.id | split(':') | first",
+            "post": "inputs.id | split(':') | last"
+          }
+        }
+      ],
+      "result": {
+        "engagements": "/post/engagements"
+      }
+    }
+  }
+}
