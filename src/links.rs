@@ -106,7 +106,7 @@ pub(crate) async fn track(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, account
         ("account", s(account, "account_name").unwrap_or_default().to_string()),
         ("handle", s(account, "handle").unwrap_or_default().to_string()),
         ("network", r.name().to_string()),
-        ("kind", r.kind(v.kind.as_deref()).ok().flatten().map(|k| k.name.clone()).unwrap_or_default()),
+        ("kind", r.kind(v.kind_on(&r).as_deref()).ok().flatten().map(|k| k.name.clone()).unwrap_or_default()),
         ("brand", brand),
         ("tags", tags),
     ]

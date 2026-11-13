@@ -1,402 +1,399 @@
 {
- "base": "https://open.tiktokapis.com",
- "auth": {
-  "type": "oauth",
-  "owner": "workspace",
-  "provider": {
-   "authorize_url": "https://www.tiktok.com/v2/auth/authorize/",
-   "token_url": "https://open.tiktokapis.com/v2/oauth/token/",
-   "revoke_url": "https://open.tiktokapis.com/v2/oauth/revoke/",
-   "scopes": [
-    "user.info.basic",
-    "user.info.stats",
-    "video.publish",
-    "video.upload",
-    "video.list"
-   ],
-   "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
-   "client_secret": "client_secret",
-   "client_auth": "body",
-   "params": {
-    "client_key": "REPLACE-WITH-THE-APPS-CLIENT-ID"
-   },
-   "account_at": "/open_id"
-  }
- },
- "apps": [
-  "social"
- ],
- "allowed_hosts": [
-  "open-upload.tiktokapis.com"
- ],
- "limit": {
-  "concurrent": 4
- },
- "meta": {
-  "capabilities": {
-   "name": "TikTok",
-   "max_text": 2200,
-   "images": false,
-   "videos": true,
-   "media_required": true
-  },
-  "social": {
-   "name": "TikTok",
-   "text": {
-    "max": 2200,
-    "count": "utf16"
-   },
-   "media": {
-    "kinds": [
-     "video"
-    ],
-    "required": true,
-    "max": 1,
-    "video": {
-     "types": [
-      "video/mp4",
-      "video/quicktime",
-      "video/webm"
-     ],
-     "min_seconds": 3,
-     "max_seconds": 600,
-     "max_bytes": 26214400
-    },
-    "alt": false
-   },
-   "kinds": [
-    {
-     "name": "video",
-     "label": "Video"
-    },
-    {
-     "name": "photo",
-     "label": "Photos",
-     "media": {
-      "kinds": [
-       "image"
+  "base": "https://open.tiktokapis.com",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://www.tiktok.com/v2/auth/authorize/",
+      "token_url": "https://open.tiktokapis.com/v2/oauth/token/",
+      "revoke_url": "https://open.tiktokapis.com/v2/oauth/revoke/",
+      "scopes": [
+        "user.info.basic",
+        "user.info.stats",
+        "video.publish",
+        "video.upload",
+        "video.list"
       ],
-      "required": true,
-      "max": 35,
-      "image": {
-       "types": [
-        "image/jpeg",
-        "image/webp"
-       ]
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body",
+      "params": {
+        "client_key": "REPLACE-WITH-THE-APPS-CLIENT-ID"
       },
-      "alt": false
-     }
+      "account_at": "/open_id"
     }
-   ],
-   "follow_ups": {
-    "as": "none"
-   },
-   "settings": [
-    {
-     "key": "privacy_level",
-     "label": "Who can see it",
-     "type": "select",
-     "required": true,
-     "options": [
-      "PUBLIC_TO_EVERYONE",
-      "MUTUAL_FOLLOW_FRIENDS",
-      "FOLLOWER_OF_CREATOR",
-      "SELF_ONLY"
-     ],
-     "choices": {
-      "operation": "creator_info",
-      "items_at": "/data/privacy_level_options",
-      "value_at": "",
-      "inputs": {}
-     }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "open-upload.tiktokapis.com"
+  ],
+  "limit": {
+    "concurrent": 4
+  },
+  "meta": {
+    "capabilities": {
+      "name": "TikTok",
+      "max_text": 2200,
+      "images": false,
+      "videos": true,
+      "media_required": true
     },
-    {
-     "key": "comment",
-     "label": "Allow comments",
-     "type": "bool",
-     "required": true
-    },
-    {
-     "key": "duet",
-     "label": "Allow duets",
-     "type": "bool",
-     "required": true,
-     "when": {
-      "kind": [
-       "video"
-      ]
-     }
-    },
-    {
-     "key": "stitch",
-     "label": "Allow stitches",
-     "type": "bool",
-     "required": true,
-     "when": {
-      "kind": [
-       "video"
-      ]
-     }
-    },
-    {
-     "key": "brand_content_toggle",
-     "label": "Paid partnership",
-     "type": "bool",
-     "default": false
-    },
-    {
-     "key": "brand_organic_toggle",
-     "label": "Promotes your own business",
-     "type": "bool",
-     "default": false
-    },
-    {
-     "key": "title",
-     "label": "Title",
-     "type": "text",
-     "max": 90,
-     "when": {
-      "kind": [
-       "photo"
-      ]
-     }
+    "social": {
+      "name": "TikTok",
+      "text": {
+        "max": 2200,
+        "count": "utf16"
+      },
+      "media": {
+        "kinds": [
+          "video"
+        ],
+        "required": true,
+        "max": 1,
+        "video": {
+          "types": [
+            "video/mp4",
+            "video/quicktime",
+            "video/webm"
+          ],
+          "min_seconds": 3,
+          "max_seconds": 600,
+          "max_bytes": 26214400
+        },
+        "alt": false
+      },
+      "kinds": [
+        {
+          "name": "video",
+          "label": "Video"
+        },
+        {
+          "name": "photo",
+          "label": "Photos",
+          "media": {
+            "kinds": [
+              "image"
+            ],
+            "required": true,
+            "max": 35,
+            "image": {
+              "types": [
+                "image/jpeg",
+                "image/webp"
+              ]
+            },
+            "alt": false,
+            "by_address": [
+              "image"
+            ]
+          }
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "settings": [
+        {
+          "key": "privacy_level",
+          "label": "Who can see it",
+          "type": "select",
+          "required": true,
+          "options": [
+            "PUBLIC_TO_EVERYONE",
+            "MUTUAL_FOLLOW_FRIENDS",
+            "FOLLOWER_OF_CREATOR",
+            "SELF_ONLY"
+          ],
+          "choices": {
+            "operation": "creator_info",
+            "items_at": "/data/privacy_level_options",
+            "value_at": "",
+            "inputs": {}
+          }
+        },
+        {
+          "key": "comment",
+          "label": "Allow comments",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "key": "duet",
+          "label": "Allow duets",
+          "type": "bool",
+          "required": true,
+          "when": {
+            "kind": [
+              "video"
+            ]
+          }
+        },
+        {
+          "key": "stitch",
+          "label": "Allow stitches",
+          "type": "bool",
+          "required": true,
+          "when": {
+            "kind": [
+              "video"
+            ]
+          }
+        },
+        {
+          "key": "brand_content_toggle",
+          "label": "Paid partnership",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "brand_organic_toggle",
+          "label": "Promotes your own business",
+          "type": "bool",
+          "default": false
+        }
+      ],
+      "title": {
+        "required": false,
+        "max": 90
+      }
     }
-   ]
+  },
+  "operations": {
+    "creator_info": {
+      "method": "POST",
+      "path": "/v2/post/publish/creator_info/query/",
+      "body": "{}",
+      "changes": false,
+      "headers": {
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "error_at": "/error/message"
+    },
+    "init_video": {
+      "method": "POST",
+      "path": "/v2/post/publish/video/init/",
+      "headers": {
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "body": "{ \"post_info\": {\"title\": {{ inputs.text | json }}, \"privacy_level\": {{ inputs.privacy | json }}, \"disable_comment\": {{ (not inputs.comment) | json }}{% if inputs.video %}, \"disable_duet\": {{ (not inputs.duet) | json }}, \"disable_stitch\": {{ (not inputs.stitch) | json }}{% endif %}, \"brand_content_toggle\": {{ (inputs.branded or false) | json }}, \"brand_organic_toggle\": {{ (inputs.own_brand or false) | json }}}, \"source_info\": {\"source\": \"FILE_UPLOAD\", \"video_size\": {{ inputs.size | json }}, \"chunk_size\": {{ ([inputs.size, 10000000] | min) | json }}, \"total_chunk_count\": {{ ([1, inputs.size // 10000000] | max) | json }}} }",
+      "inputs": [
+        "text",
+        "privacy",
+        "comment",
+        "duet",
+        "stitch",
+        "branded",
+        "own_brand",
+        "video",
+        "size"
+      ],
+      "result": {
+        "publish_id": {
+          "at": "/data/publish_id",
+          "required": true
+        },
+        "upload_url": "/data/upload_url"
+      },
+      "error_at": "/error/message",
+      "idempotency_header": "X-Ferrum-Upload-Key"
+    },
+    "put_chunk": {
+      "method": "PUT",
+      "url": "{{ inputs.url }}",
+      "headers": {
+        "content-range": "{{ inputs.range }}",
+        "content-type": "{{ inputs.content_type }}"
+      },
+      "body": {
+        "file": "{{ inputs.file }}",
+        "max_bytes": 26214400
+      },
+      "success": [
+        206
+      ],
+      "inputs": [
+        "url",
+        "range",
+        "content_type",
+        "file"
+      ],
+      "error_at": "/error/message"
+    },
+    "init_photos": {
+      "method": "POST",
+      "path": "/v2/post/publish/content/init/",
+      "headers": {
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "body": "{ \"post_info\": {\"title\": {{ (inputs.title or \"\") | json }}, \"description\": {{ inputs.text | json }}, \"auto_add_music\": true, \"privacy_level\": {{ inputs.privacy | json }}, \"disable_comment\": {{ (not inputs.comment) | json }}{% if inputs.video %}, \"disable_duet\": {{ (not inputs.duet) | json }}, \"disable_stitch\": {{ (not inputs.stitch) | json }}{% endif %}, \"brand_content_toggle\": {{ (inputs.branded or false) | json }}, \"brand_organic_toggle\": {{ (inputs.own_brand or false) | json }}}, \"source_info\": {\"source\": \"PULL_FROM_URL\", \"photo_cover_index\": 0, \"photo_images\": {{ inputs.urls | json }}}, \"post_mode\": \"DIRECT_POST\", \"media_type\": \"PHOTO\" }",
+      "inputs": [
+        "text",
+        "title",
+        "privacy",
+        "comment",
+        "branded",
+        "own_brand",
+        "urls"
+      ],
+      "result": {
+        "publish_id": {
+          "at": "/data/publish_id",
+          "required": true
+        }
+      },
+      "error_at": "/error/message"
+    },
+    "publish_status": {
+      "method": "POST",
+      "path": "/v2/post/publish/status/fetch/",
+      "changes": false,
+      "headers": {
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "body": "{\"publish_id\": {{ inputs.id | json }}}",
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "status": "/data/status",
+        "reason": "/data/fail_reason",
+        "post": "/data/publicaly_available_post_id/0"
+      },
+      "error_at": "/error/message"
+    },
+    "publish_media": {
+      "inputs": [
+        "file",
+        "url",
+        "content_type"
+      ],
+      "steps": [
+        {
+          "name": "check",
+          "operation": "creator_info"
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "inputs.content_type.startsWith('video/') ? 'file:' + string(inputs.file) : 'url:' + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "text_with_link",
+        "media",
+        "media_items",
+        "kind",
+        "settings",
+        "title"
+      ],
+      "steps": [
+        {
+          "name": "init",
+          "operation": "init_video",
+          "when": "inputs.kind != 'photo'",
+          "inputs": {
+            "text": "inputs.text_with_link",
+            "privacy": "inputs.settings.privacy_level",
+            "comment": "inputs.settings.comment",
+            "duet": "inputs.settings.duet",
+            "stitch": "inputs.settings.stitch",
+            "branded": "inputs.settings.brand_content_toggle",
+            "own_brand": "inputs.settings.brand_organic_toggle",
+            "video": "true",
+            "size": "inputs.media_items[0].size"
+          }
+        },
+        {
+          "name": "upload",
+          "operation": "put_chunk",
+          "when": "inputs.kind != 'photo'",
+          "chunks": {
+            "file": "inputs.media[0][5:]",
+            "bytes": 10000000,
+            "remainder": "last"
+          },
+          "inputs": {
+            "url": "steps.init.upload_url",
+            "content_type": "inputs.media_items[0].content_type",
+            "file": "inputs.media[0][5:]",
+            "range": "'bytes ' ~ chunk.offset ~ '-' ~ chunk.end ~ '/' ~ chunk.total"
+          }
+        },
+        {
+          "name": "photos",
+          "operation": "init_photos",
+          "when": "not (inputs.kind != 'photo')",
+          "inputs": {
+            "text": "inputs.text_with_link",
+            "title": "inputs.title",
+            "privacy": "inputs.settings.privacy_level",
+            "comment": "inputs.settings.comment",
+            "branded": "inputs.settings.brand_content_toggle",
+            "own_brand": "inputs.settings.brand_organic_toggle",
+            "urls": "inputs.media | map('replace', 'url:', '') | list"
+          }
+        },
+        {
+          "name": "done",
+          "operation": "publish_status",
+          "inputs": {
+            "id": "(steps.init or steps.photos).publish_id"
+          },
+          "wait": {
+            "until": "result.status in ['PUBLISH_COMPLETE', 'SEND_TO_USER_INBOX']",
+            "fail_if": "result.status == 'FAILED'",
+            "every_secs": 10,
+            "within_secs": 1800
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.done.post != null ? string(answer.done.post) : (answer.init != null ? answer.init.publish_id : answer.photos.publish_id)"
+        },
+        "publish_id": {
+          "expr": "answer.init != null ? answer.init.publish_id : answer.photos.publish_id"
+        }
+      }
+    },
+    "metrics": {
+      "method": "POST",
+      "path": "/v2/video/query/",
+      "query": {
+        "fields": "id,like_count,comment_count,share_count,view_count"
+      },
+      "changes": false,
+      "headers": {
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "body": "{\"filters\": {\"video_ids\": [{{ inputs.id | json }}]}}",
+      "inputs": [
+        "id"
+      ],
+      "result": {
+        "impressions": "/data/videos/0/view_count",
+        "engagements": {
+          "expr": "answer.data.videos[0].like_count + answer.data.videos[0].comment_count + answer.data.videos[0].share_count"
+        }
+      },
+      "error_at": "/error/message"
+    },
+    "account": {
+      "path": "/v2/user/info/",
+      "query": {
+        "fields": "open_id,display_name,avatar_url,follower_count,username"
+      },
+      "result": {
+        "followers": "/data/user/follower_count",
+        "name": "/data/user/display_name",
+        "handle": "/data/user/username",
+        "picture": "/data/user/avatar_url"
+      },
+      "error_at": "/error/message"
+    }
   }
- },
- "operations": {
-  "creator_info": {
-   "method": "POST",
-   "path": "/v2/post/publish/creator_info/query/",
-   "body": "{}",
-   "changes": false,
-   "headers": {
-    "content-type": "application/json; charset=UTF-8"
-   },
-   "error_at": "/error/message"
-  },
-  "init_video": {
-   "method": "POST",
-   "path": "/v2/post/publish/video/init/",
-   "headers": {
-    "content-type": "application/json; charset=UTF-8"
-   },
-   "body": "{ \"post_info\": {\"title\": {{ inputs.text | json }}, \"privacy_level\": {{ inputs.privacy | json }}, \"disable_comment\": {{ (not inputs.comment) | json }}{% if inputs.video %}, \"disable_duet\": {{ (not inputs.duet) | json }}, \"disable_stitch\": {{ (not inputs.stitch) | json }}{% endif %}, \"brand_content_toggle\": {{ (inputs.branded or false) | json }}, \"brand_organic_toggle\": {{ (inputs.own_brand or false) | json }}}, \"source_info\": {\"source\": \"FILE_UPLOAD\", \"video_size\": {{ inputs.size | json }}, \"chunk_size\": {{ ([inputs.size, 10000000] | min) | json }}, \"total_chunk_count\": {{ ([1, inputs.size // 10000000] | max) | json }}} }",
-   "inputs": [
-    "text",
-    "privacy",
-    "comment",
-    "duet",
-    "stitch",
-    "branded",
-    "own_brand",
-    "video",
-    "size"
-   ],
-   "result": {
-    "publish_id": {
-     "at": "/data/publish_id",
-     "required": true
-    },
-    "upload_url": "/data/upload_url"
-   },
-   "error_at": "/error/message",
-   "idempotency_header": "X-Ferrum-Upload-Key"
-  },
-  "put_chunk": {
-   "method": "PUT",
-   "url": "{{ inputs.url }}",
-   "headers": {
-    "content-range": "{{ inputs.range }}",
-    "content-type": "{{ inputs.content_type }}"
-   },
-   "body": {
-    "file": "{{ inputs.file }}",
-    "max_bytes": 26214400
-   },
-   "success": [
-    206
-   ],
-   "inputs": [
-    "url",
-    "range",
-    "content_type",
-    "file"
-   ],
-   "error_at": "/error/message"
-  },
-  "init_photos": {
-   "method": "POST",
-   "path": "/v2/post/publish/content/init/",
-   "headers": {
-    "content-type": "application/json; charset=UTF-8"
-   },
-   "body": "{ \"post_info\": {\"title\": {{ (inputs.title or \"\") | json }}, \"description\": {{ inputs.text | json }}, \"auto_add_music\": true, \"privacy_level\": {{ inputs.privacy | json }}, \"disable_comment\": {{ (not inputs.comment) | json }}{% if inputs.video %}, \"disable_duet\": {{ (not inputs.duet) | json }}, \"disable_stitch\": {{ (not inputs.stitch) | json }}{% endif %}, \"brand_content_toggle\": {{ (inputs.branded or false) | json }}, \"brand_organic_toggle\": {{ (inputs.own_brand or false) | json }}}, \"source_info\": {\"source\": \"PULL_FROM_URL\", \"photo_cover_index\": 0, \"photo_images\": {{ inputs.urls | json }}}, \"post_mode\": \"DIRECT_POST\", \"media_type\": \"PHOTO\" }",
-   "inputs": [
-    "text",
-    "title",
-    "privacy",
-    "comment",
-    "branded",
-    "own_brand",
-    "urls"
-   ],
-   "result": {
-    "publish_id": {
-     "at": "/data/publish_id",
-     "required": true
-    }
-   },
-   "error_at": "/error/message"
-  },
-  "publish_status": {
-   "method": "POST",
-   "path": "/v2/post/publish/status/fetch/",
-   "changes": false,
-   "headers": {
-    "content-type": "application/json; charset=UTF-8"
-   },
-   "body": "{\"publish_id\": {{ inputs.id | json }}}",
-   "inputs": [
-    "id"
-   ],
-   "result": {
-    "status": "/data/status",
-    "reason": "/data/fail_reason",
-    "post": "/data/publicaly_available_post_id/0"
-   },
-   "error_at": "/error/message"
-  },
-  "publish_media": {
-   "inputs": [
-    "file",
-    "url",
-    "content_type"
-   ],
-   "steps": [
-    {
-     "name": "check",
-     "operation": "creator_info"
-    }
-   ],
-   "result": {
-    "id": {
-     "expr": "inputs.content_type.startsWith('video/') ? 'file:' + string(inputs.file) : 'url:' + (has(inputs.url) && inputs.url != null ? inputs.url : '')"
-    }
-   }
-  },
-  "publish": {
-   "inputs": [
-    "text_with_link",
-    "media",
-    "media_items",
-    "kind",
-    "settings"
-   ],
-   "steps": [
-    {
-     "name": "init",
-     "operation": "init_video",
-     "when": "inputs.kind != 'photo'",
-     "inputs": {
-      "text": "inputs.text_with_link",
-      "privacy": "inputs.settings.privacy_level",
-      "comment": "inputs.settings.comment",
-      "duet": "inputs.settings.duet",
-      "stitch": "inputs.settings.stitch",
-      "branded": "inputs.settings.brand_content_toggle",
-      "own_brand": "inputs.settings.brand_organic_toggle",
-      "video": "true",
-      "size": "inputs.media_items[0].size"
-     }
-    },
-    {
-     "name": "upload",
-     "operation": "put_chunk",
-     "when": "inputs.kind != 'photo'",
-     "chunks": {
-      "file": "inputs.media[0][5:]",
-      "bytes": 10000000,
-      "remainder": "last"
-     },
-     "inputs": {
-      "url": "steps.init.upload_url",
-      "content_type": "inputs.media_items[0].content_type",
-      "file": "inputs.media[0][5:]",
-      "range": "'bytes ' ~ chunk.offset ~ '-' ~ chunk.end ~ '/' ~ chunk.total"
-     }
-    },
-    {
-     "name": "photos",
-     "operation": "init_photos",
-     "when": "not (inputs.kind != 'photo')",
-     "inputs": {
-      "text": "inputs.text_with_link",
-      "title": "inputs.settings.title",
-      "privacy": "inputs.settings.privacy_level",
-      "comment": "inputs.settings.comment",
-      "branded": "inputs.settings.brand_content_toggle",
-      "own_brand": "inputs.settings.brand_organic_toggle",
-      "urls": "inputs.media | map('replace', 'url:', '') | list"
-     }
-    },
-    {
-     "name": "done",
-     "operation": "publish_status",
-     "inputs": {
-      "id": "(steps.init or steps.photos).publish_id"
-     },
-     "wait": {
-      "until": "result.status in ['PUBLISH_COMPLETE', 'SEND_TO_USER_INBOX']",
-      "fail_if": "result.status == 'FAILED'",
-      "every_secs": 10,
-      "within_secs": 1800
-     }
-    }
-   ],
-   "result": {
-    "id": {
-     "expr": "answer.done.post != null ? string(answer.done.post) : (answer.init != null ? answer.init.publish_id : answer.photos.publish_id)"
-    },
-    "publish_id": {
-     "expr": "answer.init != null ? answer.init.publish_id : answer.photos.publish_id"
-    }
-   }
-  },
-  "metrics": {
-   "method": "POST",
-   "path": "/v2/video/query/",
-   "query": {
-    "fields": "id,like_count,comment_count,share_count,view_count"
-   },
-   "changes": false,
-   "headers": {
-    "content-type": "application/json; charset=UTF-8"
-   },
-   "body": "{\"filters\": {\"video_ids\": [{{ inputs.id | json }}]}}",
-   "inputs": [
-    "id"
-   ],
-   "result": {
-    "impressions": "/data/videos/0/view_count",
-    "engagements": {
-     "expr": "answer.data.videos[0].like_count + answer.data.videos[0].comment_count + answer.data.videos[0].share_count"
-    }
-   },
-   "error_at": "/error/message"
-  },
-  "account": {
-   "path": "/v2/user/info/",
-   "query": {
-    "fields": "open_id,display_name,avatar_url,follower_count,username"
-   },
-   "result": {
-    "followers": "/data/user/follower_count",
-    "name": "/data/user/display_name",
-    "handle": "/data/user/username",
-    "picture": "/data/user/avatar_url"
-   },
-   "error_at": "/error/message"
-  }
- }
 }

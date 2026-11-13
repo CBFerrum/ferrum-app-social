@@ -427,6 +427,12 @@ impl T {
             .flatten()
             .filter_map(|i| i.as_str().map(str::to_string))
             .collect();
+        // (round four) The title is Social's own input, not a setting: what a test still writes as `settings.title`
+        // is given as Social gives it.
+        let mut inputs = inputs;
+        if let Some(t) = inputs["settings"].as_object_mut().and_then(|s| s.remove("title").or_else(|| s.remove("subject"))) {
+            inputs["title"] = t;
+        }
         let inputs = match inputs {
             Value::Object(o) if !declared.is_empty() => Value::Object(o.into_iter().filter(|(k, _)| declared.contains(k)).collect()),
             other => other,
@@ -434,11 +440,18 @@ impl T {
         let c = Call { connection: conn.into(), operation: op.into(), inputs, key: key.map(str::to_string), entity: None, record: None };
         connections::call(&self.k, &self.admin, Some("social"), &c).await
     }
-    /// A stored file, and what Social gives `publish_media` for it (src/posts.rs `media_inputs`; the post's `kind`
-    /// replaces the medium's, as Social's common inputs do).
+    /// A stored file, and what Social gives `publish_media` for it (src/posts.rs `media_inputs`: the medium's own `kind`,
+    /// the post's as `post_kind`, round four).
     async fn medium(&self, name: &str, ct: &str, bytes: &[u8], post_kind: Option<&str>, settings: Value, account_id: Option<&str>) -> Value {
         let f = self.k.store_file(&self.admin, None, name, ct, bytes).await.unwrap();
-        json!({"file": f["id"], "name": name, "content_type": ct, "alt": "What it shows", "size": bytes.len(), "kind": post_kind, "thumbnail": null,
+        let own = if ct.starts_with("video/") {
+            "video"
+        } else if ct.starts_with("image/") {
+            "image"
+        } else {
+            "document"
+        };
+        json!({"file": f["id"], "name": name, "content_type": ct, "alt": "What it shows", "size": bytes.len(), "kind": own, "post_kind": post_kind, "thumbnail": null, "url": null,
                "width": 1080, "height": 1080, "seconds": if ct.starts_with("video/") { json!(12.0) } else { Value::Null }, "item": 0, "index": 0,
                "settings": settings, "account_id": account_id, "handle": null, "items": 1})
     }

@@ -49,6 +49,8 @@ pub(crate) struct It {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Version {
     pub kind: Option<String>,
+    /// (round four) Its title: the account's own (`targets[].title`), else the post's (`title`).
+    pub title: Option<String>,
     pub settings: Map<String, Value>,
     pub items: Vec<It>,
     pub first_comment: Option<String>,
@@ -58,6 +60,11 @@ pub(crate) struct Version {
 }
 
 impl Version {
+    /// The kind it goes as on a network with rules `r`: the one picked, else the one its media say.
+    pub fn kind_on(&self, r: &crate::rules::Rules) -> Option<String> {
+        r.chosen(self.kind.as_deref(), self.items.first().and_then(|i| i.media.first()).map(|m| m.kind.as_str()))
+    }
+
     pub fn copy(&self) -> Copy {
         let piece = |m: &Med| Piece {
             kind: m.kind.clone(),
@@ -70,6 +77,7 @@ impl Version {
         };
         Copy {
             kind: self.kind.clone(),
+            title: self.title.clone(),
             items: self.items.iter().map(|i| Item { text: i.text.clone(), link: i.link.clone(), media: i.media.iter().map(piece).collect() }).collect(),
             first_comment: self.first_comment.clone(),
             settings: self.settings.clone(),
@@ -144,8 +152,9 @@ pub(crate) async fn version(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, accou
         settings.extend(given.clone());
     }
     let kind = s(&target, "kind").or(s(account, "default_kind")).map(str::trim).filter(|k| !k.is_empty()).map(str::to_string);
-    let mut v =
-        Version { kind, settings, items, first_comment: s(doc, "first_comment").filter(|c| !c.trim().is_empty()).map(str::to_string), problems: vec![] };
+    let title = s(&target, "title").or(s(doc, "title")).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+    let first_comment = s(doc, "first_comment").filter(|c| !c.trim().is_empty()).map(str::to_string);
+    let mut v = Version { kind, title, settings, items, first_comment, problems: vec![] };
     crate::library::finish(k, ctx, tx, doc, account, &mut v).await?;
     crate::links::track(k, ctx, tx, doc, account, &mut v).await?;
     Ok(v)
@@ -174,7 +183,7 @@ pub(crate) fn fingerprint(doc: &Doc) -> String {
         rows(doc, table).iter().map(|r| Value::Array(fields.iter().map(|f| r.get(*f).cloned().unwrap_or(Value::Null)).collect())).collect()
     };
     let mut more = Map::new();
-    let mut targets_more = lines("targets", &["account", "kind", "text", "link", "settings"]);
+    let mut targets_more = lines("targets", &["account", "kind", "text", "link", "settings", "title"]);
     targets_more.retain(|t| t.as_array().is_some_and(|a| a[1..].iter().any(|v| !v.is_null() && *v != "" && *v != json!({}))));
     targets_more.sort_by_key(Value::to_string);
     for (name, v) in [
@@ -186,7 +195,7 @@ pub(crate) fn fingerprint(doc: &Doc) -> String {
             more.insert(name.into(), v);
         }
     }
-    for f in ["add_signature", "signature", "repeat_every", "repeat_unit", "repeat_until", "repeat_count"] {
+    for f in ["add_signature", "signature", "repeat_every", "repeat_unit", "repeat_until", "repeat_count", "title"] {
         if let Some(v) = doc.get(f).filter(|v| !v.is_null() && **v != json!(false) && **v != json!("")) {
             more.insert(f.into(), v.clone());
         }
@@ -198,7 +207,7 @@ pub(crate) fn fingerprint(doc: &Doc) -> String {
 }
 
 /// The fields a copy of a post's content carries: to a template, a set, a duplicate, the next occurrence of a repeat.
-pub(crate) const CONTENT: [&str; 9] = ["headline", "brand", "text", "link", "image", "image_alt", "first_comment", "add_signature", "signature"];
+pub(crate) const CONTENT: [&str; 10] = ["headline", "title", "brand", "text", "link", "image", "image_alt", "first_comment", "add_signature", "signature"];
 
 /// `from`'s content as a new record's values (child lines without their ids), its own fields over them.
 pub(crate) fn content_of(from: &Doc, own: Value) -> Doc {

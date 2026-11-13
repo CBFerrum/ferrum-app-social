@@ -36,13 +36,6 @@
       },
       "settings": [
         {
-          "key": "subject",
-          "label": "Subject",
-          "type": "text",
-          "required": true,
-          "max": 255
-        },
-        {
           "key": "list",
           "label": "List",
           "type": "select",
@@ -73,6 +66,10 @@
         "value_at": "/id",
         "label_at": "/name",
         "picture_at": "/picture"
+      },
+      "title": {
+        "required": true,
+        "max": 255
       }
     }
   },
@@ -251,14 +248,15 @@
       "inputs": [
         "settings",
         "text",
-        "created_at"
+        "created_at",
+        "title"
       ],
       "steps": [
         {
           "name": "campaign",
           "operation": "create_campaign",
           "inputs": {
-            "subject": "inputs.settings.subject",
+            "subject": "inputs.title",
             "list": "inputs.settings.list",
             "content": "inputs.text",
             "template": "inputs.settings.template"

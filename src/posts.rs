@@ -64,7 +64,7 @@ pub(crate) async fn rules_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) 
 
 /// How a copy's follow-ups go out on a network with these rules.
 fn follow(r: &Rules, v: &Version) -> FollowAs {
-    let kind = r.kind(v.kind.as_deref()).ok().flatten();
+    let kind = r.kind(v.kind_on(r).as_deref()).ok().flatten();
     r.effective(kind).2.as_
 }
 
@@ -277,8 +277,9 @@ pub(crate) async fn copies_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> 
         };
         problems.extend(v.problems.iter().cloned());
         problems.extend(rules::problems(&r, &v.copy()));
-        let kind = r.kind(v.kind.as_deref()).ok().flatten();
+        let kind = r.kind(v.kind_on(&r).as_deref()).ok().flatten();
         let (text, _, follow, _) = r.effective(kind);
+        let title = v.title.clone();
         let items: Vec<Value> = v
             .items
             .iter()
@@ -291,7 +292,8 @@ pub(crate) async fn copies_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> 
             })
             .collect();
         out.push(json!({"account": account, "account_name": s(&a, "account_name"), "network": r.name(), "kind": kind.map(|k| k.name.clone()),
-                        "follow_ups": format!("{:?}", follow.as_).to_lowercase(), "items": items, "first_comment": v.first_comment,
+                        "follow_ups": format!("{:?}", follow.as_).to_lowercase(), "items": items, "first_comment": v.first_comment, "title": title,
+                        "title_max": r.title.as_ref().and_then(|t| t.max),
                         "settings": rules::answers(&r, kind.map(|k| k.name.as_str()), &v.settings).unwrap_or_default(), "problems": problems}));
     }
     Ok(json!({"copies": out}))
@@ -380,15 +382,43 @@ impl DocHook for PublicationHook {
         }
         let calling = caller(hc.kernel, hc.tx, hc.ctx.tenant, &account, &conn).await?;
         let follows = s(doc, "follow_ups").map(str::to_string);
+        // What every delete is given: the account, the post's kind and answers, and every item as it was kept.
+        let post = match id(doc, "post") {
+            Some(p) => hc.kernel.get_tx(&system, hc.tx, "SocialPost", p, false).await.ok(),
+            None => None,
+        };
+        let settings = post
+            .as_ref()
+            .and_then(|p| rows(p, "targets").into_iter().find(|t| id(t, "account") == id(doc, "account")))
+            .and_then(|t| t.get("settings").cloned())
+            .unwrap_or(Value::Null);
+        let common = json!({"account_id": crate::picker::network_id(&account), "handle": s(&account, "handle"), "kind": s(doc, "kind"), "settings": settings,
+                            "items": items, "root": text_of(&items[0]["id"])});
+        // The first comment goes first, then the items, the last first.
+        let mut doomed: Vec<(String, String, Value)> = vec![];
+        if let Some(c) = s(doc, "first_comment_id") {
+            doomed.push((c.to_string(), format!("delete:{publication}:first_comment"), json!({"item": null, "follow_up": "comment", "first_comment": true})));
+        }
         for it in items.iter().rev() {
             let (Some(n), Some(external)) = (it["item"].as_u64(), text_of(&it["id"])) else { continue };
             let n = n as usize;
-            let inputs = json!({"id": external, "item": n, "follow_up": if n > 0 { follows.clone() } else { None }, "root": text_of(&items[0]["id"])});
+            doomed.push((
+                external,
+                key(publication, "delete", n, None),
+                json!({"item": n, "follow_up": if n > 0 { follows.clone() } else { None }, "first_comment": false}),
+            ));
+        }
+        for (external, call_key, more) in doomed {
+            let mut inputs = common.clone();
+            inputs["id"] = json!(external);
+            for (k2, v) in more.as_object().into_iter().flatten() {
+                inputs[k2] = v.clone();
+            }
             let call = Call {
                 connection: conn.id.to_string(),
                 operation: op.clone(),
                 inputs: conn.fit(&op, inputs),
-                key: Some(key(publication, "delete", n, None)),
+                key: Some(call_key),
                 entity: Some("SocialPublication".into()),
                 record: Some(publication),
             };
@@ -536,9 +566,16 @@ async fn media_inputs(k: &Kernel, ctx: &Ctx, conn: &Reach, op: &str, r: &Rules, 
     let mut inputs = json!({"file": m.file, "name": m.name, "content_type": m.content_type, "alt": if r.media.alt { m.alt.clone().unwrap_or_default() } else { String::new() },
                             "size": m.bytes, "kind": m.kind, "thumbnail": if r.media.thumbnail { m.thumbnail } else { None }, "width": m.width,
                             "height": m.height, "seconds": m.seconds, "item": item, "index": index});
+    // The post's own inputs beside the medium's: the post's kind as `post_kind`, the medium's own `kind` kept.
     for (k2, v) in extra.as_object().into_iter().flatten() {
-        inputs[k2] = v.clone();
+        if k2 == "kind" {
+            inputs["post_kind"] = v.clone();
+        } else {
+            inputs[k2] = v.clone();
+        }
     }
+    // Its public address, where this server can give one (see rules::PUBLIC_MEDIA_ADDRESSES): none yet.
+    inputs["url"] = Value::Null;
     let declared = conn.inputs(op);
     if declared.is_empty() || declared.iter().any(|d| d == "data") {
         let (_, _, bytes) = k.read_file(&elevated(ctx), m.file).await?;
@@ -571,12 +608,12 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy())).next() {
         return Err(Error::invalid(format!("for {name}: {why}")));
     }
-    let kind = r.kind(v.kind.as_deref()).ok().flatten().map(|k| k.name.clone());
+    let kind = r.kind(v.kind_on(&r).as_deref()).ok().flatten().map(|k| k.name.clone());
     let settings = rules::answers(&r, kind.as_deref(), &v.settings).map_err(|w| Error::invalid(format!("for {name}: {}", w.join("; "))))?;
     let calling = caller(k, &mut tx, tenant, &account, &conn).await?;
     let mut sent = sent_items(&p);
     let Some(n) = (0..v.items.len()).find(|n| !sent.iter().any(|s| s["item"].as_u64() == Some(*n as u64))) else {
-        return finish(k, &ctx, tx, publication, &post, &r, &conn, &calling, &sent).await.map(Step::Done);
+        return finish(k, &ctx, tx, publication, &post, &account, &r, &conn, &calling, &sent).await.map(Step::Done);
     };
     let mut short = p.get("short_links").and_then(Value::as_object).cloned().unwrap_or_default();
     let mut shortened = v.items[n].clone();
@@ -599,7 +636,7 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     let op = if n == 0 || as_ == FollowAs::Thread { "publish" } else { "reply" };
     let root = sent.first().map(|s| s["id"].clone()).unwrap_or(Value::Null);
     let before = sent.last().cloned().unwrap_or(Value::Null);
-    let common = json!({"kind": kind, "settings": settings, "account_id": crate::picker::network_id(&account), "handle": s(&account, "handle"), "item": n, "items": v.items.len()});
+    let common = json!({"kind": kind, "title": v.title, "settings": settings, "account_id": crate::picker::network_id(&account), "handle": s(&account, "handle"), "item": n, "items": v.items.len()});
     let call = |operation: &str, inputs: Value, key: String| Call {
         connection: conn.id.to_string(),
         operation: r.op(operation).into(),
@@ -639,8 +676,9 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
             json!({"id": media.get(i), "file": m.file.to_string(), "name": m.name, "kind": m.kind, "alt": if r.media.alt { m.alt.clone() } else { None },
                    "content_type": m.content_type, "size": m.bytes, "width": m.width, "height": m.height, "seconds": m.seconds,
                    "thumbnail": if r.media.thumbnail { m.thumbnail.map(|t| t.to_string()) } else { None },
-                   // ponytail: no short-lived public address for a stored file yet (the platform has none an app can make).
-                   "public_url": Value::Null})
+                   // ponytail: no short-lived public address for a stored file yet (the platform has none an app can make);
+                   // `url` is filled when it does (rules::PUBLIC_MEDIA_ADDRESSES).
+                   "url": Value::Null, "public_url": Value::Null})
         })
         .collect();
     let mut inputs = json!({"text": item.text, "link": link, "text_with_link": link.map_or_else(|| item.text.clone(), |l| format!("{} {l}", item.text)),
@@ -672,12 +710,24 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
 /// Every item out: the first comment where the network takes one and the connection can reply, and the publication
 /// marked out.
 #[allow(clippy::too_many_arguments)]
-async fn finish(k: &Kernel, ctx: &Ctx, mut tx: Tx, publication: Uuid, post: &Doc, r: &Rules, conn: &Reach, calling: &Ctx, sent: &[Value]) -> Result<Value> {
+async fn finish(
+    k: &Kernel,
+    ctx: &Ctx,
+    mut tx: Tx,
+    publication: Uuid,
+    post: &Doc,
+    account: &Doc,
+    r: &Rules,
+    conn: &Reach,
+    calling: &Ctx,
+    sent: &[Value],
+) -> Result<Value> {
     let external = sent.first().and_then(|s| text_of(&s["id"])).unwrap_or_default();
     let mut values = json!({"sent_at": Utc::now().to_rfc3339(), "failed_at": null, "failure": null, "next_at": null});
     let comment = s(post, "first_comment").filter(|c| !c.trim().is_empty());
     if let (Some(comment), true, true) = (comment, r.first_comment, conn.has(r.op("reply"))) {
-        let inputs = json!({"text": comment, "in_reply_to": external, "root": external});
+        let inputs = json!({"text": comment, "in_reply_to": external, "root": external, "account_id": crate::picker::network_id(account), "handle": s(account, "handle"),
+                            "first_comment": true});
         let call = Call {
             connection: conn.id.to_string(),
             operation: r.op("reply").into(),
@@ -686,8 +736,10 @@ async fn finish(k: &Kernel, ctx: &Ctx, mut tx: Tx, publication: Uuid, post: &Doc
             entity: Some("SocialPublication".into()),
             record: Some(publication),
         };
-        if let Err(e) = connections::call(k, calling, Some(crate::APP), &call).await {
-            values["failure"] = json!(format!("It is out, but its first comment was not: {}", crate::said(e)));
+        match connections::call(k, calling, Some(crate::APP), &call).await {
+            // Kept, so that it is deleted with the post.
+            Ok(out) => values["first_comment_id"] = json!(text_of(&out["id"])),
+            Err(e) => values["failure"] = json!(format!("It is out, but its first comment was not: {}", crate::said(e))),
         }
     }
     k.set_values_tx(ctx, &mut tx, "SocialPublication", publication, obj(values)).await?;

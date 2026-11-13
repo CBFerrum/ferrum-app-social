@@ -55,13 +55,6 @@
             "value_at": "/id",
             "label_at": "/name"
           }
-        },
-        {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "max": 300,
-          "help": "The first 100 characters of the text when empty"
         }
       ],
       "accounts": {
@@ -70,6 +63,10 @@
         "value_at": "/id",
         "label_at": "/name",
         "handle_at": "/handle"
+      },
+      "title": {
+        "required": false,
+        "max": 300
       }
     }
   },
@@ -188,7 +185,8 @@
     "publish": {
       "inputs": [
         "settings",
-        "text_with_link"
+        "text_with_link",
+        "title"
       ],
       "steps": [
         {
@@ -196,7 +194,7 @@
           "operation": "create_post",
           "inputs": {
             "submolt": "inputs.settings.submolt",
-            "title": "inputs.settings.title or (inputs.text_with_link | truncate(100))",
+            "title": "inputs.title or (inputs.text_with_link | truncate(100))",
             "content": "inputs.text_with_link"
           }
         }

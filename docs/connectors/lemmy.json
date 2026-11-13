@@ -69,13 +69,6 @@
           }
         },
         {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "required": true,
-          "max": 200
-        },
-        {
           "key": "nsfw",
           "label": "Not safe for work",
           "type": "bool",
@@ -89,6 +82,10 @@
         "label_at": "/name",
         "handle_at": "/handle",
         "picture_at": "/picture"
+      },
+      "title": {
+        "required": true,
+        "max": 200
       }
     }
   },
@@ -413,14 +410,15 @@
         "link",
         "media",
         "media_items",
-        "created_at"
+        "created_at",
+        "title"
       ],
       "steps": [
         {
           "name": "post",
           "operation": "create_post",
           "inputs": {
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "community": "inputs.settings.community",
             "body": "inputs.text",
             "nsfw": "inputs.settings.nsfw",

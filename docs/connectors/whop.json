@@ -97,11 +97,6 @@
             "value_at": "/id",
             "label_at": "/name"
           }
-        },
-        {
-          "key": "title",
-          "label": "Title",
-          "type": "text"
         }
       ],
       "accounts": {
@@ -111,6 +106,9 @@
         "label_at": "/name",
         "handle_at": "/handle",
         "picture_at": "/picture"
+      },
+      "title": {
+        "required": false
       }
     }
   },
@@ -370,7 +368,8 @@
         "settings",
         "text_with_link",
         "media",
-        "created_at"
+        "created_at",
+        "title"
       ],
       "steps": [
         {
@@ -379,7 +378,7 @@
           "inputs": {
             "experience": "inputs.settings.experience",
             "content": "inputs.text_with_link",
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "attachments": "inputs.media"
           },
           "confirm": {
@@ -405,7 +404,8 @@
         "settings",
         "text",
         "in_reply_to",
-        "created_at"
+        "created_at",
+        "title"
       ],
       "steps": [
         {

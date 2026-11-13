@@ -51,13 +51,6 @@
           }
         },
         {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "required": true,
-          "max": 250
-        },
-        {
           "key": "subtitle",
           "label": "Subtitle",
           "type": "text",
@@ -93,6 +86,10 @@
         "label_at": "/name",
         "handle_at": "/handle",
         "picture_at": "/picture"
+      },
+      "title": {
+        "required": true,
+        "max": 250
       }
     }
   },
@@ -247,14 +244,15 @@
       "inputs": [
         "settings",
         "text_with_link",
-        "created_at"
+        "created_at",
+        "title"
       ],
       "steps": [
         {
           "name": "post",
           "operation": "create_post",
           "inputs": {
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "publication": "inputs.settings.publication",
             "content": "inputs.text_with_link",
             "tags_list": "(inputs.settings.tags or '') | split(',') | map('trim') | reject('equalto', '') | list",

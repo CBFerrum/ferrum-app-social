@@ -293,7 +293,7 @@ async fn send(k: &Kernel, tenant: Uuid, reply: Uuid) -> Result<Value> {
     let operation = if direct { "send_message" } else { "reply" };
     let created = crate::at(&r, "created_at").unwrap_or_else(Utc::now).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let inputs = json!({"text": s(&r, "text"), "in_reply_to": s(&m, "external_id"), "author": s(&m, "author").map(bare), "to": s(&m, "author_id").or(s(&m, "author").map(bare)),
-                        "thread": s(&m, "thread"), "created_at": created});
+                        "thread": s(&m, "thread"), "created_at": created, "account_id": crate::picker::network_id(&account), "handle": s(&account, "handle")});
     let call = Call {
         connection: conn.id.to_string(),
         operation: operation.into(),

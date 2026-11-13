@@ -122,7 +122,8 @@
     - {name: kind, type: data, in_list: true, description: "The kind of post on its network (post, reel, story...: what its network's rules name); empty: the account's default, else the network's first"}
     - {name: text, type: text, in_list: true, label: Its Own Words, description: "Words for this account only. When given, this account gets a version of its own: these words and link, the media lines naming it and the follow-ups naming it, nothing of the original"}
     - {name: link, type: data, label: Its Own Link}
-    - {name: settings, type: json, label: Answers, description: "What its network asks (a board, a title, who can see it...), by the keys its rules give"}
+    - {name: settings, type: json, label: Answers, description: "What its network asks (a board, who can see it...), by the keys its rules give"}
+    - {name: title, type: data, label: Its Own Title, description: "(round four) A title for this account only; empty: the post's"}
 
 - name: SocialItem
   label: Follow-up
@@ -159,6 +160,7 @@
   description: What a brand says, to one or more of its accounts, at a time. Someone other than its author approves it; it goes out at its time.
   fields:
     - {name: headline, type: data, required: true, in_list: true, description: "What the team calls it"}
+    - {name: title, type: data, description: "(round four) Its title, for a network that takes one (an article, a video, a pin, a subject); an account may have its own"}
     - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
     - {name: text, type: text, required: true}
     - {name: link, type: data, description: "A web address the post carries"}
@@ -267,6 +269,7 @@
     - {name: native, type: check, default: false, read_only: true, no_copy: true, in_filter: true, label: Made on the Network, description: "(round three) Read back from the network, not sent from here: it has no post"}
     - {name: via_connection, type: data, read_only: true, no_copy: true, hidden: true, description: "(round three) The connection it was read through: its account is the one that connection reaches"}
     - {name: account_handle, type: data, read_only: true, no_copy: true, hidden: true, description: "(round three) The account it is on, as the network names it, where a connection reaches several"}
+    - {name: first_comment_id, type: data, read_only: true, no_copy: true, hidden: true, description: "(round four) The network's id of its first comment: deleted with it"}
     - {name: short_links, type: json, read_only: true, no_copy: true, label: Short Links, description: "(round two) Each address it carried and its short link: made once, used again on a retry"}
     - {name: clicks_read_at, type: datetime, read_only: true, no_copy: true, hidden: true}
   actions:
@@ -365,6 +368,7 @@
     - {name: template_name, type: data, required: true, unique: true, in_list: true}
     - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true, description: "Empty: any brand's"}
     - {name: headline, type: data}
+    - {name: title, type: data, description: "(round four) The title the post takes"}
     - {name: text, type: text}
     - {name: link, type: data}
     - {name: image, type: attach}

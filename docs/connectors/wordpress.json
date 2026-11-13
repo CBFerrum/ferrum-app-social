@@ -43,13 +43,6 @@
       },
       "settings": [
         {
-          "key": "title",
-          "label": "Title",
-          "type": "text",
-          "required": true,
-          "max": 200
-        },
-        {
           "key": "post_type",
           "label": "Kind of content",
           "type": "select",
@@ -114,6 +107,10 @@
         "value_at": "/id",
         "label_at": "/name",
         "handle_at": "/handle"
+      },
+      "title": {
+        "required": true,
+        "max": 200
       }
     }
   },
@@ -359,7 +356,8 @@
         "settings",
         "text_with_link",
         "media",
-        "created_at"
+        "created_at",
+        "title"
       ],
       "steps": [
         {
@@ -367,7 +365,7 @@
           "operation": "create_post",
           "inputs": {
             "rest_base": "inputs.settings.post_type or 'posts'",
-            "title": "inputs.settings.title",
+            "title": "inputs.title",
             "content": "inputs.text_with_link",
             "status": "inputs.settings.status or 'publish'",
             "categories": "inputs.settings.categories",

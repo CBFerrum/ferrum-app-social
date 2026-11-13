@@ -114,7 +114,7 @@ pub(crate) async fn action(hc: &mut HookCtx<'_>, entity: &str, name: &str, doc: 
                 let a = hc.kernel.get_tx(&elevated(hc.ctx), hc.tx, "SocialAccount", account, false).await?;
                 let r = rules_of(hc.kernel, hc.ctx, hc.tx, &a).await?.unwrap_or_default();
                 let target = rows(doc, "targets").into_iter().find(|t| id(t, "account") == Some(account)).unwrap_or_default();
-                let kind = r.kind(s(&target, "kind")).ok().flatten();
+                let kind = r.kind(r.chosen(s(&target, "kind"), None).as_deref()).ok().flatten();
                 let (t, _, _, _): (Text, _, _, _) = r.effective(kind);
                 let values = with(
                     base.clone(),
