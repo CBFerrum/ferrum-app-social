@@ -1,0 +1,46 @@
+{
+  "base": "https://api.dub.co",
+  "auth": {
+    "type": "none"
+  },
+  "apps": [
+    "social"
+  ],
+  "headers": {
+    "Authorization": "Bearer {{ secret.api_key }}"
+  },
+  "operations": {
+    "shorten": {
+      "method": "POST",
+      "path": "/links",
+      "body": "{\"url\": {{ inputs.url | json }}}",
+      "result": {
+        "url": "/shortLink",
+        "id": "/id"
+      },
+      "error_at": "/error/message",
+      "idempotency_header": "Idempotency-Key",
+      "inputs": [
+        "url"
+      ]
+    },
+    "link_clicks": {
+      "path": "/analytics",
+      "query": {
+        "event": "clicks",
+        "linkId": "{{ inputs.id }}",
+        "interval": "all"
+      },
+      "result": {
+        "clicks": "/clicks"
+      },
+      "error_at": "/error/message",
+      "inputs": [
+        "id"
+      ]
+    }
+  },
+  "meta": {
+    "note": "Secret: api_key (a workspace API key). Dub answers the total clicks for interval all."
+  }
+}

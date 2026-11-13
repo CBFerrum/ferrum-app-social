@@ -8,6 +8,10 @@
   fields:
     - {name: brand_name, type: data, required: true, unique: true, in_list: true}
     - {name: description, type: text}
+  actions:
+    - {name: media_search, label: Find Pictures, permission: read, read_only: true, params: [{name: query, type: data, label: Look For, required: true}, {name: source, type: data, label: Source}, {name: page, type: int, label: Page}]}
+    - {name: media_take, label: Take a Picture, permission: read, hidden: true, params: [{name: source, type: data, label: Source}, {name: id, type: data, label: Its Id, required: true}, {name: url, type: data, label: Address}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}, {name: credit, type: data, label: Credit}, {name: credit_link, type: data, label: Credit Link}, {name: licence, type: text, label: Licence}, {name: width, type: int, label: Width}, {name: height, type: int, label: Height}]}
+    - {name: media_from_address, label: Add Media From an Address, permission: read, params: [{name: url, type: data, label: Address, required: true}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}]}
   list: {columns: [brand_name], sort: brand_name asc}
 
 - name: SocialProfile
@@ -46,6 +50,8 @@
     - {name: crm_field, type: data, label: Field That Holds a Handle, description: "The field of that entity holding a person's handle on the network, as the message gives it; empty switches matching off"}
     - {name: metrics_days, type: int, default: 30, min: 1, max: 366, label: Read a Post's Numbers For (Days), description: "How long after it went out each post's numbers are read"}
     - {name: metrics_hours, type: int, default: 6, min: 1, max: 168, label: Read Again After (Hours), description: "The soonest an account's or a post's numbers are read again"}
+    - {name: media_sources, type: text, label: Picture and GIF Sources, description: "Connections searched for stock pictures and GIFs (search_media, fetch_media), by name, one a line; the first is the default"}
+    - {name: fetch_connection, type: data, label: Media From an Address Through, description: "The connection whose fetch_media takes an address and stores the file"}
 
 - name: SocialSavedReply
   label: Saved Reply
@@ -125,6 +131,7 @@
     - {name: account, type: link, to: SocialAccount, in_list: true, description: "Empty: the original's"}
     - {name: item, type: int, default: 1, min: 1, in_list: true}
     - {name: file, type: attach, required: true, in_list: true}
+    - {name: asset, type: link, to: SocialMediaAsset, description: "(round two) From the media library: its file, kind, description, dimensions and length fill what this line leaves empty"}
     - {name: kind, type: data, description: "image, video, document, or a kind the network names; empty: from the file's type"}
     - {name: alt, type: data, label: Description, description: "What it shows, for people who cannot see it"}
     - {name: thumbnail, type: attach, description: "A video's picture, where the network takes one"}
@@ -424,3 +431,30 @@
     - {name: text, type: text, read_only: true}
     - {name: at, type: datetime, read_only: true, in_list: true}
   list: {columns: [post, reviewer_name, outcome, at], sort: at desc}
+
+- name: SocialMediaAsset
+  label: Media Asset
+  label_plural: Media Library
+  kind: master
+  module: social
+  title_field: asset_name
+  description: "A picture, video, GIF or document kept for posts, with what it shows, its size, and where it came from and whose it is. Tags are the platform's."
+  fields:
+    - {name: asset_name, type: data, in_list: true, label: Name}
+    - {name: file, type: attach, required: true}
+    - {name: kind, type: data, in_list: true, in_filter: true, description: "image, video, document, or another kind; empty: from the file's type"}
+    - {name: alt, type: data, label: Description, description: "What it shows, for people who cannot see it"}
+    - {name: width, type: int, min: 0}
+    - {name: height, type: int, min: 0}
+    - {name: seconds, type: decimal, min: 0, label: Length (Seconds)}
+    - {name: source, type: select, options: [Upload, Address, Stock, Generated, Feed], default: Upload, in_list: true, in_filter: true}
+    - {name: source_name, type: data, read_only: true, label: From, description: "The connection it came through"}
+    - {name: source_id, type: data, read_only: true, label: Its Id There, description: "The source's id for it, or the address it was fetched from"}
+    - {name: credit, type: data, in_list: true, description: "Whose it is, as the source asks it to be credited"}
+    - {name: credit_link, type: data, label: Credit Link}
+    - {name: licence, type: text}
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true}
+    - {name: content_type, type: data, read_only: true, label: File Type}
+    - {name: bytes, type: int, read_only: true, label: Size (Bytes)}
+    - {name: added_by, type: email, read_only: true}
+  list: {columns: [asset_name, kind, source, credit, brand], sort: created_at desc}
