@@ -63,6 +63,11 @@ const NETWORKS: [&str; 19] = [
 
 #[test]
 fn the_descriptions_are_ones_the_platform_takes() {
+    // On a thread with the stack the server's workers have: the larger descriptions are deep for the default 2 MB.
+    std::thread::Builder::new().stack_size(16 << 20).spawn(shapes).unwrap().join().unwrap();
+}
+
+fn shapes() {
     for name in NETWORKS {
         let Ok(text) = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("docs/connectors/{name}.json"))) else {
             continue;
@@ -313,6 +318,12 @@ impl T {
         let s = self.k.login("brands", email, "Correct-Horse-9").await.expect("login");
         self.k.load_ctx(self.tenant, id, Some(s.token_version), "it".into()).await.expect("ctx")
     }
+    /// The upkeep seven hours on: what reads numbers has come due.
+    async fn later_upkeep(&self) {
+        self.upkeep().await;
+        ferrum_app_social::maintenance_at(&self.k, Utc::now() + Duration::hours(12)).await.expect("upkeep");
+        self.work().await;
+    }
     async fn work(&self) {
         loop {
             let mut tx = self.k.db.system_tx().await.unwrap();
@@ -393,7 +404,9 @@ impl T {
     /// Sends it and gives its publication on the account.
     async fn out(&self, post: Uuid, account: Uuid) -> Doc {
         self.upkeep().await;
-        self.publication(post, account).await
+        let p = self.publication(post, account).await;
+        assert!(p["sent_at"].is_string(), "it did not go out: {:?} / {:?}", p["failure"], self.get("SocialPost", post).await["failure"]);
+        p
     }
     async fn publication(&self, post: Uuid, account: Uuid) -> Doc {
         self.rows("SocialPublication", json!({"post": post.to_string()})).await.into_iter().find(|p| uid(&p["account"]) == account).expect("a publication")
@@ -516,6 +529,9 @@ async fn scenario() {
     }
     if wanted("hashnode") {
         hashnode(&t).await;
+    }
+    if wanted("tumblr") {
+        tumblr(&t).await;
     }
 }
 
@@ -1482,4 +1498,159 @@ async fn hashnode(t: &T) {
     assert!(net.seen()[0].text().contains("removePost") && posts.lock().unwrap().iter().all(|p| p["id"] != "hn1"));
     let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
+}
+
+// ───────────── Tumblr ─────────────
+
+async fn tumblr(t: &T) {
+    // API v2 (tumblr.com/docs/en/api/v2): OAuth 2, /user/info, NPF posts (`content` blocks; with files a multipart request
+    // whose `json` part names each file by an `identifier`), /blog/{id}/posts?npf=true, post/delete.
+    let posts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (p2, l2) = (posts.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, title: &str, detail: &str| status(code, json!({"meta": {"status": code, "msg": title}, "response": [], "errors": [{"title": title, "code": 6000, "detail": detail}]}));
+        if r.path() == "/v2/oauth2/token" {
+            let f = r.form();
+            if f.get("code").map(String::as_str) != Some("CODE-north") || f.get("client_secret").map(String::as_str) != Some("tumblr-secret") || f.get("grant_type").map(String::as_str) != Some("authorization_code") {
+                return status(400, json!({"error": "invalid_grant"}));
+            }
+            return ok(json!({"access_token": "tb-token", "token_type": "bearer", "expires_in": 2520, "refresh_token": "tb-refresh"}));
+        }
+        if r.header("authorization") != "Bearer tb-token" {
+            return err(401, "Unauthorized", "Token invalid");
+        }
+        let mut posts = p2.lock().unwrap();
+        let q = r.query();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/v2/user/info") => ok(json!({"meta": {"status": 200}, "response": {"user": {"name": "northwind", "blogs": [
+                {"name": "northwind", "title": "Northwind Notes", "uuid": "t:1"}, {"name": "side", "title": "", "uuid": "t:2"}]}}})),
+            ("GET", "/v2/blog/northwind/info") => ok(json!({"response": {"blog": {"title": "Northwind Notes", "name": "northwind", "followers": 88}}})),
+            ("POST", "/v2/blog/northwind/posts") => {
+                let (body, files) = if r.header("content-type").starts_with("multipart/form-data") {
+                    let body: Value = serde_json::from_str(&r.part("json").expect("a json part").text()).unwrap();
+                    let files: Vec<Value> = r.parts().iter().filter(|p| p.name != "json").map(|p| json!({"name": p.name, "same": p.content == PNG || p.content == MP4, "type": p.kind})).collect();
+                    (body, files)
+                } else {
+                    (r.json(), vec![])
+                };
+                let blocks = body["content"].as_array().expect("blocks").clone();
+                if blocks.iter().any(|b| b["text"] == "Forbidden") {
+                    return err(403, "Forbidden", "You do not have permission to post to this blog.");
+                }
+                for b in &blocks {
+                    let media = if b["type"] == "image" { b["media"][0].clone() } else { b["media"].clone() };
+                    if b["type"] != "text" {
+                        assert!(files.iter().any(|f| f["name"] == media["identifier"]), "every block names a part: {body}");
+                    }
+                }
+                let id = format!("7000{}", posts.len() + 1);
+                posts.push(json!({"id_string": id, "timestamp": Utc::now().timestamp(), "content": blocks, "tags": body["tags"], "state": body["state"], "files": files, "note_count": 12}));
+                if l2.lock().unwrap().as_deref() == blocks[0]["text"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                Resp::Answer(201, vec![], json!({"meta": {"status": 201, "msg": "Created"}, "response": {"id": 7000 + posts.len(), "id_string": id, "state": "published"}}).to_string())
+            }
+            ("GET", "/v2/blog/northwind/posts") => {
+                assert_eq!(q.get("npf").map(String::as_str), Some("true"));
+                let list: Vec<Value> = posts.iter().rev().filter(|p| q.get("id").is_none_or(|i| p["id_string"] == i.as_str())).cloned().collect();
+                ok(json!({"response": {"posts": list}}))
+            }
+            ("POST", "/v2/blog/northwind/post/delete") => {
+                let id = r.form()["id"].clone();
+                posts.retain(|p| p["id_string"] != id.as_str());
+                ok(json!({"meta": {"status": 200}, "response": {"id": id}}))
+            }
+            _ => err(404, "Not Found", "no such route"),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "tumblr_north",
+            "tumblr",
+            &[("https://api.tumblr.com", &net.base), ("https://www.tumblr.com", &net.base)],
+            json!({"client_secret": "tumblr-secret"}),
+            |d| {
+                d["auth"]["provider"]["client_id"] = json!("tumblr-id");
+            },
+        )
+        .await;
+    t.sign_in(conn, "CODE-north").await;
+    // Connecting: the blogs the sign-in reaches are the accounts to pick from.
+    let blog = t.account("Northwind Notes", "northwind", conn, "northwind").await;
+    let rules = t.rules(blog).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["format"].as_str()), (Some("Tumblr"), Some("plain")));
+    let reached = t.act(&t.manager, "SocialAccount", blog, "reachable", Value::Null).await.unwrap();
+    assert_eq!(reached["accounts"][1]["name"], "side", "a blog without a title is named by its address");
+
+    // Text: a block for each paragraph, tags as given, the link at the end of the last.
+    let p = t
+        .post(
+            "First paragraph.\n\nSecond paragraph.",
+            vec![target_with(blog, "post", json!({"tags": "spring, launch"}))],
+            json!({"link": "https://northwind.example/spring"}),
+        )
+        .await;
+    let out = t.out(p, blog).await;
+    assert_eq!((out["external_id"].as_str(), out["permalink"].as_str()), (Some("northwind:70001"), Some("https://northwind.tumblr.com/post/70001")));
+    {
+        let post = posts.lock().unwrap()[0].clone();
+        assert_eq!(
+            post["content"],
+            json!([{"type": "text", "text": "First paragraph."}, {"type": "text", "text": "Second paragraph. https://northwind.example/spring"}])
+        );
+        assert_eq!((post["tags"].as_str(), post["state"].as_str()), (Some("spring, launch"), Some("published")));
+    }
+
+    // Two pictures and a clip in one post: the blocks name the parts, the parts are the files.
+    net.clear();
+    let p = t
+        .post("Gallery", vec![target(blog)], json!({"media": [t.media(&t.png, "front"), t.media(&t.png, "back"), json!({"item": 1, "file": t.mp4["url"]})]}))
+        .await;
+    let gallery = t.out(p, blog).await;
+    let sent = net.to("POST", "/posts");
+    assert_eq!(sent.len(), 1, "one request: {:?}", net.order());
+    {
+        let post = posts.lock().unwrap().last().unwrap().clone();
+        let c = post["content"].as_array().unwrap();
+        assert_eq!(
+            (c[0]["text"].as_str(), c[1]["type"].as_str(), c[1]["alt_text"].as_str(), c[2]["alt_text"].as_str(), c[3]["type"].as_str()),
+            (Some("Gallery"), Some("image"), Some("front"), Some("back"), Some("video"))
+        );
+        assert_eq!(
+            (c[1]["media"][0]["identifier"].as_str(), c[1]["media"][0]["type"].as_str(), c[3]["media"]["identifier"].as_str(), c[3]["media"]["type"].as_str()),
+            (Some("f0"), Some("image/png"), Some("f2"), Some("video/mp4"))
+        );
+        assert_eq!(post["files"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap()).collect::<Vec<_>>(), ["f0", "f1", "f2"]);
+        assert!(post["files"].as_array().unwrap().iter().all(|f| f["same"] == true), "the stored files, byte for byte");
+    }
+
+    // A lost answer: the post was made; the call finds it in the blog's latest posts by its first paragraph.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost one", vec![target(blog)], json!({})).await;
+    let kept = t.out(p, blog).await;
+    assert!(kept["sent_at"].is_string(), "{kept:?}");
+    assert_eq!(net.to("POST", "/posts").len(), 1, "sent once");
+    assert_eq!(posts.lock().unwrap().iter().filter(|p| p["content"][0]["text"] == "Lost one").count(), 1);
+
+    // A refusal, in Tumblr's words.
+    let p = t.post("Forbidden", vec![target(blog)], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert!(post["failure"].as_str().unwrap().contains("do not have permission to post to this blog"), "{post:?}");
+
+    // Numbers: the notes of a post.
+    t.later_upkeep().await;
+    let numbers = t.rows("SocialMetric", json!({})).await;
+    assert!(numbers.iter().any(|m| m["engagements"] == 12), "{numbers:?}");
+
+    net.clear();
+    t.delete_remote(&gallery).await;
+    assert_eq!(net.order(), ["POST /v2/blog/northwind/post/delete"]);
+    assert_eq!(net.seen()[0].form()["id"], gallery["external_id"].as_str().unwrap().split(':').nth(1).unwrap());
+    let checked = t.act(&t.manager, "SocialAccount", blog, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind Notes", "{checked}");
 }
