@@ -208,4 +208,23 @@ mod tests {
         let ui = ferrum_apps::ui::prepare("social", files).expect("ui/dist is an interface release");
         assert!(UI.iter().any(|(p, _)| *p == "index.html") && !UI.iter().any(|(p, _)| p.starts_with('.')), "{}", ui.digest);
     }
+
+    /// (round five) Each menu row joins the package's module and leads to a page the interface routes, and no icon
+    /// is on more than three rows.
+    #[test]
+    fn the_menu_rows_lead_to_the_interfaces_pages() {
+        let m = ferrum_apps::AppManifest::parse(MANIFEST).expect("app.yaml");
+        let routes = include_str!("../ui/src/routes.tsx");
+        let modules: Vec<String> = packages().unwrap().iter().flat_map(|p| p.manifest.modules.iter().map(|m| m.name.clone())).collect();
+        let rows = m.contributes.get("shell.menu").cloned().unwrap_or_default();
+        assert_eq!(rows.len(), 10);
+        let mut icons = std::collections::BTreeMap::<String, usize>::new();
+        for r in &rows {
+            assert!(modules.contains(&r["module"].as_str().unwrap().to_string()), "{r}");
+            let page = r["path"].as_str().unwrap().strip_prefix("social/").unwrap();
+            assert!(routes.contains(&format!("path: \"{page}\"")), "{page} is not a route of ui/src/routes.tsx");
+            *icons.entry(r["icon"].as_str().unwrap().to_string()).or_default() += 1;
+        }
+        assert!(icons.values().all(|n| *n <= 3), "{icons:?}");
+    }
 }
