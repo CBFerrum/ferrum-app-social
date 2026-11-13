@@ -378,3 +378,29 @@ the key is pasted under `api_key`); Moltbook's posting limits (reported in its a
 **Unverified**: `GET /submolts` and `DELETE /posts/{id}`, `/comments/{id}` (not in Postiz); the answer shapes (`success`,
 `post.id`, `comment.id`); that a failing answer carries `error`.
 **Setup**: register the agent at Moltbook, have its owner claim it, put its API key under `api_key`.
+
+## TikTok Business (`tiktok_business.json`)
+
+**Does**: the Business API (`business-api.tiktok.com/open_api/v1.3`) with a **session** in place of OAuth: the connection
+holds the app's `client_id` and `client_secret`, the business account's `business_id` (its `open_id`) and a first
+`refresh_token` (obtained once, by hand, through TikTok's authorize page); the platform exchanges it for an access token
+(sent as `Access-Token`) and renews it with the refresh token each answer gives (checked: the rotated one is used); the
+business account is the account (name, picture, followers); two kinds: a video (2200 characters, counted in UTF-16) and a
+photo carousel (1 to 35 pictures, title of 90, 4000 characters, who can see it); comments, duet, stitch, brand switches;
+publishing by address, then the status polled every 3 seconds (a `wait` step, up to 15 minutes) until `PUBLISH_COMPLETE`,
+whose public video id is the post's id; views as impressions, likes + comments + shares as engagements.
+**Cannot, today**: **publish from Social.** TikTok pulls the media from a public address on a domain verified in the app;
+Social hands `publish` only stored files' ids. *Needed from Social*: `media_items[].url`, a public (signed, or on a
+verified domain) address for each stored file; the description reads `inputs.media_items[].url`. It is proved only by the
+platform's own call with that input; through Social a video goes out with no address and TikTok refuses it. **Sign in
+with OAuth**: the authorize address wants `client_key` and the token call a JSON body with `auth_code`, answered
+under `data`: *needed from the platform*: a token exchange described in the file (the request's fields and the pointer
+to the tokens in the answer). **Say why TikTok refused in its words** (HTTP 200 with a non-zero `code`: the call fails with
+"the answer has no share_id"; *needed from the platform*: a refusal marker for a 2xx answer, a pointer to `message`).
+Also: `publish_media` is a read of the account (no upload exists); delete (the Business API has none); music and
+location search; a draft instead of a post (`upload_to_draft`); a lost answer on the publish call fails the call (no key,
+and nothing to read back before the status exists).
+**Unverified**: all of it against the live API: field names, `video_views`, the `filters` form of the video list,
+`post_ids`, that the refresh call also serves as the first login, `expires_in` in seconds, the UTF-16 counting.
+**Setup**: a TikTok for Business developer app with the media domain verified; authorize once to get the first refresh
+token; put the four values under the connection's secrets.
