@@ -536,6 +536,9 @@ async fn scenario() {
     if wanted("lemmy") {
         lemmy(&t).await;
     }
+    if wanted("vk") {
+        vk(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -1803,4 +1806,165 @@ async fn lemmy(t: &T) {
     let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
     assert_eq!(*logins.lock().unwrap(), 1, "still one session");
+}
+
+// ───────────── VK ─────────────
+
+async fn vk(t: &T) {
+    // VK ID (id.vk.ru) with PKCE, and the API (dev.vk.com): methods under /method/ taking forms, errors as `error` inside a
+    // 200 answer, wall photos through getWallUploadServer, an upload, saveWallPhoto; video through video.save and an upload.
+    let tokens: Arc<Mutex<Vec<String>>> = Arc::default();
+    let wall: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let comments: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let base: Arc<Mutex<String>> = Arc::default();
+    let (t2, w2, c2, l2, b2) = (tokens.clone(), wall.clone(), comments.clone(), lose.clone(), base.clone());
+    let net = fake(move |r| {
+        let fail = |code: i64, m: &str| ok(json!({"error": {"error_code": code, "error_msg": m}}));
+        let mut tokens = t2.lock().unwrap();
+        if r.path() == "/oauth2/auth" {
+            let f = r.form();
+            let n = tokens.len() + 1;
+            match f.get("grant_type").map(String::as_str) {
+                Some("authorization_code") => {
+                    if f.get("code").map(String::as_str) != Some("CODE-north") || f.get("code_verifier").is_none_or(|v| v.len() < 43) || f.get("client_id").map(String::as_str) != Some("vk-app") {
+                        return status(400, json!({"error": "invalid_grant", "error_description": "code is invalid"}));
+                    }
+                }
+                _ => return status(400, json!({"error": "invalid_grant", "error_description": "not exercised here"})),
+            }
+            tokens.push(format!("AT-{n}"));
+            return ok(json!({"access_token": format!("AT-{n}"), "refresh_token": format!("RT-{n}"), "expires_in": 3600, "user_id": 42, "device_id": "dev-1", "scope": "wall photos video"}));
+        }
+        if r.path().starts_with("/upload/") {
+            let (field, body) = if r.path() == "/upload/photo" { ("photo", json!({"server": 9001, "photo": "[{\"markers\":1}]", "hash": "h4sh"})) } else { ("video_file", json!({"video_id": 77})) };
+            assert!(r.header("authorization").is_empty(), "an upload address needs no token");
+            assert_eq!(r.part(field).expect("the file part").content.len(), if field == "photo" { PNG.len() } else { MP4.len() });
+            return ok(body);
+        }
+        if tokens.last().map(|t| format!("Bearer {t}")).as_deref() != Some(r.header("authorization")) {
+            return fail(5, "User authorization failed: invalid access_token (4).");
+        }
+        let Some(method) = r.path().strip_prefix("/method/") else { return fail(3, "Unknown method passed.") };
+        let f = r.form();
+        assert!(f.get("v").is_some_and(|v| v.starts_with("5.")), "an API version is sent");
+        let site = b2.lock().unwrap().clone();
+        let mut wall = w2.lock().unwrap();
+        let mut comments = c2.lock().unwrap();
+        match method {
+            "users.get" => ok(json!({"response": [{"id": 42, "first_name": "North", "last_name": "Wind", "photo_100": "https://sun.vk.test/me.png", "followers_count": 1234}]})),
+            "photos.getWallUploadServer" => ok(json!({"response": {"upload_url": format!("{site}/upload/photo"), "album_id": 1, "user_id": 42}})),
+            "photos.saveWallPhoto" => {
+                assert_eq!((f["server"].as_str(), f["hash"].as_str()), ("9001", "h4sh"));
+                ok(json!({"response": [{"id": 456, "owner_id": 42}]}))
+            }
+            "video.save" => ok(json!({"response": {"upload_url": format!("{site}/upload/video"), "video_id": 77, "owner_id": 42}})),
+            "wall.post" => {
+                if f["message"] == "Forbidden" {
+                    return fail(214, "Access to adding post denied: a post with this text has already been added.");
+                }
+                let id = 1000 + wall.len() as i64;
+                wall.push(json!({"id": id, "text": f["message"], "attachments": f["attachments"], "friends_only": f["friends_only"], "date": Utc::now().timestamp(), "likes": {"count": 5}, "reposts": {"count": 1}, "comments": {"count": 2}, "views": {"count": 900}}));
+                if l2.lock().unwrap().as_deref() == Some(f["message"].as_str()) {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"response": {"post_id": id}}))
+            }
+            "wall.get" => ok(json!({"response": {"count": wall.len(), "items": wall.iter().rev().cloned().collect::<Vec<_>>()}})),
+            "wall.getById" => {
+                let id: i64 = f["posts"].rsplit('_').next().unwrap().parse().unwrap();
+                ok(json!({"response": {"items": wall.iter().filter(|p| p["id"] == id).cloned().collect::<Vec<_>>()}}))
+            }
+            "wall.createComment" => {
+                let id = 2000 + comments.len() as i64;
+                comments.push(json!({"id": id, "post": f["post_id"], "text": f["message"]}));
+                ok(json!({"response": {"comment_id": id}}))
+            }
+            "wall.delete" => {
+                let id: i64 = f["post_id"].parse().unwrap();
+                wall.retain(|p| p["id"] != id);
+                ok(json!({"response": 1}))
+            }
+            "wall.deleteComment" => {
+                let id: i64 = f["comment_id"].parse().unwrap();
+                comments.retain(|c| c["id"] != id);
+                ok(json!({"response": 1}))
+            }
+            _ => fail(3, "Unknown method passed."),
+        }
+    })
+    .await;
+    *base.lock().unwrap() = net.base.clone();
+    let conn = t
+        .connect("vk_north", "vk", &[("https://id.vk.ru", &net.base), ("https://api.vk.ru", &net.base)], json!({}), |d| {
+            d["auth"]["provider"]["client_id"] = json!("vk-app");
+            d["operations"]["refresh_vk"]["form"]["client_id"] = json!("vk-app");
+            // The test sends in a burst: the description's own 3 a second (VK's) would answer "later" for the whole run.
+            assert_eq!(d["limit"]["per"], 3);
+            d["limit"] = json!({"per": 1000, "every": 1});
+        })
+        .await;
+    let sent_to = t.sign_in(conn, "CODE-north").await;
+    let q: HashMap<String, String> = sent_to.query_pairs().into_owned().collect();
+    assert_eq!((q["code_challenge_method"].as_str(), sent_to.path()), ("S256", "/authorize"), "PKCE");
+    let me = t.account("North Wind on VK", "id42", conn, "42").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["follow_ups"]["as"].as_str()), (Some("VK"), Some("comment")));
+
+    // A wall post with a picture and a clip: each through its upload server, then the attachments by name.
+    net.clear();
+    let p = t
+        .post("Spring is here", vec![target(me)], json!({"link": "https://northwind.example/spring", "media": [t.media(&t.png, ""), json!({"item": 1, "file": t.mp4["url"]})], "items": [{"text": "Thread of comments"}]}))
+        .await;
+    let out = t.out(p, me).await;
+    assert_eq!((out["external_id"].as_str(), out["permalink"].as_str()), (Some("42_1000"), Some("https://vk.com/wall42_1000")));
+    let order: Vec<String> = net.order().into_iter().filter(|o| !o.contains("users.get") && !o.contains("oauth2") && !o.contains("getById")).collect();
+    assert_eq!(
+        order,
+        [
+            "POST /method/photos.getWallUploadServer",
+            "POST /upload/photo",
+            "POST /method/photos.saveWallPhoto",
+            "POST /method/video.save",
+            "POST /upload/video",
+            "POST /method/wall.post",
+            "POST /method/wall.createComment"
+        ]
+    );
+    {
+        let w = wall.lock().unwrap()[0].clone();
+        assert_eq!(
+            (w["text"].as_str(), w["attachments"].as_str(), w["friends_only"].as_str()),
+            (Some("Spring is here https://northwind.example/spring"), Some("photo42_456,video42_77"), Some("0"))
+        );
+        assert_eq!(comments.lock().unwrap()[0]["post"], "1000");
+    }
+    // Not tested, because the platform cannot yet do it (see the notes): the exchange of the code with the callback's
+    // `device_id`, and a refresh given the device id the sign-in kept. This fake takes the code without one.
+
+    // A lost answer: the post was made; the call finds it on the wall by its words since it began.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost one", vec![target(me)], json!({})).await;
+    let kept = t.out(p, me).await;
+    assert!(kept["sent_at"].is_string() && net.to("POST", "wall.post").len() == 1, "sent once");
+    assert_eq!(wall.lock().unwrap().iter().filter(|w| w["text"] == "Lost one").count(), 1);
+
+    // A refusal arrives as `error` in a 200 answer: the call fails, once (the words are the platform's limit; see the notes).
+    net.clear();
+    let p = t.post("Forbidden", vec![target(me)], json!({})).await;
+    t.upkeep().await;
+    assert_eq!(t.get("SocialPost", p).await["status"], "Failed");
+    assert_eq!(net.to("POST", "wall.post").len(), 1, "not sent again");
+
+    t.later_upkeep().await;
+    let numbers = t.rows("SocialMetric", json!({})).await;
+    assert!(numbers.iter().any(|m| m["engagements"] == 8 && m["impressions"] == 900), "{numbers:?}");
+    net.clear();
+    t.delete_remote(&out).await;
+    let deletes: Vec<String> = net.order().into_iter().filter(|o| o.contains("wall.delete")).collect();
+    assert_eq!(deletes, ["POST /method/wall.deleteComment", "POST /method/wall.delete"], "the comment first, then the post");
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!((checked["read"]["display_name"].as_str(), checked["read"]["picture"].as_str()), (Some("North Wind"), Some("https://sun.vk.test/me.png")));
 }
