@@ -510,6 +510,12 @@ impl T {
     }
 }
 
+/// A post saved, then sent for review: a draft may hold what its networks refuse, leaving Draft may not.
+async fn ready(t: &T, ctx: &Ctx, v: Value) -> std::result::Result<Value, ferrum_kernel::Error> {
+    let d = t.k.insert(ctx, "SocialPost", obj(v)).await?;
+    t.k.run_action(ctx, "SocialPost", uid(&d["id"]), "send_for_review", Value::Null).await
+}
+
 #[test]
 fn the_examples_end_to_end() {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
@@ -593,14 +599,14 @@ async fn scenario() {
         }
         p
     };
-    let e = t.k.insert(&author, "SocialPost", obj(post(&"a".repeat(490), &[on_mastodon], json!({})))).await.unwrap_err();
+    let e = ready(&t, &author, post(&"a".repeat(490), &[on_mastodon], json!({}))).await.unwrap_err();
     assert!(e.to_string().contains("Mastodon takes 500 characters, and this post is 523"), "{e}");
-    let e = t.k.insert(&author, "SocialPost", obj(post(&"a".repeat(290), &[on_bluesky], json!({})))).await.unwrap_err();
+    let e = ready(&t, &author, post(&"a".repeat(290), &[on_bluesky], json!({}))).await.unwrap_err();
     assert!(e.to_string().contains("Bluesky takes 300 characters"), "{e}");
     let png = t.k.store_file(&author, None, "cat.png", "image/png", PNG).await.unwrap();
     let mut pictured = post("The cat in the garden", &[on_linkedin], json!({"image": png["url"], "image_alt": "A cat"}));
     pictured["link"] = Value::Null;
-    let e = t.k.insert(&author, "SocialPost", obj(pictured)).await.unwrap_err();
+    let e = ready(&t, &author, pictured).await.unwrap_err();
     assert!(e.to_string().contains("LinkedIn takes no pictures"), "an image a description cannot send is refused, not dropped: {e}");
 
     let go = |id: Uuid| {

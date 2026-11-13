@@ -52,6 +52,9 @@ async fn request(k: &Kernel, ctx: &Ctx, post: Uuid, doc: &Doc) -> Result<Option<
 /// Sends post `post` for review: In Review, and, under the policy, an approval asked in its author's name.
 pub(crate) async fn send_for_review(hc: &mut HookCtx<'_>, post: Uuid) -> Result<Value> {
     let system = elevated(hc.ctx);
+    // A draft kept with problems may not leave Draft with them.
+    let stored = hc.kernel.get_tx(&system, hc.tx, "SocialPost", post, false).await?;
+    crate::posts::ready(hc, &stored).await?;
     hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "In Review", "review_note": null}))).await?;
     if !by_policy(hc) {
         return Ok(json!({"status": "In Review"}));
