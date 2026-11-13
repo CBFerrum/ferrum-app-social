@@ -76,13 +76,16 @@ const longDay = (day: string) => formatMoment(zoned(day), { weekday: "long", day
 /** Noon of a day on the shown clock, as an instant (a label for the day, safe from clock changes). */
 const zoned = (day: string) => fromZonedInput(`${day}T12:00`) ?? `${day}T12:00:00Z`;
 
-function Faces({ ids, accounts }: { ids: string[]; accounts: Row[] }) {
+/** At most two account marks, then "+n" for the rest (the full list is in the chip's accessible name and the quick look). */
+export function Faces({ ids, accounts, max = 2 }: { ids: string[]; accounts: Row[]; max?: number }) {
+  const shown = ids.slice(0, max);
   return (
     <span className="cal-faces">
-      {ids.slice(0, 3).map((id) => {
+      {shown.map((id) => {
         const a = accounts.find((x) => x.id === id);
         return a ? <Face key={id} name={text(a.account_name)} picture={text(a.picture)} small /> : null;
       })}
+      {ids.length > max && <span className="cal-more-faces">+{ids.length - max}</span>}
     </span>
   );
 }
@@ -105,7 +108,7 @@ export function Chip({ post, accounts, onOpen, onDrag }: { post: Placed; account
       onClick={() => onOpen(post)}
       aria-label={t("{headline}, {status}, {at}", { headline: isolate(text(post.headline)), status: statusWord(status), at: formatMoment(text(post.scheduled_at), { dateStyle: "medium", timeStyle: "short" }) })}
     >
-      <span className="cal-chip-time">{clock(text(post.scheduled_at))}</span>
+      <span className="cal-chip-time">{timeOf(text(post.scheduled_at))}</span>
       <span className="cal-chip-title">{isolate(text(post.headline))}</span>
       {post.repeat_every != null && <span className="cal-repeat" title={t("Repeats")} aria-label={t("Repeats")}>↻</span>}
       <Faces ids={post._accounts} accounts={accounts} />

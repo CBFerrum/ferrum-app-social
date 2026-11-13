@@ -43,7 +43,9 @@ describe("the calendar", () => {
     const host = await draw(<CalendarRoute />, "/calendar", at);
     expect(chip(host, "p1").closest("[data-day]")?.getAttribute("data-day")).toBe("2030-06-12");
     expect(chip(host, "p1").textContent).toContain("Spring sale");
-    expect(chip(host, "p1").textContent).toMatch(/9:00/);
+    expect(chip(host, "p1").textContent).toContain("09:00");
+    // the chip keeps its parts in order and never wider than its cell: time, headline (ellipsised by CSS), marks
+    expect([...chip(host, "p1").children].map((c) => c.className)).toEqual(["cal-chip-time", "cal-chip-title", "cal-faces"]);
     expect(chip(host, "p2").textContent).toContain("↻");
     const asked = fake.seen.find((s) => s.line.startsWith("GET /api/v1/SocialPost?"))!;
     const filters = JSON.parse(new URL(asked.line.split(" ")[1], "http://x").searchParams.get("filters")!);
@@ -139,5 +141,19 @@ describe("the pure parts", () => {
   it("the repeat rule in words", () => {
     expect(repeatWords({ id: "p", repeat_every: 2, repeat_unit: "Months", repeat_until: "2031-01-31" })).toContain("Repeats every 2 months, until");
     expect(repeatWords({ id: "p" })).toBe("");
+  });
+});
+
+describe("a chip in a crowded cell", () => {
+  it("shows at most two account marks and the number of the rest; the accessible name keeps the whole", async () => {
+    const many = { id: "p1", headline: "Spring menu launch with a very long headline", scheduled_at: "2030-06-12T09:30:00Z", status: "Draft", brand: "b1", targets: ["x", "y", "z", "w"].map((a) => ({ account: a })) };
+    server([["GET", "/api/v1/SocialAccount", { rows: ["x", "y", "z", "w"].map((a) => ({ id: a, account_name: `Acc ${a}`, brand: "b1", state: "Connected", active: true })) }]]);
+    document.body.innerHTML = "";
+    fakeServer([["GET", "/api/v1/SocialPostingTime", { rows: [] }], ["GET", "/api/v1/SocialPost", { rows: [many] }], ["GET", "/api/v1/SocialBrand", brands], ["GET", "/api/v1/SocialAccount", { rows: ["x", "y", "z", "w"].map((a) => ({ id: a, account_name: `Acc ${a}`, brand: "b1", state: "Connected", active: true })) }], ["GET", "/api/tags", { tags: [] }]]);
+    const host = await draw(<CalendarRoute />, "/calendar", at);
+    const c = chip(host, "p1");
+    expect(c.querySelectorAll(".cal-faces .face")).toHaveLength(2);
+    expect(c.querySelector(".cal-more-faces")?.textContent).toBe("+2");
+    expect(c.getAttribute("aria-label")).toContain("Spring menu launch with a very long headline");
   });
 });
