@@ -110,7 +110,9 @@
           "expr": "[{'id': answer.data.me.id, 'name': answer.data.me.name, 'handle': answer.data.me.username, 'picture': answer.data.me.profilePicture}]"
         }
       },
-      "changes": false
+      "changes": false,
+      "refused_if": "has(answer.errors) && size(answer.errors) > 0",
+      "error": "answer.errors[0].message"
     },
     "me_query": {
       "method": "POST",
@@ -128,7 +130,9 @@
         "handle": "/data/me/username",
         "picture": "/data/me/profilePicture"
       },
-      "changes": false
+      "changes": false,
+      "refused_if": "has(answer.errors) && size(answer.errors) > 0",
+      "error": "answer.errors[0].message"
     },
     "publications": {
       "method": "POST",
@@ -146,7 +150,9 @@
           "expr": "answer.data.me.publications.edges.map(e, {'id': e.node.id, 'name': e.node.title})"
         }
       },
-      "changes": false
+      "changes": false,
+      "refused_if": "has(answer.errors) && size(answer.errors) > 0",
+      "error": "answer.errors[0].message"
     },
     "create_post": {
       "method": "POST",
@@ -177,7 +183,9 @@
         "canonical",
         "cover",
         "slug"
-      ]
+      ],
+      "refused_if": "has(answer.errors) && size(answer.errors) > 0",
+      "error": "answer.errors[0].message"
     },
     "recent_posts": {
       "method": "POST",
@@ -203,7 +211,9 @@
         "publication",
         "title",
         "after"
-      ]
+      ],
+      "refused_if": "has(answer.errors) && size(answer.errors) > 0",
+      "error": "answer.errors[0].message"
     },
     "delete": {
       "method": "POST",
@@ -224,7 +234,9 @@
       },
       "inputs": [
         "id"
-      ]
+      ],
+      "refused_if": "has(answer.errors) && size(answer.errors) > 0",
+      "error": "answer.errors[0].message"
     },
     "account": {
       "changes": false,

@@ -1024,7 +1024,8 @@ async fn slack(t: &T) {
     let sent_to = t.sign_in(conn, "CODE-north").await;
     let q: HashMap<String, String> = sent_to.query_pairs().into_owned().collect();
     assert_eq!(sent_to.path(), "/oauth/v2/authorize");
-    assert!(q["scope"].starts_with("chat:write chat:write.public channels:read") && q["client_id"] == "slack-client-id", "{sent_to}");
+    // (round five) Slack's scopes joined by commas (scope_separator, BD-72).
+    assert!(q["scope"].starts_with("chat:write,chat:write.public,channels:read") && q["client_id"] == "slack-client-id", "{sent_to}");
     let ws = t.account("Northwind Slack", "northwind_bot", conn, "T1").await;
     let rules = t.rules(ws).await;
     assert_eq!((rules["name"].as_str(), rules["text"]["max"].as_u64(), rules["settings"][0]["key"].as_str()), (Some("Slack"), Some(4000), Some("channel")));
@@ -1557,12 +1558,13 @@ async fn hashnode(t: &T) {
     assert_eq!(posts.lock().unwrap().iter().filter(|p| p["input"]["title"] == "Lost one").count(), 1);
     assert_eq!(kept["external_id"], "hn2");
 
-    // A refusal arrives as `errors` in a 200 answer: the call fails, once (the words are the platform's limit; see the notes).
+    // A refusal arrives as `errors` in a 200 answer: the call fails, once, in Hashnode's words (round five, refused_if).
     net.clear();
     let p = t.post("No", vec![article(json!({"publication": "pub1", "title": "Forbidden"}))], json!({})).await;
     t.upkeep().await;
     let post = t.get("SocialPost", p).await;
     assert_eq!(post["status"], "Failed", "{post:?}");
+    assert!(post["failure"].as_str().unwrap().contains("do not have permission to publish to this publication"), "{post:?}");
     assert_eq!(net.seen().iter().filter(|r| r.text().contains("publishPost")).count(), 1, "not sent again");
 
     net.clear();
@@ -2133,11 +2135,13 @@ async fn twitch(t: &T) {
     assert!(post["failure"].as_str().unwrap().contains("may have been sent"), "{post:?}");
     assert_eq!(net.to("POST", "/chat/messages").len(), 1);
 
-    // Twitch drops a message in a 200: the call fails, once (the reason is in the answer; see the notes).
+    // Twitch drops a message in a 200: the call fails, once, with the reason the answer gives.
     net.clear();
     let p = t.post("Forbidden", vec![target(me)], json!({})).await;
     t.upkeep().await;
-    assert_eq!(t.get("SocialPost", p).await["status"], "Failed");
+    let post = t.get("SocialPost", p).await;
+    assert_eq!(post["status"], "Failed");
+    assert!(post["failure"].as_str().unwrap().contains("identical to the previous one"), "in Twitch's words (round five): {post:?}");
     assert_eq!(net.to("POST", "/chat/messages").len(), 1);
 
     net.clear();
@@ -2234,7 +2238,9 @@ async fn kick(t: &T) {
     net.clear();
     let p = t.post("Forbidden", vec![target(me)], json!({})).await;
     t.upkeep().await;
-    assert_eq!(t.get("SocialPost", p).await["status"], "Failed");
+    let post = t.get("SocialPost", p).await;
+    assert_eq!(post["status"], "Failed");
+    assert!(post["failure"].as_str().unwrap().contains("Kick did not send the message"), "{post:?}");
     assert_eq!(net.to("POST", "/chat").len(), 1, "not sent again");
     net.clear();
     t.delete_remote(&out).await;
@@ -2370,6 +2376,8 @@ async fn whop(t: &T) {
         }
         if r.path().starts_with("/upload/") {
             assert!(r.header("authorization").is_empty());
+            // (round five) The headers the file record named, sent with the bytes (headers_from, BD-76).
+            assert_eq!(r.header("x-amz-meta-file"), "whop-upload", "the upload's own headers");
             assert_eq!(r.body, PNG);
             f2.lock().unwrap().iter_mut().for_each(|f| f["bytes"] = json!(r.body.len()));
             return Resp::Answer(200, vec![], String::new());
@@ -2390,7 +2398,7 @@ async fn whop(t: &T) {
             ("POST", "/api/v1/files") => {
                 let id = format!("file_{}", files.len() + 1);
                 files.push(json!({"id": id, "name": r.json()["filename"], "polls": 0, "bytes": null}));
-                ok(json!({"id": id, "upload_url": format!("{}/upload/{id}", b2.lock().unwrap()), "upload_headers": {}}))
+                ok(json!({"id": id, "upload_url": format!("{}/upload/{id}", b2.lock().unwrap()), "upload_headers": {"x-amz-meta-file": "whop-upload"}}))
             }
             ("GET", p) if p.starts_with("/api/v1/files/") => {
                 let f = files.iter_mut().find(|f| p.ends_with(f["id"].as_str().unwrap())).expect("a file");

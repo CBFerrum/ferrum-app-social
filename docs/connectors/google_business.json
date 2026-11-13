@@ -406,7 +406,7 @@
       "method": "POST",
       "url": "https://mybusiness.googleapis.com/v4/{{ inputs.account_id }}/localPosts:reportInsights",
       "changes": false,
-      "body": "{\"localPostNames\": [{{ inputs.id | json }}], \"basicRequest\": {\"metricRequests\": [{\"metric\": \"LOCAL_POST_VIEWS_SEARCH\"}, {\"metric\": \"LOCAL_POST_ACTIONS_CALL_TO_ACTION\"}], \"timeRange\": {\"startTime\": \"2020-01-01T00:00:00Z\", \"endTime\": {{ now | json }}}}}",
+      "body": "{\"localPostNames\": [{{ inputs.id | json }}], \"basicRequest\": {\"metricRequests\": [{\"metric\": \"LOCAL_POST_VIEWS_SEARCH\"}, {\"metric\": \"LOCAL_POST_ACTIONS_CALL_TO_ACTION\"}], \"timeRange\": {\"startTime\": {{ now | add_time('-540d') | start_of('day') | json }}, \"endTime\": {{ now | json }}}}}",
       "inputs": [
         "id",
         "account_id"

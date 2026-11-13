@@ -76,7 +76,9 @@
         502,
         503,
         504
-      ]
+      ],
+      "refused_if": "has(answer.data) && has(answer.data.is_sent) && !answer.data.is_sent",
+      "error": "'Kick did not send the message, and says no more'"
     },
     "account": {
       "path": "/users",
@@ -92,7 +94,9 @@
         502,
         503,
         504
-      ]
+      ],
+      "refused_if": "has(answer.data) && has(answer.data.is_sent) && !answer.data.is_sent",
+      "error": "'Kick did not send the message, and says no more'"
     },
     "send_chat": {
       "method": "POST",
@@ -116,7 +120,9 @@
         "channel",
         "message",
         "reply_to"
-      ]
+      ],
+      "refused_if": "has(answer.data) && has(answer.data.is_sent) && !answer.data.is_sent",
+      "error": "'Kick did not send the message, and says no more'"
     },
     "delete": {
       "method": "DELETE",
@@ -131,7 +137,9 @@
       ],
       "inputs": [
         "id"
-      ]
+      ],
+      "refused_if": "has(answer.data) && has(answer.data.is_sent) && !answer.data.is_sent",
+      "error": "'Kick did not send the message, and says no more'"
     },
     "publish": {
       "inputs": [

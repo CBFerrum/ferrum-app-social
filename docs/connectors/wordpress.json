@@ -151,7 +151,7 @@
       "path": "/types",
       "result": {
         "types": {
-          "expr": "answer.filter(k, !(k in ['attachment', 'nav_menu_item', 'wp_block', 'wp_template', 'wp_template_part', 'wp_navigation', 'wp_global_styles', 'wp_font_family', 'wp_font_face'])).map(k, {'id': answer[k].rest_base, 'name': answer[k].name})"
+          "expr": "sortBy(answer.filter(k, !(k in ['attachment', 'nav_menu_item', 'wp_block', 'wp_template', 'wp_template_part', 'wp_navigation', 'wp_global_styles', 'wp_font_family', 'wp_font_face'])).map(k, {'id': answer[k].rest_base, 'name': answer[k].name}), 'name')"
         }
       },
       "error_at": "/message",

@@ -37,6 +37,42 @@
   "limit": {
     "concurrent": 10
   },
+  "inbound": {
+    "verify": {
+      "type": "signature",
+      "header": "x-hub-signature-256",
+      "prefix": "sha256=",
+      "secret": "client_secret"
+    },
+    "delivery_at": "/entry/0/messaging/0/message/mid",
+    "map": {
+      "entity": "SocialMessage",
+      "items_at": "/entry/0/messaging",
+      "as": "system",
+      "outside": true,
+      "by": {
+        "external_id": {
+          "expr": "item.message.mid",
+          "required": true
+        }
+      },
+      "set": {
+        "kind": "'Direct'",
+        "author": "item.sender.id",
+        "author_id": "item.sender.id",
+        "text": "item.message.text",
+        "via_connection": "connection.id"
+      }
+    }
+  },
+  "handshake": {
+    "token": "hub.verify_token",
+    "challenge": "hub.challenge",
+    "secret": "verify_token",
+    "expect": {
+      "hub.mode": "subscribe"
+    }
+  },
   "meta": {
     "capabilities": {
       "name": "Facebook",

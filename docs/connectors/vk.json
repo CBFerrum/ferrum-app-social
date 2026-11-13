@@ -117,7 +117,10 @@
           "required": true
         }
       },
-      "changes": false
+      "changes": false,
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "upload_photo": {
       "method": "POST",
@@ -147,7 +150,10 @@
       "inputs": [
         "url",
         "file"
-      ]
+      ],
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "save_wall_photo": {
       "method": "POST",
@@ -176,7 +182,10 @@
         "server",
         "photo",
         "hash"
-      ]
+      ],
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "video_save": {
       "method": "POST",
@@ -200,7 +209,10 @@
         "ref": {
           "expr": "has(answer.error) ? null : 'video' + string(answer.response.owner_id) + '_' + string(answer.response.video_id)"
         }
-      }
+      },
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "upload_video": {
       "method": "POST",
@@ -226,7 +238,10 @@
       "inputs": [
         "url",
         "file"
-      ]
+      ],
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "wall_post": {
       "method": "POST",
@@ -256,7 +271,10 @@
         "message",
         "attachments",
         "friends_only"
-      ]
+      ],
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "wall_recent": {
       "method": "POST",
@@ -283,7 +301,10 @@
         "message",
         "after"
       ],
-      "changes": false
+      "changes": false,
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "create_comment": {
       "method": "POST",
@@ -310,7 +331,10 @@
       "inputs": [
         "post",
         "message"
-      ]
+      ],
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "delete_post": {
       "method": "POST",
@@ -335,7 +359,10 @@
       },
       "inputs": [
         "id"
-      ]
+      ],
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "delete_comment": {
       "method": "POST",
@@ -360,7 +387,10 @@
       },
       "inputs": [
         "id"
-      ]
+      ],
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "post_numbers": {
       "method": "POST",
@@ -388,7 +418,10 @@
       "inputs": [
         "id"
       ],
-      "changes": false
+      "changes": false,
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "refresh_vk": {
       "method": "POST",
@@ -417,7 +450,10 @@
       "inputs": [
         "refresh_token",
         "client_id"
-      ]
+      ],
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "publish_media": {
       "inputs": [
@@ -589,7 +625,10 @@
           "expr": "has(answer.error) ? [] : answer.response.map(u, {'id': string(u.id), 'name': u.first_name + ' ' + u.last_name, 'handle': has(u.screen_name) ? u.screen_name : 'id' + string(u.id), 'picture': has(u.photo_100) ? u.photo_100 : null})"
         }
       },
-      "changes": false
+      "changes": false,
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "me": {
       "method": "POST",
@@ -617,7 +656,10 @@
           "expr": "has(answer.error) ? null : (has(answer.response[0].followers_count) ? answer.response[0].followers_count : null)"
         }
       },
-      "changes": false
+      "changes": false,
+      "refused_if": "has(answer.error) && has(answer.error.error_msg)",
+      "error": "answer.error.error_msg",
+      "temporary_if": "has(answer.error) && has(answer.error.error_code) && answer.error.error_code in [6, 9, 29]"
     },
     "account": {
       "changes": false,

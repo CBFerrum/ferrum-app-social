@@ -183,7 +183,8 @@
         "upload_url": {
           "at": "/upload_url",
           "required": true
-        }
+        },
+        "upload_headers": "/upload_headers"
       },
       "error_at": "/error/message",
       "temporary": [
@@ -216,8 +217,10 @@
       ],
       "inputs": [
         "url",
-        "file"
-      ]
+        "file",
+        "upload_headers"
+      ],
+      "headers_from": "{{ (inputs.upload_headers or {}) | json }}"
     },
     "file_status": {
       "path": "/files/{{ inputs.id }}",
@@ -340,7 +343,8 @@
           "operation": "put_bytes",
           "inputs": {
             "url": "steps.record.upload_url",
-            "file": "inputs.file"
+            "file": "inputs.file",
+            "upload_headers": "steps.record.upload_headers"
           }
         },
         {

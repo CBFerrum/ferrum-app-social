@@ -8,6 +8,9 @@
     "refresh_at": "/refreshJwt",
     "keep": [
       "did"
+    ],
+    "not_secret": [
+      "did"
     ]
   },
   "apps": [
@@ -383,6 +386,9 @@
         "cid": "/post/cid",
         "root_cid": {
           "expr": "has(inputs.previous) && inputs.previous != null ? inputs.previous.answer.root_cid : answer.post.cid"
+        },
+        "url": {
+          "expr": "concat('https://bsky.app/profile/', auth.did, '/post/', answer.post.rkey)"
         }
       }
     },

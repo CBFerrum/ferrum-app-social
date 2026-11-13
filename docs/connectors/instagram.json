@@ -33,6 +33,43 @@
   "limit": {
     "concurrent": 8
   },
+  "inbound": {
+    "verify": {
+      "type": "signature",
+      "header": "x-hub-signature-256",
+      "prefix": "sha256=",
+      "secret": "client_secret"
+    },
+    "delivery_at": "/entry/0/changes/0/value/id",
+    "map": {
+      "entity": "SocialMessage",
+      "items_at": "/entry/0/changes",
+      "as": "system",
+      "outside": true,
+      "by": {
+        "external_id": {
+          "expr": "item.value.id",
+          "required": true
+        }
+      },
+      "set": {
+        "kind": "'Comment'",
+        "author": "item.value.from.username",
+        "author_id": "item.value.from.id",
+        "text": "item.value.text",
+        "post_external_id": "item.value.media.id",
+        "via_connection": "connection.id"
+      }
+    }
+  },
+  "handshake": {
+    "token": "hub.verify_token",
+    "challenge": "hub.challenge",
+    "secret": "verify_token",
+    "expect": {
+      "hub.mode": "subscribe"
+    }
+  },
   "meta": {
     "capabilities": {
       "name": "Instagram",
@@ -252,7 +289,8 @@
         "success": "/success"
       },
       "error_at": "/debug_info/message",
-      "idempotency_header": "X-Ferrum-Upload-Key"
+      "idempotency_header": "X-Ferrum-Upload-Key",
+      "auth_scheme": "OAuth"
     },
     "container_status": {
       "path": "/v25.0/{{ inputs.id }}",
@@ -304,7 +342,11 @@
           "required": true
         }
       },
-      "error_at": "/error/message"
+      "error_at": "/error/message",
+      "limit": {
+        "per": 100,
+        "every": 86400
+      }
     },
     "recent_media": {
       "path": "/v25.0/{{ inputs.account_id }}/media",

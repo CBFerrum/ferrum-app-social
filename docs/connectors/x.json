@@ -149,7 +149,11 @@
           "required": true
         }
       },
-      "error_at": "/detail"
+      "error_at": "/detail",
+      "limit": {
+        "per": 100,
+        "every": 900
+      }
     },
     "publish": {
       "inputs": [
