@@ -731,16 +731,15 @@ async fn scenario() {
     refused(t.act(&approver, "SocialPost", spring_id, "approve", Value::Null).await, "invalid", "decided in its approval");
     assert!(t.k.decide_approval(&approver, "SocialPost", spring_id, false, Some(" ")).await.unwrap_err().to_string().contains("reason"));
     t.k.decide_approval(&approver, "SocialPost", spring_id, false, Some("Say which colours")).await.unwrap();
-    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
+    // (round five) Shown at once, by the platform's word to the post's hook: no upkeep in between.
     let sent_back = t.get("SocialPost", spring_id).await;
     assert_eq!((sent_back["status"].as_str(), sent_back["review_note"].as_str()), (Some("Rejected"), Some("Say which colours")), "the approver's words");
     t.act(&author, "SocialPost", spring_id, "send_for_review", Value::Null).await.unwrap();
     // A change while it waits voids what was decided so far: the policy asks again.
     t.k.update(&author, "SocialPost", spring_id, obj(json!({"text": "Spring is here."})), None).await.unwrap();
     t.k.decide_approval(&approver, "SocialPost", spring_id, true, None).await.unwrap();
-    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
     let approved = t.get("SocialPost", spring_id).await;
-    assert_eq!((approved["status"].as_str(), approved["approved_by"].as_str()), (Some("Approved"), Some("approver@brands.test")), "who approved it, read back");
+    assert_eq!((approved["status"].as_str(), approved["approved_by"].as_str()), (Some("Approved"), Some("approver@brands.test")), "who approved it, at once");
     t.k.update(&author, "SocialPost", spring_id, obj(json!({"text": "Spring is here!"})), None).await.unwrap();
     assert_eq!(t.get("SocialPost", spring_id).await["status"], "Draft", "changed words need approving again");
     go(spring_id).await;
