@@ -157,6 +157,33 @@ profile's own fields are read as 0.7.0 read them. Order: `meta.social`, then `me
 * **Examples**: `examples/` holds the shape for YouTube, Reddit, Pinterest, TikTok, Instagram, LinkedIn page, Discord,
   Google Business Profile and WordPress (operations not written yet; `src/rules.rs` tests check posts against each).
 
+## Round two: what Social calls outside any account
+
+Connections named in Social Settings, called as the workspace (examples in `services/`, each loaded by a test):
+
+* **Picture and GIF sources** (`media_sources`; `unsplash.json`, `pexels.json`, `giphy.json`): `search_media` (inputs
+  `query`, `page`, `per_page`), its items read where `meta.social.media_search` says (`items_at`, `id_at`, `preview_at`,
+  `url_at`, `credit_at`, `credit_link_at`, `alt_at`, `width_at`, `height_at`, and literals `licence`, `kind`);
+  `fetch_media` (`id`, `url`), whose `result` maps `file` to a stored file (`{"file": {"from": "/url", "max_bytes": …}}`:
+  the platform fetches the address within the description's `allowed_hosts`, without its credentials, at most
+  `max_bytes`, 10 MB by default and 25 MB at most); `media_downloaded` (`id`, `url`) where the source asks to be told of
+  a download (Unsplash's `/photos/:id/download` is both, so its `fetch_media` is it).
+* **Media from an address** (`fetch_connection`): `fetch_media` with `url`, the same `file` result.
+* **Shortener** (`shorten_connection`; `dub.json`, `kutt.json`): `shorten` (`url` → `url`, `id`), key
+  `shorten:<publication>:<digest>`; `link_clicks` (`id`, `url`, `long` → `clicks`), read into the publication's clicks.
+* **Writing help** (`writing_connection`; `claude.json`, the Claude Messages API): `write` (`model`, `max_tokens`,
+  `system`, `prompt`, and `image_data` (base64), `image_type` to describe a picture → `text`); `picture` (`prompt` →
+  `file`), which the Claude example does not offer. Each call has a key of its own (`write:<uuid>`).
+* **Feeds** (a feed's own `connection`; `json_feed.json`): its operation (`feed` unless the feed names another), the
+  items where `meta.feed` says (`items_at`, `id_at`, `link_at`, `title_at`, `text_at`, `picture_at`, `published_at`);
+  its `fetch_media` (`url`) keeps an item's picture. An RSS or Atom feed waits on the platform reading XML answers (GAPS.md
+  P7): then the same description, its `feed` operation marked to answer XML as P7 names it and its pointers into the
+  XML's shape, and nothing in Social changes.
+
+On an account's connection (plugs): `repost` (`id`, `account_id`), `like` (`id`, `account_id`), `reply` (`text`,
+`in_reply_to`, `root`), each keyed `plug:<plug>:<publication>:<account>`. A connection that lacks the operation is
+skipped and the run says so.
+
 ## Pages read (12 and 13 November 2026)
 
 * Mastodon, docs.joinmastodon.org: methods/statuses, methods/media, methods/notifications, methods/accounts,
