@@ -198,42 +198,26 @@ impl DocHook for PostHook {
     }
 
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
+        if let Some(out) = crate::review::action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        if let Some(out) = crate::when::action(hc, name, doc, params).await? {
+            return Ok(Some(out));
+        }
+        if name != "retry" {
+            return Ok(None);
+        }
+        // Only to the accounts it did not reach, and only what did not go: the rest is out already.
         let post = id(doc, "id").ok_or_else(|| Error::internal("a post without an id"))?;
-        let approver = hc.ctx.is_admin || hc.ctx.roles.iter().any(|r| r == "Social Approver");
-        let values = match name {
-            "send_for_review" => json!({"status": "In Review", "review_note": null}),
-            "approve" => {
-                if !approver {
-                    return Err(Error::Forbidden("a Social Approver approves posts".into()));
-                }
-                if s(doc, "author").is_some_and(|a| a.eq_ignore_ascii_case(&hc.ctx.email)) {
-                    return Err(Error::Forbidden("a post is approved by someone other than its author".into()));
-                }
-                json!({"status": "Approved", "approved_by": hc.ctx.email, "approved_hash": fingerprint(doc)})
-            }
-            "reject" => {
-                if !approver {
-                    return Err(Error::Forbidden("a Social Approver sends posts back".into()));
-                }
-                let note = params.get("note").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
-                let note = note.ok_or_else(|| Error::field("note", "sending a post back says why"))?;
-                json!({"status": "Rejected", "review_note": note})
-            }
-            "retry" => {
-                // Only to the accounts it did not reach, and only what did not go: the rest is out already.
-                let system = elevated(hc.ctx);
-                let own = [Filter::eq("post", post.to_string())];
-                for p in hc.kernel.find_tx(&system, hc.tx, "SocialPublication", &own, None, 100).await? {
-                    let (Some(publication), true) = (id(&p, "id"), at(&p, "sent_at").is_none()) else { continue };
-                    hc.kernel.set_values_tx(&system, hc.tx, "SocialPublication", publication, obj(json!({"failed_at": null, "failure": null}))).await?;
-                    queue(hc.tx, hc.ctx.tenant, publication).await?;
-                }
-                json!({"status": "Sending", "failure": null})
-            }
-            _ => return Ok(None),
-        };
-        hc.kernel.set_values_tx(&elevated(hc.ctx), hc.tx, "SocialPost", post, obj(values.clone())).await?;
-        Ok(Some(json!({"status": values["status"]})))
+        let system = elevated(hc.ctx);
+        let own = [Filter::eq("post", post.to_string())];
+        for p in hc.kernel.find_tx(&system, hc.tx, "SocialPublication", &own, None, 100).await? {
+            let (Some(publication), true) = (id(&p, "id"), at(&p, "sent_at").is_none()) else { continue };
+            hc.kernel.set_values_tx(&system, hc.tx, "SocialPublication", publication, obj(json!({"failed_at": null, "failure": null}))).await?;
+            queue(hc.tx, hc.ctx.tenant, publication).await?;
+        }
+        hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "Sending", "failure": null}))).await?;
+        Ok(Some(json!({"status": "Sending"})))
     }
 }
 
@@ -648,6 +632,9 @@ pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<
             json!({"status": "Failed", "failure": failures.join("\n")})
         };
         k.set_values_tx(ctx, tx, "SocialPost", post, obj(values)).await?;
+        if failures.is_empty() {
+            crate::when::repeat(k, ctx, tx, &doc).await?;
+        }
     }
     Ok(())
 }

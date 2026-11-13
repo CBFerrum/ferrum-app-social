@@ -9,7 +9,7 @@ modules:
     label: Social
     icon: share-2
     order: 66
-    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
+    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
 
 roles:
   - name: Social Author
@@ -19,7 +19,8 @@ roles:
       - {entity: SocialAccount, read: true}
       - {entity: SocialProfile, read: true}
       - {entity: SocialSavedReply, read: true}
-      - {entity: SocialPost, read: true, write: true, create: true}
+      - {entity: SocialPostingTime, read: true}
+      - {entity: SocialPost, read: true, write: true, create: true, import: true}
       - {entity: SocialPublication, read: true}
       - {entity: SocialInsight, read: true}
       - {entity: SocialMetric, read: true}
@@ -32,6 +33,7 @@ roles:
       - {entity: SocialAccount, read: true}
       - {entity: SocialProfile, read: true}
       - {entity: SocialSavedReply, read: true}
+      - {entity: SocialPostingTime, read: true}
       - {entity: SocialPost, read: true, write: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}
@@ -46,6 +48,7 @@ roles:
       - {entity: SocialProfile, read: true, write: true, create: true}
       - {entity: SocialSavedReply, read: true, write: true, create: true, delete: true}
       - {entity: SocialSettings, read: true, write: true, create: true}
+      - {entity: SocialPostingTime, read: true, write: true, create: true, delete: true}
       - {entity: SocialPost, read: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}

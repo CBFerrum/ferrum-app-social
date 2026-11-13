@@ -941,6 +941,117 @@ async fn scenario() {
     assert_eq!(t.get("SocialPost", uid(&waits["id"])).await["status"], "Published");
     assert_eq!(t.net.lock().unwrap().posts.len(), before + 2);
 
+    // ───────────── when: publish now, move, back to draft, duplicate, the queue, a repeat, bulk ─────────────
+    // Publish now: an approved post goes at once; a draft is sent for review with the time now and goes when approved.
+    let soon = t.insert(&author, "SocialPost", tagged("Now, not later", &[nw_key], "Now")).await;
+    go(uid(&soon["id"])).await;
+    let now_out = t.act(&author, "SocialPost", uid(&soon["id"]), "publish_now", Value::Null).await.unwrap();
+    assert_eq!(now_out["status"], "Sending", "{now_out}");
+    t.work().await;
+    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
+    assert_eq!(t.get("SocialPost", uid(&soon["id"])).await["status"], "Published");
+    let mut draft = tagged("A draft to send now", &[nw_key], "Draft now");
+    draft.as_object_mut().unwrap().remove("scheduled_at");
+    let draft = t.insert(&author, "SocialPost", draft).await;
+    assert!(draft["scheduled_at"].is_null(), "a draft needs no time");
+    assert_eq!(t.act(&author, "SocialPost", uid(&draft["id"]), "publish_now", Value::Null).await.unwrap()["status"], "In Review");
+    assert_eq!(
+        t.act(&approver, "SocialPost", uid(&draft["id"]), "approve", Value::Null).await.unwrap()["status"],
+        "Sending",
+        "approved after its time: at once"
+    );
+    t.work().await;
+    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
+    assert_eq!(t.get("SocialPost", uid(&draft["id"])).await["status"], "Published");
+    // Move keeps an approval; back to draft takes it off the calendar before it goes; nothing is sent.
+    let moved = t.insert(&author, "SocialPost", tagged("To be moved", &[nw_key], "Moved")).await;
+    let moved_id = uid(&moved["id"]);
+    go(moved_id).await;
+    let later_at = (at + Duration::days(30)).to_rfc3339();
+    t.act(&author, "SocialPost", moved_id, "reschedule", json!({"at": later_at})).await.unwrap();
+    let row = t.get("SocialPost", moved_id).await;
+    assert_eq!(row["status"], "Approved", "moving it keeps its approval");
+    t.k.update(&author, "SocialPost", moved_id, obj(json!({"headline": "Moved, renamed"})), None).await.unwrap();
+    assert_eq!(t.get("SocialPost", moved_id).await["status"], "Approved", "and a later save does not undo it");
+    assert_eq!(t.act(&author, "SocialPost", moved_id, "unschedule", Value::Null).await.unwrap()["status"], "Draft");
+    let row = t.get("SocialPost", moved_id).await;
+    assert!(row["scheduled_at"].is_null() && row["approved_hash"].is_null(), "{row:?}");
+    let before = t.net.lock().unwrap().posts.len();
+    t.upkeep(at + Duration::days(31)).await;
+    assert_eq!(t.net.lock().unwrap().posts.len(), before, "a draft never goes");
+    // Duplicate: a new draft with the same content, versions and follow-ups.
+    let copy = t.act(&pia, "SocialPost", thread_id, "duplicate", Value::Null).await.unwrap();
+    let copy = t.get("SocialPost", uid(&copy["id"])).await;
+    assert_eq!((copy["status"].as_str(), copy["author"].as_str(), copy["text"].as_str()), (Some("Draft"), Some("pia@brands.test"), Some("One of three")));
+    assert_eq!((copy["items"].as_array().unwrap().len(), copy["media"].as_array().unwrap().len()), (2, 3));
+    assert_eq!(copy["targets"][0]["settings"], json!({"audience": "followers"}));
+    assert!(copy["scheduled_at"].is_null() && copy["origin"] == json!(thread_id.to_string()));
+    // The queue: the brand's posting times; two posts added at once never get the same time.
+    refused(t.act(&author, "SocialPost", uid(&copy["id"]), "add_to_queue", Value::Null).await, "invalid", "no posting times are set");
+    for time in ["09:00", "17:00"] {
+        t.insert(&manager, "SocialPostingTime", json!({"brand": northwind.to_string(), "time": time})).await;
+    }
+    refused(t.k.insert(&manager, "SocialPostingTime", obj(json!({"brand": northwind.to_string(), "time": "9am"}))).await, "invalid", "is a time of day");
+    refused(t.k.insert(&author, "SocialPostingTime", obj(json!({"brand": northwind.to_string(), "time": "10:00"}))).await, "forbidden", "");
+    let queued = [
+        t.insert(&author, "SocialPost", tagged("Queued one", &[nw_key, nw_words], "Q1")).await,
+        t.insert(&author, "SocialPost", tagged("Queued two", &[nw_key], "Q2")).await,
+        t.insert(&author, "SocialPost", tagged("Queued three", &[nw_words], "Q3")).await,
+    ];
+    let (a, b) = tokio::join!(
+        t.act(&author, "SocialPost", uid(&queued[0]["id"]), "add_to_queue", Value::Null),
+        t.act(&author, "SocialPost", uid(&queued[1]["id"]), "add_to_queue", Value::Null)
+    );
+    let (a, b) = (a.unwrap()["scheduled_at"].as_str().unwrap().to_string(), b.unwrap()["scheduled_at"].as_str().unwrap().to_string());
+    assert_ne!(a, b, "two at once, two times");
+    let c = t.act(&author, "SocialPost", uid(&queued[2]["id"]), "add_to_queue", Value::Null).await.unwrap()["scheduled_at"].as_str().unwrap().to_string();
+    assert_ne!(c, a, "the third shares an account with the first, so not its time");
+    for t_ in [&a, &b, &c] {
+        let h = chrono::DateTime::parse_from_rfc3339(t_).unwrap();
+        assert!(matches!(chrono::Timelike::hour(&h), 9 | 17) && chrono::Timelike::minute(&h) == 0 && h > Utc::now(), "{t_}");
+    }
+    // An account's own times come before its brand's.
+    t.insert(&manager, "SocialPostingTime", json!({"account": nw_words.to_string(), "time": "12:15"})).await;
+    let own = t.insert(&author, "SocialPost", tagged("Own time", &[nw_words], "Q4")).await;
+    let own_at = t.act(&author, "SocialPost", uid(&own["id"]), "add_to_queue", Value::Null).await.unwrap()["scheduled_at"].as_str().unwrap().to_string();
+    assert!(own_at.contains("T12:15:00"), "{own_at}");
+    // A repeat: each occurrence made when the one before goes out, once though two upkeeps run at once.
+    let mut weekly = tagged("Every day, three times", &[nw_key], "Repeat");
+    weekly["repeat_every"] = json!(1);
+    weekly["repeat_unit"] = json!("Days");
+    weekly["repeat_count"] = json!(3);
+    let weekly = t.insert(&author, "SocialPost", weekly).await;
+    let weekly_id = uid(&weekly["id"]);
+    go(weekly_id).await;
+    let when_due = due + Duration::hours(16);
+    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, when_due), ferrum_app_social::maintenance_at(&t.k, when_due));
+    x.unwrap();
+    y.unwrap();
+    assert_eq!(t.rows("SocialPublication", json!({"post": weekly_id.to_string()})).await.len(), 1, "started once");
+    t.work().await;
+    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, when_due), ferrum_app_social::maintenance_at(&t.k, when_due));
+    x.unwrap();
+    y.unwrap();
+    let next = t.rows("SocialPost", json!({"repeat_of": weekly_id.to_string()})).await;
+    assert_eq!(next.len(), 1, "one next occurrence");
+    let next = t.get("SocialPost", uid(&next[0]["id"])).await;
+    let first_at = chrono::DateTime::parse_from_rfc3339(weekly["scheduled_at"].as_str().unwrap()).unwrap();
+    let next_at = chrono::DateTime::parse_from_rfc3339(next["scheduled_at"].as_str().unwrap()).unwrap();
+    assert_eq!(next_at - first_at, Duration::days(1));
+    assert_eq!((next["status"].as_str(), next["repeat_index"].as_i64(), next["text"].as_str()), (Some("Approved"), Some(2), Some("Every day, three times")));
+    assert_eq!(t.get("SocialPost", weekly_id).await["repeat_next"], next["id"]);
+    t.act(&author, "SocialPost", uid(&next["id"]), "stop_repeat", Value::Null).await.unwrap();
+    let stopped = t.get("SocialPost", uid(&next["id"])).await;
+    assert!(stopped["repeat_every"].is_null() && stopped["status"] == "Approved", "stopped, still approved: {stopped:?}");
+    // Bulk: the platform's import makes posts with their accounts.
+    let (made, errors) =
+        t.k.import_rows(&author, "SocialPost", &[tagged("Imported one", &[nw_key], "Import 1"), tagged("Imported two", &[nw_key, nw_words], "Import 2")])
+            .await
+            .unwrap();
+    assert!(errors.is_empty() && made.len() == 2, "{errors:?}");
+    let imported = t.rows("SocialPost", json!({"headline": "Import 2"})).await;
+    assert_eq!(t.get("SocialPost", uid(&imported[0]["id"])).await["targets"].as_array().unwrap().len(), 2);
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});

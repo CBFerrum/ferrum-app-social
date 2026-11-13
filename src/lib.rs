@@ -26,12 +26,15 @@ mod inbox;
 mod insights;
 mod metrics;
 mod posts;
+mod review;
 mod rules;
 mod upgrade;
+mod when;
 
 use chrono::{DateTime, Utc};
 use ferrum_domain::reports::ReportSource;
-use ferrum_kernel::{Ctx, Doc, Error, HookRegistry, Kernel, Result};
+pub(crate) use ferrum_kernel::Doc;
+use ferrum_kernel::{Ctx, Error, HookRegistry, Kernel, Result};
 use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -58,7 +61,8 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("SocialPublication", Arc::new(posts::PublicationHook))
         .register("SocialPublication", Arc::new(insights::InsightHook))
         .register("SocialMessage", Arc::new(inbox::MessageHook))
-        .register("SocialReply", Arc::new(inbox::ReplyHook));
+        .register("SocialReply", Arc::new(inbox::ReplyHook))
+        .register("SocialPostingTime", Arc::new(when::PostingTimeHook));
     hooks.add_job_handler(Arc::new(posts::PublishJob)).add_job_handler(Arc::new(inbox::ReplyJob));
 }
 
