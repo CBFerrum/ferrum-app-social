@@ -8,8 +8,9 @@
 //! names another) given the feed's `address`, its items where the description's `meta.feed` says (`items_at`, `id_at`,
 //! `link_at`, `title_at`, `text_at`, `picture_at`, `published_at`, each a pointer or a list of them, the first that holds
 //! something winning). The package ships `feeds` (docs/connectors/services/feeds.json): RSS 2.0, RSS 1.0 and Atom read
-//! as XML (`answer: xml`, BD-59), one description for all three. The guard reaches the hosts the connection lists, so an
-//! administrator adds each feed's site once; a JSON feed is a description of its own (json_feed.json).
+//! as XML (`answer: xml`, BD-59), one description for all three. (round five) It reads any public host (`any_host`,
+//! BD-65), so a feed is only an address, with no administrator step per site; a JSON feed is a description of its own
+//! (json_feed.json), the same way.
 
 use crate::outside::{self, at};
 use crate::posts::text_of;

@@ -3,13 +3,17 @@
   "auth": {
     "type": "none"
   },
+  "any_host": true,
   "apps": [
     "social"
   ],
   "operations": {
     "feed": {
-      "path": "/feed.json",
-      "error_at": "/error"
+      "url": "{{ inputs.address }}",
+      "error_at": "/error",
+      "inputs": [
+        "address"
+      ]
     }
   },
   "meta": {
@@ -22,6 +26,6 @@
       "picture_at": "/image",
       "published_at": "/date_published"
     },
-    "note": "A JSON Feed (jsonfeed.org, version 1.1). An RSS or Atom feed needs the platform's XML answers (connections part three, P7)."
+    "note": "A JSON Feed (jsonfeed.org, version 1.1): each feed's address is the feed record's, on any public host (any_host, BD-65). RSS and Atom are the feeds description's."
   }
 }
