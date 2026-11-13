@@ -74,6 +74,7 @@
 
 /* The calendar: chips for posts, a column for each day of a week or a day, and empty places where a posting time is free. */
 .cal-chip {
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -287,4 +288,21 @@
   width: calc(120 / 14 * 1rem);
   height: calc(28 / 14 * 1rem);
   color: var(--primary);
+}
+
+/* A chip stays inside its day: the time, the headline with an ellipsis, then at most two marks and "+n". */
+.cal-day {
+  overflow: hidden;
+}
+.cal-items {
+  min-width: 0;
+}
+.cal-items > li {
+  min-width: 0;
+}
+.cal-more-faces {
+  flex: none;
+  margin-inline-start: 2px;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
 }

@@ -177,13 +177,13 @@ export function ReviewPanel({ post, onChanged }: { post: Row; onChanged: () => v
       toast(refusal(e), "error");
     }
   };
-  const decided = approval.data?.decisions.filter((d) => !d.void) ?? [];
+  const decided = approval.data?.decisions?.filter((d) => !d.void) ?? [];
   return (
     <section className="card card-body stack" aria-labelledby="review-h">
       <h2 id="review-h" className="section-title">{t("Review")}</h2>
-      {approval.data && (
+      {approval.data?.steps && (
         <ol className="stack" aria-label={t("Steps")}>
-          {approval.data.steps.map((s, i) => (
+          {(approval.data.steps ?? []).map((s, i) => (
             <li key={i} className="row">
               <strong>{isolate(s.label || t("Step {n}", { n: String(i + 1) }))}</strong>
               <Badge tone={s.state === "approved" ? "green" : s.state === "rejected" ? "red" : s.state === "open" ? "amber" : "neutral"}>{stepWord(s.state)}</Badge>

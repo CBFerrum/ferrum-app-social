@@ -65,7 +65,8 @@ export interface Placed extends Row {
 export async function postsBetween(from: string, to: string, f: Filters, accounts: Row[]): Promise<Placed[]> {
   const filters = filtersFor(from, to, f);
   const found = await rows("SocialPost", filters, { fields: FIELDS, sort: "scheduled_at asc" });
-  if (!found.length || Array.isArray(found[0].targets)) return found.map((p) => ({ ...p, _accounts: (Array.isArray(p.targets) ? (p.targets as Row[]) : []).map((x) => text(x.account)).filter(Boolean) }));
+  // The first answer holds the targets when asked for them; one read per account only when no row carries any.
+  if (!found.length || found.some((p) => Array.isArray(p.targets))) return found.map((p) => ({ ...p, _accounts: (Array.isArray(p.targets) ? (p.targets as Row[]) : []).map((x) => text(x.account)).filter(Boolean) }));
   const by = new Map<string, string[]>();
   for (const a of accounts.slice(0, 40)) for (const p of await rows("SocialPost", [...filters, ["targets.account", "in", [a.id]]], { fields: "headline" })) by.set(p.id, [...(by.get(p.id) ?? []), a.id]);
   return found.map((p) => ({ ...p, _accounts: by.get(p.id) ?? [] }));
@@ -76,13 +77,16 @@ const longDay = (day: string) => formatMoment(zoned(day), { weekday: "long", day
 /** Noon of a day on the shown clock, as an instant (a label for the day, safe from clock changes). */
 const zoned = (day: string) => fromZonedInput(`${day}T12:00`) ?? `${day}T12:00:00Z`;
 
-function Faces({ ids, accounts }: { ids: string[]; accounts: Row[] }) {
+/** At most two account marks, then "+n" for the rest (the full list is in the chip's accessible name and the quick look). */
+export function Faces({ ids, accounts, max = 2 }: { ids: string[]; accounts: Row[]; max?: number }) {
+  const shown = ids.slice(0, max);
   return (
     <span className="cal-faces">
-      {ids.slice(0, 3).map((id) => {
+      {shown.map((id) => {
         const a = accounts.find((x) => x.id === id);
         return a ? <Face key={id} name={text(a.account_name)} picture={text(a.picture)} small /> : null;
       })}
+      {ids.length > max && <span className="cal-more-faces">+{ids.length - max}</span>}
     </span>
   );
 }
@@ -105,7 +109,7 @@ export function Chip({ post, accounts, onOpen, onDrag }: { post: Placed; account
       onClick={() => onOpen(post)}
       aria-label={t("{headline}, {status}, {at}", { headline: isolate(text(post.headline)), status: statusWord(status), at: formatMoment(text(post.scheduled_at), { dateStyle: "medium", timeStyle: "short" }) })}
     >
-      <span className="cal-chip-time">{clock(text(post.scheduled_at))}</span>
+      <span className="cal-chip-time">{timeOf(text(post.scheduled_at))}</span>
       <span className="cal-chip-title">{isolate(text(post.headline))}</span>
       {post.repeat_every != null && <span className="cal-repeat" title={t("Repeats")} aria-label={t("Repeats")}>↻</span>}
       <Faces ids={post._accounts} accounts={accounts} />
@@ -127,13 +131,13 @@ export function repeatWords(post: Row): string {
 }
 
 /** A post looked at without leaving the calendar: its accounts' copies, its state and why, and what may be done with it. */
-export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: string; accounts: Row[]; brands: Row[]; onClose: () => void; onMoved: (id: string, at: string) => Promise<boolean> }) {
+export function QuickLook({ id, seed, accounts, brands, onClose, onMoved }: { id: string; /** The calendar's own row: shown at once while the record and the copies are read. */ seed?: Placed; accounts: Row[]; brands: Row[]; onClose: () => void; onMoved: (id: string, at: string) => Promise<boolean> }) {
   const client = useQueryClient();
   const post = useQuery({ queryKey: ["social", "post", id], queryFn: () => record("SocialPost", id) });
   const copies = useQuery({
-    queryKey: ["social", "copies", id, post.data?.version],
+    queryKey: ["social", "copies", id, post.data?.version ?? "seed"],
     queryFn: () => run<{ copies: { account: string; account_name: string; title?: string | null; items: { text: string; length: number; max: number | null }[]; problems: string[] }[] }>("SocialPost", id, "copies").then((r) => r.copies),
-    enabled: !!post.data,
+    enabled: !!(post.data ?? seed),
     retry: false,
   });
   const [at, setAt] = useState("");
@@ -157,7 +161,7 @@ export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: stri
       setBusy(null);
     }
   };
-  const p = post.data;
+  const p: Row | undefined = post.data ?? seed;
   const status = text(p?.status);
   return (
     <Dialog
@@ -175,10 +179,11 @@ export function QuickLook({ id, accounts, brands, onClose, onMoved }: { id: stri
         </>
       }
     >
-      <Await q={post} skeleton={<ListSkeleton rows={3} />}>
-        {(row) => (
+      <Await q={p ? ({ isPending: false, isError: false, data: p } as never) : post} skeleton={<ListSkeleton rows={3} />}>
+        {(row: Row) => (
           <div className="stack">
             <div className="row">
+              {seed && <Faces ids={seed._accounts} accounts={accounts} max={6} />}
               <StatusBadge value={status} tones={POST_TONES} label={statusWord(status)} />
               {repeatWords(row) && <Badge>{repeatWords(row)}</Badge>}
               {text(row.repeat_of) && <Link to={`/compose/${text(row.repeat_of)}`}>{t("The first of the repeats")}</Link>}
@@ -458,7 +463,7 @@ export function CalendarRoute() {
           );
         }}
       </Await>
-      {looking && <QuickLook id={looking} accounts={accounts.data ?? []} brands={brands.data ?? []} onClose={() => setLooking(null)} onMoved={reschedule} />}
+      {looking && <QuickLook id={looking} seed={shown.find((x) => x.id === looking)} accounts={accounts.data ?? []} brands={brands.data ?? []} onClose={() => setLooking(null)} onMoved={reschedule} />}
       <p className="muted"><Link to="/queue">{t("Posting times")}</Link></p>
     </PageStack>
   );

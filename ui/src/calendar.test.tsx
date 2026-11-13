@@ -41,9 +41,12 @@ describe("the calendar", () => {
   it("a month: posts as chips on their days with time and headline, a repeat marked, the server asked for the range", async () => {
     const fake = server();
     const host = await draw(<CalendarRoute />, "/calendar", at);
+    await until(() => !!host.querySelector('[data-post="p1"]'));
     expect(chip(host, "p1").closest("[data-day]")?.getAttribute("data-day")).toBe("2030-06-12");
     expect(chip(host, "p1").textContent).toContain("Spring sale");
-    expect(chip(host, "p1").textContent).toMatch(/9:00/);
+    expect(chip(host, "p1").textContent).toContain("09:00");
+    // the chip keeps its parts in order and never wider than its cell: time, headline (ellipsised by CSS), marks
+    expect([...chip(host, "p1").children].map((c) => c.className)).toEqual(["cal-chip-time", "cal-chip-title", "cal-faces"]);
     expect(chip(host, "p2").textContent).toContain("↻");
     const asked = fake.seen.find((s) => s.line.startsWith("GET /api/v1/SocialPost?"))!;
     const filters = JSON.parse(new URL(asked.line.split(" ")[1], "http://x").searchParams.get("filters")!);
@@ -139,5 +142,60 @@ describe("the pure parts", () => {
   it("the repeat rule in words", () => {
     expect(repeatWords({ id: "p", repeat_every: 2, repeat_unit: "Months", repeat_until: "2031-01-31" })).toContain("Repeats every 2 months, until");
     expect(repeatWords({ id: "p" })).toBe("");
+  });
+});
+
+describe("a chip in a crowded cell", () => {
+  it("shows at most two account marks and the number of the rest; the accessible name keeps the whole", async () => {
+    const many = { id: "p1", headline: "Spring menu launch with a very long headline", scheduled_at: "2030-06-12T09:30:00Z", status: "Draft", brand: "b1", targets: ["x", "y", "z", "w"].map((a) => ({ account: a })) };
+    server([["GET", "/api/v1/SocialAccount", { rows: ["x", "y", "z", "w"].map((a) => ({ id: a, account_name: `Acc ${a}`, brand: "b1", state: "Connected", active: true })) }]]);
+    document.body.innerHTML = "";
+    fakeServer([["GET", "/api/v1/SocialPostingTime", { rows: [] }], ["GET", "/api/v1/SocialPost", { rows: [many] }], ["GET", "/api/v1/SocialBrand", brands], ["GET", "/api/v1/SocialAccount", { rows: ["x", "y", "z", "w"].map((a) => ({ id: a, account_name: `Acc ${a}`, brand: "b1", state: "Connected", active: true })) }], ["GET", "/api/tags", { tags: [] }]]);
+    const host = await draw(<CalendarRoute />, "/calendar", at);
+    const c = chip(host, "p1");
+    expect(c.querySelectorAll(".cal-faces .face")).toHaveLength(2);
+    expect(c.querySelector(".cal-more-faces")?.textContent).toBe("+2");
+    expect(c.getAttribute("aria-label")).toContain("Spring menu launch with a very long headline");
+  });
+});
+
+describe("reading the posts", () => {
+  it("uses the first answer's targets: one list call, not one per account", async () => {
+    const fake = server();
+    await draw(<CalendarRoute />, "/calendar", at);
+    expect(fake.seen.filter((s) => s.line.startsWith("GET /api/v1/SocialPost?")).length).toBe(1);
+  });
+  it("falls back to a read per account only when no row has targets", async () => {
+    const bare = { rows: [{ id: "p1", headline: "A", scheduled_at: "2030-06-12T09:00:00Z", status: "Draft", brand: "b1" }] };
+    const fake = server([["GET", "/api/v1/SocialPost", bare]]);
+    await draw(<CalendarRoute />, "/calendar", at);
+    expect(fake.seen.filter((s) => s.line.startsWith("GET /api/v1/SocialPost?")).length).toBe(2);
+  });
+});
+
+describe("the quick look opens at once", () => {
+  it("shows the headline, time, status and accounts from the calendar's own row before anything else is read", async () => {
+    // neither the record nor the copies can be read: what the calendar already has is still shown
+    server([["POST", "/api/v1/SocialPost/p1/actions/copies", { error: "invalid", message: "slow" }, 422], ["GET", "/api/v1/SocialPost/p1", { error: "not_found", message: "x" }, 404]]);
+    const host = await draw(<CalendarRoute />, "/calendar", at);
+    await act(async () => chip(host, "p1").click());
+    const dlg = document.querySelector("dialog")!;
+    expect(dlg.textContent).toContain("Spring sale");
+    expect(dlg.textContent).toContain("Approved");
+    expect(dlg.querySelectorAll(".face").length).toBeGreaterThan(0);
+  });
+});
+
+describe("at phone width", () => {
+  it("the calendar's layout stacks: the agenda list replaces the grid, columns become one, the chip clips", async () => {
+    server();
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    const host = await draw(<CalendarRoute />, "/calendar", at);
+    expect(host.querySelector(".agenda-list")).toBeTruthy();
+    expect(host.querySelector(".cal-grid")).toBeNull();
+    const css = (await import("node:fs")).readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    expect(css).toMatch(/@media \(max-width: 720px\)[^}]*\.cal-cols[^}]*grid-template-columns: minmax\(0, 1fr\)/s);
+    expect(css).toMatch(/\.inbox-desk[^}]*grid-template-columns: minmax\(0, 1fr\)/s);
+    expect(css).toMatch(/\.cal-chip \{\s*overflow: hidden/);
   });
 });

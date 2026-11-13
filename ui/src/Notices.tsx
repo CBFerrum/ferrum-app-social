@@ -61,7 +61,7 @@ export function NoticesRoute() {
               return (
                 <li key={n} className="card card-body row">
                   <label className="row spacer">
-                    <input type="checkbox" checked={!row} disabled={busy === n} onChange={() => void toggle(n, row)} aria-describedby={`notice-${n}`} />
+                    <input type="checkbox" checked={!row} disabled={busy === n} onChange={() => void toggle(n, row)} aria-label={noticeWords(n)[0]} aria-describedby={`notice-${n}`} />
                     <span>
                       <strong>{name}</strong>
                       <span id={`notice-${n}`} className="muted"> {help}</span>
