@@ -511,6 +511,9 @@ async fn scenario() {
     if wanted("medium") {
         medium(&t).await;
     }
+    if wanted("devto") {
+        devto(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -1257,6 +1260,118 @@ async fn medium(t: &T) {
     // No delete: the API has none.
     let e = t.act(&t.manager, "SocialPublication", uid(&out["id"]), "delete_remote", Value::Null).await.unwrap_err().to_string();
     assert!(e.contains("does not offer to delete"), "{e}");
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
+}
+
+// ───────────── DEV Community ─────────────
+
+async fn devto(t: &T) {
+    // Forem API v1 (developers.forem.com/api/v1): an `api-key` header and the v1 Accept type, /users/me, /tags,
+    // /articles (an `article` object), /articles/me/all, /organizations/{username}, PUT /articles/{id}.
+    let articles: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (a2, l2) = (articles.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, m: &str| status(code, json!({"error": m, "status": code}));
+        if r.header("api-key") != "devto-key" || r.header("accept") != "application/vnd.forem.api-v1+json" {
+            return err(401, "unauthorized");
+        }
+        let mut articles = a2.lock().unwrap();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/api/users/me") => ok(json!({"id": 77, "name": "Northwind", "username": "northwind", "profile_image": "https://dev.to/p.png"})),
+            ("GET", "/api/tags") => ok(json!([{"id": 1, "name": "webdev"}, {"id": 2, "name": "rust"}])),
+            ("GET", "/api/articles/me/all") => {
+                let list: Vec<Value> = articles
+                    .iter()
+                    .rev()
+                    .map(|a: &Value| json!({"id": a["id"], "title": a["article"]["title"], "url": a["url"], "published_timestamp": a["at"],
+                                            "organization": if a["article"]["organization_id"].is_null() { Value::Null } else { json!({"username": "northwindorg"}) }}))
+                    .collect();
+                let mut list = list;
+                list.push(json!({"id": 1, "title": "Old", "url": "https://dev.to/old", "published_timestamp": "2020-01-01T00:00:00Z", "organization": {"username": "northwindorg"}}));
+                list.push(json!({"id": 2, "title": "Older", "url": "https://dev.to/older", "published_timestamp": "2020-01-01T00:00:00Z", "organization": {"username": "northwindorg"}}));
+                ok(Value::Array(list))
+            }
+            ("GET", "/api/organizations/northwindorg") => ok(json!({"id": 4242, "name": "Northwind Org", "username": "northwindorg"})),
+            ("POST", "/api/articles") => {
+                let b = r.json();
+                let a = &b["article"];
+                if a["title"] == "Forbidden" {
+                    return err(422, "Validation failed: Title has already been taken");
+                }
+                assert!(a["tags"].as_array().is_none_or(|t| t.len() <= 4));
+                let id = 900 + articles.len() as i64;
+                articles.push(json!({"id": id, "article": a, "url": format!("https://dev.to/northwind/a-{id}"), "at": Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()}));
+                if l2.lock().unwrap().as_deref() == a["title"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                Resp::Answer(201, vec![], json!({"id": id, "url": format!("https://dev.to/northwind/a-{id}")}).to_string())
+            }
+            ("PUT", p) if p.starts_with("/api/articles/") => {
+                let id: i64 = p.rsplit('/').next().unwrap().parse().unwrap();
+                let a = articles.iter_mut().find(|a| a["id"] == id).expect("an article");
+                a["unpublished"] = json!(r.json()["article"]["published"] == false);
+                ok(json!({"id": id}))
+            }
+            _ => err(404, "not found"),
+        }
+    })
+    .await;
+    let conn = t.connect("devto_north", "devto", &[("https://dev.to", &net.base)], json!({"api_key": "devto-key"}), |_| {}).await;
+    let me = t.account("Northwind DEV", "northwind", conn, "77").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["format"].as_str()), (Some("DEV Community"), Some("markdown")));
+    let tags = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "tags"})).await.unwrap();
+    assert_eq!(tags["choices"], json!([{"value": "webdev", "label": "webdev"}, {"value": "rust", "label": "rust"}]));
+    let orgs = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "organization"})).await.unwrap();
+    assert_eq!(orgs["choices"], json!([{"value": "4242", "label": "Northwind Org"}]), "each organisation once");
+    assert_eq!(net.to("GET", "/organizations/").len(), 1);
+    let article = |settings: Value| target_with(me, "article", settings);
+    let e = t.refused("Body", vec![article(json!({"title": "T", "tags": ["a", "b", "c", "d", "e"]}))], json!({})).await;
+    assert!(e.to_lowercase().contains("tags"), "five tags are one too many: {e}");
+
+    // An article: markdown, tags, cover address, original address, an organisation, published.
+    let p = t
+        .post(
+            "# Spring\n\nIt is here.",
+            vec![article(json!({"title": "Spring", "tags": ["rust", "webdev"], "cover": "https://northwind.example/cover.png", "canonical": "https://northwind.example/spring", "organization": "4242"}))],
+            json!({"link": "https://northwind.example/spring"}),
+        )
+        .await;
+    let out = t.out(p, me).await;
+    assert_eq!((out["external_id"].as_str(), out["permalink"].as_str()), (Some("900"), Some("https://dev.to/northwind/a-900")));
+    {
+        let a = articles.lock().unwrap()[0]["article"].clone();
+        assert_eq!(a["body_markdown"], "# Spring\n\nIt is here. https://northwind.example/spring");
+        assert_eq!(
+            (a["tags"].clone(), a["main_image"].as_str(), a["canonical_url"].as_str(), a["organization_id"].as_i64(), a["published"].as_bool()),
+            (json!(["rust", "webdev"]), Some("https://northwind.example/cover.png"), Some("https://northwind.example/spring"), Some(4242), Some(true))
+        );
+    }
+
+    // A lost answer: the article was made; the call finds it in the author's own list and does not send again.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost", vec![article(json!({"title": "Lost one"}))], json!({})).await;
+    let kept = t.out(p, me).await;
+    assert!(kept["sent_at"].is_string(), "{kept:?}");
+    assert_eq!(net.to("POST", "/articles").len(), 1, "sent once");
+    assert_eq!(articles.lock().unwrap().iter().filter(|a| a["article"]["title"] == "Lost one").count(), 1);
+    assert_eq!(kept["external_id"], "901");
+
+    // A refusal, in DEV's words.
+    let p = t.post("No", vec![article(json!({"title": "Forbidden"}))], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert!(post["failure"].as_str().unwrap().contains("Title has already been taken"), "{post:?}");
+
+    // "Delete" unpublishes: the API has no delete.
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(net.order(), ["PUT /api/articles/900"]);
+    assert_eq!(articles.lock().unwrap()[0]["unpublished"], true);
     let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
 }
