@@ -272,3 +272,19 @@ the 20 messages in 30 seconds applies to an ordinary chatter (a moderator's is 1
 token answer has no user; the account then shows without a name until `check`); a 204 answer for an announcement.
 **Setup**: a Twitch application (dev.twitch.tv/console) with the redirect `{PUBLIC_URL}/api/connections/callback`, a
 confidential client; its id twice in the description, its secret under `client_secret`; connect as the broadcaster.
+
+## Kick (`kick.json`)
+
+**Does**: OAuth 2.1 with PKCE (`id.kick.com`; Kick's app is confidential: the client secret goes in the body too); the
+signed-in user's channel is the account (`/users`, the user id is the broadcaster id); chat messages up to 500 characters
+(`POST /chat`, `type: user`); follow-ups as replies (`reply_to_message_id`); delete (`DELETE /chat/{id}`).
+**Never twice**: no idempotency header and no call that reads a chat back: a lost answer fails the call and is not sent again.
+**Cannot**: say why Kick dropped a message (a 200 with `is_sent: false`: the call fails with "the answer has no id";
+*needed from the platform*: a refusal marker for a 2xx answer); followers or numbers (I could not confirm a call for
+them, so none is described); chat in another channel; announcements; media; rate limits (none published that I
+could confirm, so no `limit`).
+**Unverified**: all of it against the live API, including the scope names (`user:read channel:read chat:write
+moderation:chat_message:manage`), that `type: user` with the broadcaster's own id sends as the signed-in user, and that
+the token address takes the client secret in the body.
+**Setup**: an app in Kick's developer settings (needs two-factor sign-in) with the redirect
+`{PUBLIC_URL}/api/connections/callback`; its id in the description, its secret under `client_secret`.

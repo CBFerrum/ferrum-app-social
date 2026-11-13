@@ -542,6 +542,9 @@ async fn scenario() {
     if wanted("twitch") {
         twitch(&t).await;
     }
+    if wanted("kick") {
+        kick(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -2085,4 +2088,97 @@ async fn twitch(t: &T) {
     assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
     t.upkeep().await;
     assert!(t.rows("SocialMetric", json!({"account": me.to_string()})).await.iter().any(|m| m["followers"] == 4321));
+}
+
+// ───────────── Kick ─────────────
+
+async fn kick(t: &T) {
+    // Public API (docs.kick.com): OAuth 2.1 with PKCE at id.kick.com, /users, POST /chat (`is_sent` and `message_id` in
+    // `data`), DELETE /chat/{id}.
+    let chat: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (c2, l2) = (chat.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, m: &str| status(code, json!({"message": m, "data": null}));
+        if r.path() == "/oauth/token" {
+            let f = r.form();
+            if f.get("code").map(String::as_str) != Some("CODE-north")
+                || f.get("code_verifier").is_none_or(|v| v.len() < 43)
+                || f.get("client_secret").map(String::as_str) != Some("kick-secret")
+            {
+                return err(400, "invalid_grant");
+            }
+            return ok(
+                json!({"access_token": "kick-token", "refresh_token": "kick-refresh", "expires_in": 7200, "token_type": "Bearer", "scope": "chat:write"}),
+            );
+        }
+        if r.header("authorization") != "Bearer kick-token" {
+            return err(401, "Unauthorized");
+        }
+        let mut chat = c2.lock().unwrap();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/public/v1/users") => ok(
+                json!({"data": [{"user_id": 777, "name": "northwind", "email": "x@y.z", "profile_picture": "https://files.kick.test/p.png"}], "message": "OK"}),
+            ),
+            ("POST", "/public/v1/chat") => {
+                let b = r.json();
+                assert_eq!((b["broadcaster_user_id"].as_i64(), b["type"].as_str()), (Some(777), Some("user")), "{b}");
+                if b["content"] == "Forbidden" {
+                    return ok(json!({"data": {"is_sent": false, "message_id": ""}, "message": "OK"}));
+                }
+                let id = format!("kick-{}", chat.len() + 1);
+                chat.push(json!({"id": id, "content": b["content"], "reply": b["reply_to_message_id"]}));
+                if l2.lock().unwrap().as_deref() == b["content"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"data": {"is_sent": true, "message_id": id}, "message": "OK"}))
+            }
+            ("DELETE", p) if p.starts_with("/public/v1/chat/") => {
+                chat.retain(|m| m["id"] != p.rsplit('/').next().unwrap());
+                Resp::Answer(204, vec![], String::new())
+            }
+            _ => err(404, "Not Found"),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "kick_north",
+            "kick",
+            &[("https://api.kick.com", &net.base), ("https://id.kick.com", &net.base)],
+            json!({"client_secret": "kick-secret"}),
+            |d| {
+                d["auth"]["provider"]["client_id"] = json!("kick-app");
+            },
+        )
+        .await;
+    let sent_to = t.sign_in(conn, "CODE-north").await;
+    assert_eq!(sent_to.query_pairs().find(|(k, _)| k == "code_challenge_method").map(|(_, v)| v.to_string()).as_deref(), Some("S256"), "PKCE");
+    let me = t.account("Northwind Kick", "northwind", conn, "777").await;
+    let p = t.post("Live in five", vec![target(me)], json!({"link": "https://northwind.example/live", "items": [{"text": "Starting now"}]})).await;
+    let out = t.out(p, me).await;
+    assert_eq!(out["external_id"], "kick-1");
+    {
+        let c = chat.lock().unwrap();
+        assert_eq!(
+            (c[0]["content"].as_str(), c[1]["content"].as_str(), c[1]["reply"].as_str()),
+            (Some("Live in five https://northwind.example/live"), Some("Starting now"), Some("kick-1"))
+        );
+    }
+    *lose.lock().unwrap() = Some("Lost one".into());
+    let p = t.post("Lost one", vec![target(me)], json!({})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("may have been sent"));
+    assert_eq!(chat.lock().unwrap().iter().filter(|m| m["content"] == "Lost one").count(), 1);
+    net.clear();
+    let p = t.post("Forbidden", vec![target(me)], json!({})).await;
+    t.upkeep().await;
+    assert_eq!(t.get("SocialPost", p).await["status"], "Failed");
+    assert_eq!(net.to("POST", "/chat").len(), 1, "not sent again");
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(net.order(), ["DELETE /public/v1/chat/kick-2", "DELETE /public/v1/chat/kick-1"]);
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "northwind", "{checked}");
 }
