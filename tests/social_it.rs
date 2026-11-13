@@ -112,7 +112,8 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
     }
     let bearer = header("authorization").and_then(|a| a.strip_prefix("Bearer ").map(str::to_string));
     let known = header("x-api-key").as_deref() == Some(KEY) || bearer.as_ref().is_some_and(|b| n.issued.contains(b));
-    if !known {
+    // A public feed asks no key.
+    if !known && route != "/v1/rss" && route != "/v1/atom" {
         return (401, json!({"error": {"message": "The token is not valid"}}));
     }
     let key = header("idempotency-key").unwrap_or_default();
@@ -162,7 +163,9 @@ fn answer(n: &mut Net, method: &str, path: &str, header: &dyn Fn(&str) -> Option
                 || r.starts_with("/v1/messages")
                 || r.starts_with("/v1/picture")
                 || r.starts_with("/v1/posts/") && (r.ends_with("/repost") || r.ends_with("/like"))
-                || r.starts_with("/v1/feed") =>
+                || r.starts_with("/v1/feed")
+                || r == "/v1/rss"
+                || r == "/v1/atom" =>
         {
             n.calls.push((format!("{m} {path}"), json_body.clone()));
             round_two(n, m, r, path, &json_body)
@@ -253,6 +256,21 @@ fn round_two(n: &mut Net, method: &str, route: &str, path: &str, body: &Value) -
         ("POST", r) if r.ends_with("/repost") => (200, json!({"id": format!("rp-{}", n.calls.len())})),
         ("POST", r) if r.ends_with("/like") => (200, json!({"liked": true})),
         ("GET", "/v1/feed") => (200, json!({"items": n.feed.clone()})),
+        ("GET", "/v1/rss") => (
+            200,
+            json!({"__type": "application/rss+xml", "__bytes": format!(
+            "<?xml version=\"1.0\"?><rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\"><channel><title>Blog</title>\
+             <item><title><![CDATA[Fish & chips]]></title><link>https://blog.example/fish</link><guid isPermaLink=\"false\">g-1</guid>\
+             <pubDate>{}</pubDate><enclosure url=\"http://127.0.0.1/never.jpg\" type=\"image/jpeg\"/></item></channel></rss>",
+            (Utc::now() + Duration::minutes(5)).to_rfc2822())}),
+        ),
+        ("GET", "/v1/atom") => (
+            200,
+            json!({"__type": "application/atom+xml", "__bytes": format!(
+            "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"><title>News</title><entry><id>urn:uuid:a1</id>\
+             <title type=\"text\">Atom &amp; eve</title><link rel=\"alternate\" href=\"https://news.example/a1\"/><updated>{}</updated>\
+             <summary>Short</summary></entry></feed>", (Utc::now() + Duration::minutes(5)).to_rfc3339())}),
+        ),
         _ => (404, json!({"error": {"message": "No such thing"}})),
     }
 }
@@ -1632,6 +1650,43 @@ async fn scenario() {
     let pic = t.get("SocialMediaAsset", uid(&made["media"][0]["asset"])).await;
     assert_eq!((pic["source"].as_str(), pic["source_id"].as_str()), (Some("Feed"), Some("https://blog.example/1.png")));
     assert!(t.get("SocialFeed", uid(&blog["id"])).await["last_error"].is_null());
+    // (round three) RSS and Atom through the shipped feeds description: a feed is only an address.
+    let mut xml: Value =
+        serde_json::from_str(&std::fs::read_to_string(format!("{}/docs/connectors/services/feeds.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    xml["base"] = json!(base.trim_end_matches("/v1"));
+    save("feeds_test", xml, json!({})).await;
+    set(json!({"feed_connection": "feeds_test"})).await;
+    for (name, path) in [("RSS", "/v1/rss"), ("Atom", "/v1/atom")] {
+        t.insert(
+            &manager,
+            "SocialFeed",
+            json!({"feed_name": name, "address": format!("{base}{}", path.trim_start_matches("/v1")), "brand": northwind.to_string(),
+                                                 "targets": [{"account": nw_key.to_string()}], "take_picture": false}),
+        )
+        .await;
+    }
+    t.upkeep(due + Duration::hours(31)).await;
+    let made: Vec<String> = t.rows("SocialFeedItem", json!({"state": "Made"})).await.iter().filter_map(|i| i["title"].as_str().map(str::to_string)).collect();
+    assert!(
+        made.contains(&"Fish & chips".to_string()) && made.contains(&"Atom & eve".to_string()),
+        "{made:?} {:?} {:?}",
+        t.rows("SocialFeed", json!({})).await.iter().map(|f| (f["feed_name"].clone(), f["last_error"].clone(), f["read_at"].clone())).collect::<Vec<_>>(),
+        t.rows("SocialFeedItem", json!({})).await.iter().map(|f| (f["title"].clone(), f["state"].clone(), f["note"].clone())).collect::<Vec<_>>()
+    );
+    let fish = t.rows("SocialPost", json!({"headline": "Fish & chips"})).await;
+    assert_eq!((fish[0]["status"].as_str(), fish[0]["link"].as_str()), (Some("Draft"), Some("https://blog.example/fish")));
+    // A site the connection does not reach: said, with what to do.
+    let elsewhere = t
+        .insert(
+            &manager,
+            "SocialFeed",
+            json!({"feed_name": "Elsewhere", "address": "https://elsewhere.example/feed.xml", "brand": northwind.to_string(),
+                                                            "targets": [{"account": nw_key.to_string()}]}),
+        )
+        .await;
+    t.upkeep(due + Duration::hours(32)).await;
+    let said = t.get("SocialFeed", uid(&elsewhere["id"])).await["last_error"].as_str().unwrap_or_default().to_string();
+    assert!(said.contains("elsewhere.example") && said.contains("allowed hosts"), "{said}");
 
     // ───────────── (round three) a service's Retry-After: the post's job comes back then; the upkeep leaves it alone ─────────────
     let slow = t.insert(&author, "SocialPost", tagged("Slowly", &[nw_key], "Slow")).await;

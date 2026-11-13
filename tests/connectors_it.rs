@@ -76,13 +76,14 @@ fn the_service_examples_are_descriptions_the_platform_takes() {
             "unsplash" | "pexels" | "giphy" => ["search_media", "fetch_media"].as_slice(),
             "dub" | "kutt" => &["shorten", "link_clicks"],
             "claude" => &["write"],
+            "feeds" => &["feed", "fetch_media"],
             _ => &["feed"],
         };
         assert!(wants.iter().all(|o| d.operations.contains_key(*o)), "{name}");
         seen.push(name);
     }
     seen.sort();
-    assert_eq!(seen, ["claude", "dub", "giphy", "json_feed", "kutt", "pexels", "unsplash"]);
+    assert_eq!(seen, ["claude", "dub", "feeds", "giphy", "json_feed", "kutt", "pexels", "unsplash"]);
 }
 
 #[test]
@@ -90,9 +91,10 @@ fn the_package_ships_the_two_the_earlier_releases_had() {
     let packages = ferrum_app_social::packages().unwrap();
     let shipped = &packages.iter().find(|p| p.manifest.package == "social").unwrap().manifest.connections;
     let names: Vec<&str> = shipped.iter().filter_map(|c| c["name"].as_str()).collect();
-    assert_eq!(names, ["mastodon", "bluesky"]);
+    assert_eq!(names, ["mastodon", "bluesky", "feeds"]);
     for c in shipped {
-        let file: Value = serde_json::from_str(&example(c["name"].as_str().unwrap())).unwrap();
+        let name = c["name"].as_str().unwrap();
+        let file: Value = serde_json::from_str(&example(if name == "feeds" { "services/feeds" } else { name })).unwrap();
         assert_eq!(c["description"], file, "{}: the package's data is the file under docs/connectors", c["name"]);
     }
 }

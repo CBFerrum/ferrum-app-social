@@ -55,6 +55,7 @@
     - {name: metrics_days, type: int, default: 30, min: 1, max: 366, label: Read a Post's Numbers For (Days), description: "How long after it went out each post's numbers are read"}
     - {name: metrics_hours, type: int, default: 6, min: 1, max: 168, label: Read Again After (Hours), description: "The soonest an account's or a post's numbers are read again"}
     - {name: media_sources, type: text, label: Picture and GIF Sources, description: "Connections searched for stock pictures and GIFs (search_media, fetch_media), by name, one a line; the first is the default"}
+    - {name: feed_connection, type: data, label: Feeds Through, description: "(round three) The connection feeds are read through when a feed names none; empty: feeds"}
     - {name: digest_day, type: select, options: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday, Never], default: Monday, label: Weekly Digest On}
     - {name: digest_time, type: data, default: "09:00", label: Weekly Digest At, description: "On the workspace's clock, as 09:00"}
     - {name: writing_connection, type: data, label: Writing Help Through, description: "The connection whose write (and picture) writing help uses; empty: writing help is off"}
@@ -604,7 +605,8 @@
   description: "A feed whose new items become posts: of a brand, to its accounts, from a template or a set, then left a draft, sent for review, queued or published now. Read through a connection whose description says where its items are (meta.feed)."
   fields:
     - {name: feed_name, type: data, required: true, unique: true, in_list: true}
-    - {name: connection, type: data, required: true, description: "The connection that reads it, by name or id"}
+    - {name: address, type: data, in_list: true, description: "(round three) The feed's address (RSS, Atom)"}
+    - {name: connection, type: data, description: "The connection that reads it, by name or id; empty: Social Settings' Feeds Through, else the feeds connection the package ships"}
     - {name: operation, type: data, default: feed, description: "Its operation that answers the items"}
     - {name: brand, type: link, to: SocialBrand, required: true, in_list: true, in_filter: true}
     - {name: targets, type: table, of: SocialTarget, label: Accounts, description: "Where its posts go; empty: the set's or template's accounts"}

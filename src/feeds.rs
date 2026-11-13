@@ -5,10 +5,11 @@
 //! was made of each, or why not, is a Feed Item.
 //!
 //! [`take`] does all of that from items already read. Reading is the feed's connection's operation (`feed` unless it
-//! names another), its items where the description's `meta.feed` says (`items_at`, `id_at`, `link_at`, `title_at`,
-//! `text_at`, `picture_at`, `published_at`). Today the platform reads JSON answers only, so a JSON feed works (example:
-//! docs/connectors/services/json_feed.json). Once the connections read XML (GAPS.md P7), an RSS or Atom feed is the same
-//! description with its operation marked to answer XML and its pointers into the XML's shape: nothing here changes.
+//! names another) given the feed's `address`, its items where the description's `meta.feed` says (`items_at`, `id_at`,
+//! `link_at`, `title_at`, `text_at`, `picture_at`, `published_at`, each a pointer or a list of them, the first that holds
+//! something winning). The package ships `feeds` (docs/connectors/services/feeds.json): RSS 2.0, RSS 1.0 and Atom read
+//! as XML (`answer: xml`, BD-59), one description for all three. The guard reaches the hosts the connection lists, so an
+//! administrator adds each feed's site once; a JSON feed is a description of its own (json_feed.json).
 
 use crate::outside::{self, at};
 use crate::posts::text_of;
@@ -31,9 +32,29 @@ pub(crate) struct FeedItem {
 }
 
 /// The items of a feed's answer, where `spec` (`meta.feed`) says they are.
+/// Each place `spec[k]` names (a pointer, or a list of them, the first that holds something winning: one description
+/// serves RSS's and Atom's shapes), read in `v`.
+fn first(spec: &Value, k: &str, v: &Value) -> Value {
+    let one = |p: &str| at(v, p);
+    match &spec[k] {
+        Value::String(p) => one(p),
+        Value::Array(ps) => ps.iter().filter_map(Value::as_str).map(one).find(|x| !x.is_null()).unwrap_or(Value::Null),
+        _ => Value::Null,
+    }
+}
+
+/// A moment as feeds write it: RFC 3339 (Atom) or RFC 2822 (RSS).
+fn moment(t: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(t.trim()).or_else(|_| DateTime::parse_from_rfc2822(t.trim())).ok().map(|t| t.with_timezone(&Utc))
+}
+
 pub(crate) fn items_of(spec: &Value, answer: &Value) -> Vec<FeedItem> {
-    let list = at(answer, spec["items_at"].as_str().unwrap_or(""));
-    let p = |i: &Value, k: &str| spec[k].as_str().and_then(|ptr| text_of(&at(i, ptr)));
+    let list = if spec["items_at"].is_null() { answer.clone() } else { first(spec, "items_at", answer) };
+    let list = match list {
+        Value::Object(_) => Value::Array(vec![list]),
+        other => other,
+    };
+    let p = |i: &Value, k: &str| text_of(&first(spec, k, i));
     list.as_array()
         .into_iter()
         .flatten()
@@ -43,7 +64,7 @@ pub(crate) fn items_of(spec: &Value, answer: &Value) -> Vec<FeedItem> {
             title: p(i, "title_at"),
             text: p(i, "text_at"),
             picture: p(i, "picture_at"),
-            published_at: p(i, "published_at").and_then(|t| DateTime::parse_from_rfc3339(&t).ok()).map(|t| t.with_timezone(&Utc)),
+            published_at: p(i, "published_at").as_deref().and_then(moment),
         })
         .filter(|i| i.id.is_some() || i.link.is_some())
         .collect()
@@ -94,7 +115,7 @@ async fn one(k: &Kernel, ctx: &Ctx, tx: &mut Tx, feed: &Doc, item: &FeedItem) ->
     // Its picture, through the feed's connection, into the media library.
     if feed.get("take_picture").and_then(Value::as_bool) == Some(true)
         && let Some(picture) = &item.picture
-        && let Some(conn) = outside::named(tx, ctx.tenant, s(feed, "connection").unwrap_or_default()).await?
+        && let Ok(conn) = feed_connection(k, ctx, tx, feed).await
         && conn.has(&outside::op(&conn, "fetch_media"))
     {
         let got = outside::call(
@@ -149,6 +170,16 @@ async fn one(k: &Kernel, ctx: &Ctx, tx: &mut Tx, feed: &Doc, item: &FeedItem) ->
     Ok((Some(post.to_string()), "Made", None))
 }
 
+/// The connection that reads a feed: its own, else Social Settings' `feed_connection`, else the one the package ships
+/// (`feeds`).
+async fn feed_connection(k: &Kernel, ctx: &Ctx, tx: &mut Tx, feed: &Doc) -> Result<crate::accounts::Reach> {
+    let set = outside::settings(k, ctx, tx).await?;
+    let name = s(feed, "connection").or(s(&set, "feed_connection")).filter(|n| !n.trim().is_empty()).unwrap_or("feeds").to_string();
+    outside::named(tx, ctx.tenant, &name)
+        .await?
+        .ok_or_else(|| Error::invalid(format!("no connection is named {name}: an administrator turns on the feeds connection in Administration, Connections")))
+}
+
 /// The items of `feed` read: each new one taken once. How many posts were made.
 pub(crate) async fn take(k: &Kernel, ctx: &Ctx, tx: &mut Tx, feed: &Doc, items: &[FeedItem]) -> Result<usize> {
     let feed_id = id(feed, "id").ok_or_else(|| Error::internal("a feed without an id"))?;
@@ -190,10 +221,18 @@ pub(crate) async fn read(k: &Kernel, tenant: Uuid, now: DateTime<Utc>) -> Result
             continue;
         }
         let got = async {
-            let conn = outside::named(&mut tx, tenant, s(&feed, "connection").unwrap_or_default())
-                .await?
-                .ok_or_else(|| Error::invalid("no connection by that name"))?;
-            let answer = outside::call(k, &ctx, &conn, s(&feed, "operation").unwrap_or("feed"), json!({}), None, None).await?;
+            let conn = feed_connection(k, &ctx, &mut tx, &feed).await?;
+            let answer = outside::call(k, &ctx, &conn, s(&feed, "operation").unwrap_or("feed"), json!({"address": s(&feed, "address")}), None, None)
+                .await
+                .map_err(|e| match (e, s(&feed, "address")) {
+                    // The guard reaches only the connection's hosts: say what to do about it.
+                    (Error::Invalid(m), Some(a)) if m.contains("host") => Error::invalid(format!(
+                        "{m}: an administrator adds {} to the allowed hosts of the connection {} (once for the site)",
+                        reqwest::Url::parse(a).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default(),
+                        conn.name
+                    )),
+                    (e, _) => e,
+                })?;
             Ok::<_, Error>(items_of(&conn.meta()["feed"], &answer))
         }
         .await;
