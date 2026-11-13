@@ -227,5 +227,8 @@ mod tests {
             *icons.entry(r["icon"].as_str().unwrap().to_string()).or_default() += 1;
         }
         assert!(icons.values().all(|n| *n <= 3), "{icons:?}");
+        // After the pages, only what a person opens by hand and has no page for.
+        let module = packages().unwrap().into_iter().flat_map(|p| p.manifest.modules).find(|m| m.name == "social").unwrap();
+        assert_eq!(module.items, ["SocialBrand", "SocialProfile", "SocialWritingPreset", "SocialSettings"]);
     }
 }
