@@ -142,6 +142,11 @@ export function ComposerRoute() {
       setDraft(d);
       setMode(d.at ? "time" : "draft");
       setBaseline(snap(d, null));
+      // Started from a template or a set of the library (/library): its content fills the draft, which is then unsaved.
+      const tpl = params.get("template");
+      const set_ = params.get("set");
+      if (tpl) void record("SocialTemplate", tpl).then((r) => setDraft({ ...fromRecord(r), headline: text(r.headline) || text(r.template_name), at: d.at }));
+      else if (set_) void record("SocialSet", set_).then((r) => setDraft({ ...fromRecord(r), headline: text(r.set_name), at: d.at }));
     }
   }, [postId, post.data, tagsQ.data, accounts.data, params]);
 
@@ -273,7 +278,8 @@ export function ComposerRoute() {
     );
 
   const sigs = lib?.signatures ?? [];
-  const accountRow = (a: string) => all.find((x) => x.id === a)!;
+  // (an account the person may not read is drawn by its id, not left out)
+  const accountRow = (a: string): Row => all.find((x) => x.id === a) ?? { id: a, account_name: t("An account you cannot see") };
   const versions = chosen.filter((a) => draft.versions[a]);
   const loose = chosen.filter((a) => !draft.versions[a]);
   const tabs = [{ id: "original", label: t("Original") }, ...versions.map((a) => ({ id: `acc-${a}`, label: isolate(text(accountRow(a).account_name)) }))];
