@@ -1,0 +1,20 @@
+{"label": "Reddit", "note": "meta.social only. Facts from Postiz reddit.provider.ts and its settings DTO (subreddit, title, flair by subreddit, type).",
+ "meta": {"social": {
+  "name": "Reddit",
+  "text": {"max": 40000, "format": "markdown"},
+  "media": {"kinds": ["image", "video"], "max": 20, "mixes": [{"image": 20}, {"video": 1}], "alt": false},
+  "kinds": [
+    {"name": "self", "label": "Text", "media": {"kinds": []}},
+    {"name": "link", "label": "Link", "media": {"kinds": []}},
+    {"name": "media", "label": "Picture or video", "media": {"kinds": ["image", "video"], "required": true, "max": 20, "mixes": [{"image": 20}, {"video": 1}], "alt": false}}
+  ],
+  "follow_ups": {"as": "comment", "media": false},
+  "settings": [
+    {"key": "subreddit", "label": "Subreddit", "type": "select", "required": true, "choices": {"operation": "subreddits", "inputs": {"query": "query"}, "items_at": "/data/children", "value_at": "/data/display_name", "label_at": "/data/display_name_prefixed"}},
+    {"key": "title", "label": "Title", "type": "text", "required": true, "max": 300},
+    {"key": "flair", "label": "Flair", "type": "select", "choices": {"operation": "flairs", "inputs": {"subreddit": "settings.subreddit"}, "items_at": "", "value_at": "/id", "label_at": "/text"}},
+    {"key": "nsfw", "label": "NSFW", "type": "bool", "default": false},
+    {"key": "spoiler", "label": "Spoiler", "type": "bool", "default": false}
+  ],
+  "first_comment": false, "link_preview": true
+ }}}

@@ -25,6 +25,7 @@ mod inbox;
 mod insights;
 mod metrics;
 mod posts;
+mod rules;
 mod upgrade;
 
 use chrono::{DateTime, Utc};

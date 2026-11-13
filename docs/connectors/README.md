@@ -38,10 +38,90 @@ account's own server (it appears in four places); LinkedIn's `author` and X's ha
   account by the connection when the item names neither a handle nor a post (a person's own connection is read as her, so
   the account she connected). `thread` is what the answer needs from the item: Mastodon's keeps the status's openness (so
   an answer is never more open), Bluesky's the thread's root and the comment's own reference.
-* `meta.capabilities`: `max_text`, `link_length`, `images`, `videos`, `media_required`, `max_media`, `max_image_bytes`,
-  `alt_text`, `first_comment` (as a network profile's fields), `name`, and `html_text` for a server that sends its words
-  as HTML. It says what the network takes for this connection (a server's own limit among them) and is read before the
-  account's network profile; the seeded profiles are the defaults for an account whose connection says nothing.
+* `meta.capabilities` (0.7.0): `max_text`, `link_length`, `images`, `videos`, `media_required`, `max_media`,
+  `max_image_bytes`, `alt_text`, `first_comment` (as a network profile's fields), `name`, and `html_text` for a server
+  that sends its words as HTML. Still read when a description has no `meta.social`; `meta.social` replaces it.
+
+## `meta.social`: what a network takes and asks
+
+One declarative shape on a connection's description (`meta.social`), read by Social and by its screens. Nothing about a
+network is written in Rust: adding a network is adding a description. Where a description has none, the account's
+network profile (Social, Network Profiles) is the fallback: its `Rules` field takes the same shape, and without it the
+profile's own fields are read as 0.7.0 read them. Order: `meta.social`, then `meta.capabilities`, then the profile's
+`Rules`, then the profile's fields. Unknown keys are refused, so a typo is said when a post is checked.
+
+```jsonc
+{
+  "name": "Pinterest",                       // what people call it; else the account's network, else the connection's name
+  "text": {
+    "max": 500,                              // longest text; absent: any
+    "min": 0,
+    "count": "characters",                   // characters | graphemes | utf16 | bytes | weighted
+    "link_counts": 23,                       // a web address in the text (and the post's link) counts as this, whatever its length
+    "format": "plain"                        // plain | markdown | html: what the composer edits and previews
+  },
+  "media": {
+    "kinds": ["image", "video"],             // kinds taken; absent or []: none. A medium's kind is its own (`kind` on the media
+                                             // line) or its file's type: image/*, video/*, application/pdf = document
+    "required": true,                        // no post without one
+    "min": 1, "max": 5,                      // per item
+    "mixes": [{"image": 5}, {"video": 1}],   // combinations taken in one item, each kind with how many at most; absent: any mix
+    "image": {"max_bytes": 20971520, "types": ["image/jpeg"], "min_width": 0, "max_width": 6000,
+              "min_height": 0, "max_height": 6000, "min_ratio": 0.8, "max_ratio": 1.91},
+    "video": {"max_bytes": 314572800, "types": ["video/mp4"], "min_seconds": 3, "max_seconds": 600},
+    "document": {"types": ["application/pdf"]},
+    "other": {"gif": {"max_bytes": 15728640}},
+    "alt": true, "alt_required": false, "alt_max": 1000,   // descriptions sent; needed; longest
+    "thumbnail": false                       // a video's picture is sent (`thumbnail` input)
+  },
+  "kinds": [                                 // free names; the first is the default. Each may carry its own text, media,
+    {"name": "pin", "label": "Pin"},         // follow_ups and first_comment where they differ from the network's
+    {"name": "story", "label": "Story", "media": {"kinds": ["image", "video"], "required": true, "max": 1},
+     "follow_ups": {"as": "none"}}
+  ],
+  "follow_ups": {                            // what an item after the first is here
+    "as": "thread",                          // thread: `publish` again, answering the item before | comment: `reply` under the
+                                             // first item | none: refused
+    "media": true,                           // may a follow-up carry media
+    "max": 24,                               // items after the first, at most
+    "text": {"max": 280}                     // its own length rules, where they differ
+  },
+  "settings": [                              // what the composer asks, kept per account on the post (`targets[].settings`)
+    {"key": "board", "label": "Board", "type": "select", "required": true,
+     "choices": {"operation": "boards", "inputs": {}, "items_at": "/items", "value_at": "/id", "label_at": "/name"}},
+    {"key": "title", "label": "Title", "type": "text", "max": 100, "help": "Shown above the pin"},
+    {"key": "privacy", "label": "Who can see it", "type": "select", "options": ["PUBLIC", {"value": "SELF", "label": "Only me"}]},
+    {"key": "event_start", "label": "Starts on", "type": "date", "required": true, "when": {"kind": ["event"], "cta": ["BOOK"]}},
+    {"key": "made_for_kids", "label": "Made for children", "type": "bool", "default": false}
+  ],
+  "operations": {"publish": "create_pin"},   // Social's name of an operation -> the description's, where they differ
+  "accounts": {"operation": "accounts", "items_at": "/items", "value_at": "/id", "label_at": "/name",
+               "handle_at": "/username", "picture_at": "/picture", "kind_at": "/type"},
+  "mentions": {"operation": "mentions", "inputs": {"q": "query"}, "items_at": "", "value_at": "/id", "label_at": "/name",
+               "picture_at": "/avatar", "format": "<@{{ value }}>"},
+  "first_comment": true,                     // the post's First Comment is taken (sent by `reply` after the items)
+  "link_preview": true,                      // the network shows a card for a link (the composer's preview)
+  "scheduling": false,                       // recorded only: Social always sends at the time itself
+  "inbox_format": "html"                     // messages read through the connection arrive as HTML
+}
+```
+
+* **Settings** types: `text`, `long` (several lines), `number`, `bool`, `select`, `multi` (a list), `date` (YYYY-MM-DD).
+  `options` are strings or `{value, label}`; `choices` reads them from the network instead (or as well): an operation,
+  its `inputs` (a literal, or `settings.<key>` for another answer, `account.id` for the account's id on the network,
+  `account.handle`, `query` for what the person typed), the list in its answer (`items_at`, a JSON pointer; `""` the
+  answer itself) and, in each item, the value and its label (pointers; `""` the item itself). `when` asks a setting only
+  when the post's kind is one of `kind` and each other key's answer is (one of) what it names. `min`/`max` bound a
+  number, a text's length or a list's length. A default fills an answer not given.
+* **Checked** at every save of a post and again when it is sent, for each account: the kind is one the network has;
+  each item's length counted as the network counts it (a link the post carries goes after the words, after a space);
+  empty items; media kinds, counts, mixes, sizes, types, dimensions and duration where the medium's line says them
+  (unknown ones are not checked); descriptions; follow-ups (how many, whether they may carry media); the first comment;
+  settings. An answer to a key the shape does not declare is refused (`Pinterest asks nothing called sticky`); a
+  required one missing names the account and the field (`for Northwind Pins: Board is needed`); an answer of a setting
+  that does not apply to the kind is not passed on.
+* **Examples**: `examples/` holds the shape for YouTube, Reddit, Pinterest, TikTok, Instagram, LinkedIn page, Discord,
+  Google Business Profile and WordPress (operations not written yet; `src/rules.rs` tests check posts against each).
 
 ## Pages read (12 and 13 November 2026)
 

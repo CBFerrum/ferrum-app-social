@@ -1,0 +1,13 @@
+{"label": "Discord", "note": "meta.social only. Facts from Postiz discord.provider.ts and DiscordDto: a channel of the server, markdown, follow-ups as a thread.",
+ "meta": {"social": {
+  "name": "Discord",
+  "text": {"max": 1980, "format": "markdown"},
+  "media": {"kinds": ["image", "video", "document"], "max": 10, "alt": true, "alt_max": 1024},
+  "kinds": [{"name": "message", "label": "Message"}],
+  "follow_ups": {"as": "thread", "media": true},
+  "settings": [
+    {"key": "channel", "label": "Channel", "type": "select", "required": true, "choices": {"operation": "channels", "items_at": "", "value_at": "/id", "label_at": "/name"}}
+  ],
+  "accounts": {"operation": "accounts", "items_at": "", "value_at": "/id", "label_at": "/name", "picture_at": "/icon"},
+  "mentions": {"operation": "mentions", "inputs": {"query": "query"}, "items_at": "", "value_at": "/user/id", "label_at": "/user/username", "format": "<@{{ value }}>"}
+ }}}

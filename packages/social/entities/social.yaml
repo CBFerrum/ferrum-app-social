@@ -32,6 +32,7 @@
     - {name: threads, type: check, default: false, label: Takes Threads}
     - {name: link_preview, type: check, default: false, label: Shows a Preview of a Link}
     - {name: scheduling, type: check, default: false, label: Schedules Posts Itself, description: "Recorded only: Social always sends a post at its time itself"}
+    - {name: social, type: json, label: Rules, description: "What the network takes and asks, in the shape a connection's description gives under meta.social (docs/connectors/README.md): when set, it is used instead of the fields above. A connection whose description says it is read first."}
   list: {columns: [profile_name, max_text, images, videos], sort: profile_name asc}
 
 - name: SocialSettings

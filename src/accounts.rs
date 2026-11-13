@@ -9,6 +9,7 @@
 //! no network is named here.
 
 use crate::obj;
+use crate::rules::Rules;
 use async_trait::async_trait;
 use ferrum_domain::util::{elevated, id, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, Filter, HookCtx, Kernel, Result, Tx};
@@ -53,14 +54,16 @@ impl Reach {
         &self.desc["meta"]
     }
 
-    /// What this network takes in a post, when the description says (`meta.capabilities`, named as a network profile's
-    /// fields are): the connection is where a network's facts are kept, a server's own limit among them.
-    pub fn capabilities(&self, network: Option<&str>) -> Option<crate::posts::Profile> {
-        let caps = self.meta()["capabilities"].as_object()?;
-        let mut doc = caps.clone();
-        let name = caps.get("name").and_then(Value::as_str).or(network).unwrap_or(&self.name).to_string();
-        doc.insert("profile_name".into(), json!(name));
-        Some(crate::posts::Profile::of(&doc))
+    /// What this network takes and asks, when the description says: `meta.social` (docs/connectors/README.md), else
+    /// 0.7.0's `meta.capabilities` (named as a network profile's fields are). The connection is where a network's facts
+    /// are kept, a server's own limit among them.
+    pub fn social(&self, network: Option<&str>) -> Result<Option<Rules>> {
+        let fallback = network.unwrap_or(&self.name);
+        if let Some(v) = self.meta().get("social").filter(|v| v.is_object()) {
+            return Rules::parse(v, fallback).map(Some).map_err(|e| Error::invalid(format!("the connection {}: {e}", self.name)));
+        }
+        let Some(caps) = self.meta()["capabilities"].as_object() else { return Ok(None) };
+        Ok(Some(Rules::of_fields(caps, fallback)))
     }
 
     /// Whether it proves who calls by a sign-in (the authorisation-code flow, or a session) rather than a key.
@@ -254,7 +257,7 @@ impl DocHook for AccountHook {
             return Err(Error::field("connection", "no connection by that id in this workspace"));
         };
         // A description that says what its network takes needs no profile; the profile is the default for one that does not.
-        if id(doc, "profile").is_none() && found.capabilities(None).is_none() && any_profile(hc).await? {
+        if id(doc, "profile").is_none() && found.social(None)?.is_none() && any_profile(hc).await? {
             return Err(Error::field("profile", "says what the network takes in a post: pick one of the network profiles"));
         }
         Ok(())

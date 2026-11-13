@@ -1,0 +1,20 @@
+{"label": "YouTube", "note": "meta.social only: the operations are not written yet (needs resumable upload, connections part three P1-P3). Facts from Postiz youtube.provider.ts and its settings DTO.",
+ "meta": {"social": {
+  "name": "YouTube",
+  "text": {"max": 5000, "count": "characters", "format": "plain"},
+  "media": {"kinds": ["video"], "required": true, "max": 1, "video": {"types": ["video/mp4", "video/quicktime", "video/webm"]}, "alt": false, "thumbnail": true},
+  "kinds": [
+    {"name": "video", "label": "Video"},
+    {"name": "short", "label": "Short", "media": {"kinds": ["video"], "required": true, "max": 1, "video": {"max_seconds": 180}, "alt": false, "thumbnail": true}}
+  ],
+  "follow_ups": {"as": "none"},
+  "settings": [
+    {"key": "title", "label": "Title", "type": "text", "required": true, "min": 2, "max": 100},
+    {"key": "type", "label": "Visibility", "type": "select", "required": true, "options": [{"value": "public", "label": "Public"}, {"value": "private", "label": "Private"}, {"value": "unlisted", "label": "Unlisted"}]},
+    {"key": "tags", "label": "Tags", "type": "multi", "max": 15},
+    {"key": "category", "label": "Category", "type": "select", "choices": {"operation": "categories", "items_at": "/items", "value_at": "/id", "label_at": "/snippet/title"}},
+    {"key": "made_for_kids", "label": "Made for children", "type": "bool", "default": false}
+  ],
+  "accounts": {"operation": "accounts", "items_at": "/items", "value_at": "/id", "label_at": "/snippet/title", "handle_at": "/snippet/customUrl", "picture_at": "/snippet/thumbnails/default/url"},
+  "first_comment": false, "link_preview": false, "scheduling": true
+ }}}

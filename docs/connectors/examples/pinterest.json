@@ -1,0 +1,15 @@
+{"label": "Pinterest", "note": "meta.social only. Facts from Postiz pinterest.provider.ts: 1-5 pictures of the same size or one video with a cover; a board; no comments.",
+ "meta": {"social": {
+  "name": "Pinterest",
+  "text": {"max": 500, "format": "plain"},
+  "media": {"kinds": ["image", "video"], "required": true, "max": 5, "mixes": [{"image": 5}, {"video": 1}], "alt": true, "alt_max": 500, "thumbnail": true,
+            "image": {"max_bytes": 20971520}, "video": {"min_seconds": 4, "max_seconds": 900}},
+  "kinds": [{"name": "pin", "label": "Pin"}],
+  "follow_ups": {"as": "none"},
+  "settings": [
+    {"key": "board", "label": "Board", "type": "select", "required": true, "choices": {"operation": "boards", "items_at": "/items", "value_at": "/id", "label_at": "/name"}},
+    {"key": "title", "label": "Title", "type": "text", "max": 100},
+    {"key": "link", "label": "Destination link", "type": "text"},
+    {"key": "dominant_color", "label": "Colour", "type": "text"}
+  ]
+ }}}

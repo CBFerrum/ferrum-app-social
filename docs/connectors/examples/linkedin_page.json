@@ -1,0 +1,17 @@
+{"label": "LinkedIn page", "note": "meta.social only (pictures and documents need an upload address from an earlier call: P1). Facts from Postiz linkedin.provider.ts and linkedin.page.provider.ts.",
+ "meta": {"social": {
+  "name": "LinkedIn",
+  "text": {"max": 3000},
+  "media": {"kinds": ["image", "video"], "max": 20, "mixes": [{"image": 20}, {"video": 1}], "alt": true, "image": {"max_width": 6000, "max_height": 6000}},
+  "kinds": [
+    {"name": "post", "label": "Post"},
+    {"name": "document", "label": "Document carousel", "media": {"kinds": ["document"], "required": true, "max": 1, "document": {"types": ["application/pdf"], "max_bytes": 104857600}, "alt": false}}
+  ],
+  "follow_ups": {"as": "comment", "media": false},
+  "settings": [
+    {"key": "document_title", "label": "Document title", "type": "text", "required": true, "max": 400, "when": {"kind": ["document"]}}
+  ],
+  "accounts": {"operation": "accounts", "items_at": "/elements", "value_at": "/organizationalTarget", "label_at": "/organizationalTarget~/localizedName", "handle_at": "/organizationalTarget~/vanityName"},
+  "mentions": {"operation": "mentions", "inputs": {"vanity": "query"}, "items_at": "/elements", "value_at": "/id", "label_at": "/localizedName", "format": "@[{{ label }}](urn:li:organization:{{ value }})"},
+  "first_comment": true, "link_preview": true
+ }}}
