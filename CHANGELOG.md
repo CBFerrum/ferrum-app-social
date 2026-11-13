@@ -73,6 +73,19 @@ and a plain refusal for media a network takes only by address); `delete` given t
 item, and a first comment's id kept and deleted with the post; reads decided by an operation's `changes`; a kind chosen
 from the media. Every inbox mapping writes as the system. The seeded network profiles are their descriptions' rules.
 
+**Round five.** Requires Ferrum's App API 0.3.8. The app's own pages are rows of the left menu (Compose, Calendar,
+Posting times, Accounts, Media, Inbox, Numbers, Library, Automation, Notices), and the module's generic rows they
+replace are gone. Media a network pulls by address goes: the description makes a short-lived public address for the
+stored file in the operation Social calls (`publish_with_media` for an item with media where a description has one),
+and only a server without `PUBLIC_URL` refuses it, on the post, in plain words; `url` is no longer an input. A review's
+decision shows on the post at once (the platform's `approval_decided`), the upkeep's read-back kept only for a hook that
+failed. Feeds read any public host, and a feeds connection of the earlier shape takes the new description. The
+descriptions lose their workarounds: refusals in a 2xx answer read in the network's words (Slack, Hashnode, VK, Twitch,
+Kick, TikTok Business, Reddit); TikTok's own sign-in; Slack's scopes by commas; Bluesky's permalink; Meta's webhook
+handshake for Instagram comments and Messenger messages; posting limits per operation; one request for all files
+(Discord, Tumblr, Telegram, whose albums take ten); Whop's upload headers; Instagram's upload scheme; Google Business's
+numbers window. Still tested against fakes of the networks' documented APIs, never against the real networks.
+
 **Upgrading from 0.6.13 or 0.7.0.** No step for an administrator. Posts, approvals and publications read and send as
 before (an approval given before keeps holding: its fingerprint is unchanged for a post with only 0.7.0's content); a
 publication under way keeps its key. The review policy applies at once; a workspace where nobody holds Social Approver

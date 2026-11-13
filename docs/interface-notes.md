@@ -380,3 +380,22 @@ Period Before, Social Followers by Day, Social Top Posts; role Social Writing He
 - **Publication (round four):** hidden `first_comment_id` (deleted with the post).
 - Names for ar/hi: Title, Its Own Title.
 
+## 12. Round five (additions; nothing above changes but where a line below says so)
+
+- **Platform (round five):** the app needs Ferrum's App API 0.3.8 (`platform: ">=0.3.8, <0.4"`).
+- **Menu rows (round five; answers 9.8):** app.yaml `shell.menu` declares the rows 9.8 asked for, each `social/<page>`
+  as `ui/src/routes.tsx` routes it: Compose (`square-pen`, Social Author), Calendar (`calendar`), Posting times
+  (`clock`), Accounts (`at-sign`), Media (`image`), Inbox (`inbox`), Numbers (`chart-column`), Library (`library`),
+  Automation (`workflow`), Notices (`bell`), the last nine for every Social role. The module's generic rows for what
+  these pages show are gone; it keeps Brands, Network Profiles, Reviews, Publications, Insights, Metrics, Replies,
+  Digest Runs, Writing Presets, Writing Uses and Settings. Pages need no links of their own to each other any more.
+- **Public addresses (round five; changes round four's "Media by address"):** a copy with media a network takes only
+  by address no longer has a problem on a server with a public address; on one without (`PUBLIC_URL` unset) the
+  problem reads "… takes pictures only by a public address: this server has no public address (PUBLIC_URL), and a
+  service cannot pull a file from localhost: an operator sets one". Show it beside the medium, as before. TikTok's
+  photo posts take at most ten photos.
+- **Review (round five):** a rejection or approval shows on the post as soon as it is decided: no wait for the upkeep.
+- **Feeds (round five):** a feed is only an address on any public site; no host to ask an administrator for.
+- **Inbox (round five):** Instagram comments and Facebook Messenger messages can arrive by the connection's inbound
+  address (Meta's webhook); they are SocialMessages like the others.
+

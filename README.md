@@ -24,9 +24,10 @@ connections:
   Listmonk, Moltbook, Farcaster. **Each is tested against a fake of the network's documented API and has never run
   against the real network**: the first connection to each is the first time its real answers are read.
   docs/connectors/README.md says, per network, what it can, what it cannot yet and why, what to set up at the network,
-  and what is unverified. Some cannot work yet: TikTok and VK cannot sign in, MeWe's sign-in is by hand, and pictures
-  Instagram, Threads, Pinterest, Google Business and TikTok take only by a public address wait on the platform giving
-  stored files one. To add a network: Administration, Connections, take the offered one; set up the app at the network;
+  and what is unverified. (round five) Media a network pulls by address (Instagram, Threads, Pinterest, Google
+  Business, TikTok, TikTok Business) goes by a short-lived address the description makes for the stored file, which
+  needs the server's `PUBLIC_URL`; without one such a post says so before it leaves Draft. Some cannot work yet: VK and
+  TikTok Business cannot sign in through the platform's code exchange, MeWe's sign-in is by hand. To add a network: Administration, Connections, take the offered one; set up the app at the network;
   give the connection its client id and secrets; turn it on; in Social add the account, Connect it and, where offered,
   choose the pages or channels it reaches.
 - **A network is a description, not code.** Social names no network. Each account is a connection
@@ -57,7 +58,10 @@ connections:
   saying which and why; Retry sends again to the accounts not reached. A first comment follows where the profile
   takes one; Delete on the network where the connection offers `delete`.
 - **Review.** The platform's approval policy on the post's review, shipped as one step by a Social Approver who is not
-  the author, editable per workspace; a changed post needs approving again. A review link lets someone outside read
+  the author, editable per workspace; a changed post needs approving again. (round five) The decision shows on the
+  post at once: the platform tells the post's hook (`approval_decided`).
+- **Menu (round five).** The app's own pages are rows of the left menu (app.yaml `shell.menu`): Compose, Calendar,
+  Posting times, Accounts, Media, Inbox, Numbers, Library, Automation, Notices. A review link lets someone outside read
   each account's copy, comment and approve or ask for changes.
 - **Composer's server.** What a network takes and asks is `meta.social` on its description (docs/connectors/README.md):
   kinds, lengths as the network counts them, media rules, follow-ups and settings. A post has per-account versions,
@@ -97,10 +101,8 @@ this release: connections made from the shipped descriptions, administrators tol
 
 - What each network cannot do yet, and what the platform would need for it: docs/connectors/README.md ("Each network",
   "Needed from the platform").
-- A short-lived public address for a stored file, for a network that pulls media by address (Instagram, Threads):
-  the platform gives an app none (`public_url` is null).
 - Reading platform tables by SQL where the platform has no call an app can use in its transaction (checked again
-  against 0.3.7, which adds none): `conn` (a connection by id or name: `accounts::reach`, `outside::named`),
+  against 0.3.8, whose decisions BD-63 to BD-78 add none): `conn` (a connection by id or name: `accounts::reach`, `outside::named`),
   `conn_token` (a sign-in's state: `accounts::state_of`), `app_user` (a person by address, the administrators:
   `accounts::person`, `upgrade`), `job` (a publication's job by its key: `posts::mark_sent`), `record_tag` (the
   report by tag), `tenant` (the active workspaces: the upkeep), and 0.6's `connection` (the upgrade). Each would go
