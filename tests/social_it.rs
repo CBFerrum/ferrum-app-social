@@ -1052,6 +1052,80 @@ async fn scenario() {
     let imported = t.rows("SocialPost", json!({"headline": "Import 2"})).await;
     assert_eq!(t.get("SocialPost", uid(&imported[0]["id"])).await["targets"].as_array().unwrap().len(), 2);
 
+    // ───────────── the library: signatures, variables, templates, sets, snippets ─────────────
+    t.insert(
+        &manager,
+        "SocialSignature",
+        json!({"signature_name": "Brand sign-off", "text": "— Northwind", "brand": northwind.to_string(), "is_default": true}),
+    )
+    .await;
+    let first_default = t.rows("SocialSignature", json!({"signature_name": "Brand sign-off"})).await;
+    t.insert(
+        &manager,
+        "SocialSignature",
+        json!({"signature_name": "Brand sign-off 2", "text": "— The Northwind team", "brand": northwind.to_string(), "is_default": true}),
+    )
+    .await;
+    assert_eq!(t.get("SocialSignature", uid(&first_default[0]["id"])).await["is_default"], false, "one default a brand");
+    t.insert(&manager, "SocialSignature", json!({"signature_name": "Key's own", "text": "— N at {{shop}}", "account": nw_key.to_string(), "is_default": true}))
+        .await;
+    refused(t.k.insert(&author, "SocialSignature", obj(json!({"signature_name": "Mine", "text": "x"}))).await, "forbidden", "");
+    t.insert(&manager, "SocialVariable", json!({"variable_name": "shop", "value": "shop.northwind.example", "brand": northwind.to_string()})).await;
+    t.insert(&manager, "SocialVariable", json!({"variable_name": "shop", "value": "key.example", "account": nw_key.to_string()})).await;
+    refused(
+        t.k.insert(&manager, "SocialVariable", obj(json!({"variable_name": "shop", "value": "again", "brand": northwind.to_string()}))).await,
+        "invalid",
+        "has a value here already",
+    );
+    refused(t.k.insert(&manager, "SocialVariable", obj(json!({"variable_name": "the shop", "value": "x"}))).await, "invalid", "letters, digits and _");
+    let mut signed = tagged("Visit {{shop}}", &[nw_key, nw_words], "Signed");
+    signed["add_signature"] = json!(true);
+    let mut unknown = signed.clone();
+    unknown["text"] = json!("Visit {{nope}}");
+    refused(t.k.insert(&author, "SocialPost", obj(unknown)).await, "invalid", "no variable is called nope for Northwind Chirp");
+    let mut long = signed.clone();
+    long["text"] = json!(format!("{} {{{{shop}}}}", "a".repeat(56)));
+    long["link"] = Value::Null;
+    refused(t.k.insert(&author, "SocialPost", obj(long)).await, "invalid", "for Northwind Words: Chirp Words takes 100 characters, and this post is 101");
+    let signed = t.insert(&author, "SocialPost", signed).await;
+    go(uid(&signed["id"])).await;
+    let before = t.net.lock().unwrap().posts.len();
+    t.upkeep(due + Duration::hours(17)).await;
+    {
+        let n = t.net.lock().unwrap();
+        let texts: Vec<String> = n.posts[before..].iter().map(|p| p.1["text"].as_str().unwrap().to_string()).collect();
+        let link = " https://northwind.example/spring-in-the-very-long-address-of-a-page";
+        assert!(texts.contains(&format!("Visit key.example\n\n— N at key.example{link}")), "the account's value and its own signature: {texts:?}");
+        assert!(texts.contains(&format!("Visit shop.northwind.example\n\n— The Northwind team{link}")), "the brand's: {texts:?}");
+    }
+    let mut once = tagged("Spring\n\n— The Northwind team", &[nw_words], "Signed once");
+    once["add_signature"] = json!(true);
+    let once = t.insert(&author, "SocialPost", once).await;
+    go(uid(&once["id"])).await;
+    let before = t.net.lock().unwrap().posts.len();
+    t.upkeep(due + Duration::hours(18)).await;
+    assert!(t.net.lock().unwrap().posts[before].1["text"].as_str().unwrap().starts_with("Spring\n\n— The Northwind team https://"), "never twice");
+    // Templates: a post's content kept, versions and answers with it; used, a draft.
+    let kept = t.act(&author, "SocialPost", thread_id, "save_as_template", json!({"name": "Thread template"})).await.unwrap();
+    let template = t.get("SocialTemplate", uid(&kept["id"])).await;
+    assert_eq!((template["text"].as_str(), template["items"].as_array().unwrap().len()), (Some("One of three"), 2));
+    let used = t.act(&author, "SocialTemplate", uid(&kept["id"]), "use_template", json!({"headline": "From the template"})).await.unwrap();
+    let used = t.get("SocialPost", uid(&used["id"])).await;
+    assert_eq!(
+        (used["status"].as_str(), used["headline"].as_str(), used["targets"][0]["settings"].clone()),
+        (Some("Draft"), Some("From the template"), json!({"audience": "followers"}))
+    );
+    // Sets: a selection of accounts with their answers, and words to start with.
+    let set = t
+        .insert(&author, "SocialSet", json!({"set_name": "Threads and key", "brand": northwind.to_string(), "text": "Start here",
+                                              "targets": [{"account": nw_threads.to_string(), "settings": {"audience": "everyone"}}, {"account": nw_key.to_string()}]}))
+        .await;
+    let from_set = t.act(&author, "SocialSet", uid(&set["id"]), "use_set", json!({"headline": "From the set"})).await.unwrap();
+    let from_set = t.get("SocialPost", uid(&from_set["id"])).await;
+    assert_eq!((from_set["text"].as_str(), from_set["targets"].as_array().unwrap().len()), (Some("Start here"), 2));
+    let snippet = t.insert(&author, "SocialSnippet", json!({"snippet_name": "Spring tags", "kind": "Hashtags", "text": "#spring #northwind"})).await;
+    assert_eq!(snippet["kind"], "Hashtags");
+
     // ───────────── the inbox ─────────────
     let spring_external = pubs[&nw_key]["external_id"].as_str().unwrap().to_string();
     let item = |id: &str, kind: &str, from: &str, to: Option<&str>, on: Option<&str>, thread: &str, text: &str| json!({"id": id, "kind": kind, "from": from, "from_id": format!("u-{from}"), "text": text, "to": to, "on_post": on, "thread": thread});

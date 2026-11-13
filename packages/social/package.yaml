@@ -9,7 +9,7 @@ modules:
     label: Social
     icon: share-2
     order: 66
-    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
+    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialTemplate, SocialSet, SocialSnippet, SocialSignature, SocialVariable, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
 
 roles:
   - name: Social Author
@@ -20,6 +20,11 @@ roles:
       - {entity: SocialProfile, read: true}
       - {entity: SocialSavedReply, read: true}
       - {entity: SocialPostingTime, read: true}
+      - {entity: SocialTemplate, read: true, write: true, create: true}
+      - {entity: SocialSet, read: true, write: true, create: true}
+      - {entity: SocialSnippet, read: true, write: true, create: true}
+      - {entity: SocialSignature, read: true}
+      - {entity: SocialVariable, read: true}
       - {entity: SocialPost, read: true, write: true, create: true, import: true}
       - {entity: SocialPublication, read: true}
       - {entity: SocialInsight, read: true}
@@ -34,6 +39,11 @@ roles:
       - {entity: SocialProfile, read: true}
       - {entity: SocialSavedReply, read: true}
       - {entity: SocialPostingTime, read: true}
+      - {entity: SocialTemplate, read: true}
+      - {entity: SocialSet, read: true}
+      - {entity: SocialSnippet, read: true}
+      - {entity: SocialSignature, read: true}
+      - {entity: SocialVariable, read: true}
       - {entity: SocialPost, read: true, write: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}
@@ -49,6 +59,11 @@ roles:
       - {entity: SocialSavedReply, read: true, write: true, create: true, delete: true}
       - {entity: SocialSettings, read: true, write: true, create: true}
       - {entity: SocialPostingTime, read: true, write: true, create: true, delete: true}
+      - {entity: SocialTemplate, read: true, write: true, create: true, delete: true}
+      - {entity: SocialSet, read: true, write: true, create: true, delete: true}
+      - {entity: SocialSnippet, read: true, write: true, create: true, delete: true}
+      - {entity: SocialSignature, read: true, write: true, create: true, delete: true}
+      - {entity: SocialVariable, read: true, write: true, create: true, delete: true}
       - {entity: SocialPost, read: true}
       - {entity: SocialPublication, read: true, write: true, export: true}
       - {entity: SocialInsight, read: true, export: true}
