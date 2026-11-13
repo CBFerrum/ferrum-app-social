@@ -1,0 +1,19 @@
+{"label": "Google Business Profile", "note": "meta.social only. Facts from Postiz gmb.provider.ts and GmbSettingsDto: a location picked after sign-in, standard/event/offer updates, a call to action.",
+ "meta": {"social": {
+  "name": "Google Business Profile",
+  "text": {"max": 1500},
+  "media": {"kinds": ["image"], "max": 1, "alt": false, "image": {"types": ["image/jpeg", "image/png"]}},
+  "kinds": [{"name": "standard", "label": "Update"}, {"name": "event", "label": "Event"}, {"name": "offer", "label": "Offer"}],
+  "follow_ups": {"as": "none"},
+  "settings": [
+    {"key": "cta", "label": "Button", "type": "select", "default": "NONE", "options": ["NONE", "BOOK", "ORDER", "SHOP", "LEARN_MORE", "SIGN_UP", "GET_OFFER", "CALL"]},
+    {"key": "cta_url", "label": "Button's address", "type": "text", "required": true, "when": {"cta": ["BOOK", "ORDER", "SHOP", "LEARN_MORE", "SIGN_UP", "GET_OFFER"]}},
+    {"key": "event_title", "label": "Event title", "type": "text", "required": true, "max": 58, "when": {"kind": ["event", "offer"]}},
+    {"key": "event_start", "label": "Starts on", "type": "date", "required": true, "when": {"kind": ["event", "offer"]}},
+    {"key": "event_end", "label": "Ends on", "type": "date", "required": true, "when": {"kind": ["event", "offer"]}},
+    {"key": "coupon", "label": "Coupon code", "type": "text", "when": {"kind": ["offer"]}},
+    {"key": "redeem_url", "label": "Where to redeem", "type": "text", "when": {"kind": ["offer"]}},
+    {"key": "terms", "label": "Terms", "type": "long", "when": {"kind": ["offer"]}}
+  ],
+  "accounts": {"operation": "accounts", "items_at": "/locations", "value_at": "/name", "label_at": "/title", "handle_at": "/storefrontAddress/locality"}
+ }}}

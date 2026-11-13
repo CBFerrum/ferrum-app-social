@@ -65,7 +65,7 @@ impl DocHook for MessageHook {
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
         // Words a network sends as HTML are kept as the words they hold.
         if let Some(conn) = reach(hc.tx, hc.ctx.tenant, s(doc, "via_connection")).await?
-            && conn.meta()["capabilities"]["html_text"] == true
+            && (conn.meta()["capabilities"]["html_text"] == true || conn.meta()["social"]["inbox_format"] == "html")
             && let Some(text) = s(doc, "text")
         {
             doc.insert("text".into(), json!(plain(text)));

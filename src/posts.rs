@@ -21,6 +21,7 @@
 //! published when every publication is out, failed when any one ended without being.
 
 use crate::accounts::{self, Reach, any_profile, caller, reach};
+use crate::rules::{self, Copy, Item, Piece, Rules};
 use crate::{at, base64, obj};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
@@ -42,87 +43,6 @@ const ATTEMPTS: i32 = 8;
 
 pub(crate) const PUBLISH: &str = "social.publish";
 
-/// What a network takes in a post, as its profile says.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Profile {
-    pub name: String,
-    pub max_text: usize,
-    pub link_length: Option<usize>,
-    pub images: bool,
-    pub videos: bool,
-    pub media_required: bool,
-    pub max_media: Option<i64>,
-    pub max_image_bytes: Option<i64>,
-    pub alt_text: bool,
-    pub first_comment: bool,
-}
-
-impl Profile {
-    pub fn of(doc: &Doc) -> Profile {
-        let number = |f: &str| doc.get(f).and_then(Value::as_i64);
-        let flag = |f: &str, default: bool| doc.get(f).and_then(Value::as_bool).unwrap_or(default);
-        Profile {
-            name: s(doc, "profile_name").unwrap_or("This network").to_string(),
-            max_text: number("max_text").and_then(|n| usize::try_from(n).ok()).unwrap_or(usize::MAX),
-            link_length: number("link_length").and_then(|n| usize::try_from(n).ok()),
-            images: flag("images", true),
-            videos: flag("videos", false),
-            media_required: flag("media_required", false),
-            max_media: number("max_media"),
-            max_image_bytes: number("max_image_bytes"),
-            alt_text: flag("alt_text", true),
-            first_comment: flag("first_comment", false),
-        }
-    }
-}
-
-/// A picture a post carries, as far as a profile cares.
-pub(crate) struct Picture {
-    pub bytes: i64,
-    pub content_type: Option<String>,
-}
-
-fn size(bytes: i64) -> String {
-    if bytes >= 1 << 20 { format!("{:.1} MB", bytes as f64 / f64::from(1 << 20)) } else { format!("{} KB", (bytes + 1023) / 1024) }
-}
-
-/// Why a post of `text` and `link`, with a picture or not, does not fit what `p` says its network takes, in plain
-/// words; `None` when it does.
-pub(crate) fn misfit(p: &Profile, text: &str, link: Option<&str>, first_comment: Option<&str>, picture: Option<&Picture>) -> Option<String> {
-    let name = &p.name;
-    if p.media_required && !p.images {
-        return Some(if p.videos {
-            format!("{name} takes video, which posts here do not carry")
-        } else {
-            format!("{name} takes no post that posts here can send")
-        });
-    }
-    if p.media_required && picture.is_none() {
-        return Some(format!("{name} takes no post without an image or a video"));
-    }
-    if let Some(pic) = picture {
-        if !p.images {
-            return Some(format!("{name} takes no pictures"));
-        }
-        if let Some(most) = p.max_image_bytes.filter(|m| pic.bytes > *m) {
-            return Some(format!("{name} takes pictures of at most {}, and this one is {}", size(most), size(pic.bytes)));
-        }
-        // A post carries one picture; `max_media` is for the posts that will carry several.
-        if p.max_media.is_some_and(|m| m < 1) {
-            return Some(format!("{name} takes no pictures"));
-        }
-    }
-    // A network that shortens links counts each as a fixed length, after a space.
-    let length = text.chars().count() + link.map_or(0, |l| p.link_length.map_or_else(|| l.chars().count() + 1, |n| n + 1));
-    if length > p.max_text {
-        return Some(format!("{name} takes {} characters, and this post is {length}", p.max_text));
-    }
-    if first_comment.is_some_and(|c| !c.trim().is_empty()) && !p.first_comment {
-        return Some(format!("{name} takes no first comment"));
-    }
-    None
-}
-
 /// What approval fixes: the words, the link, the picture and what it says of it, where and when it
 /// goes.
 fn fingerprint(doc: &Doc) -> String {
@@ -140,20 +60,43 @@ fn fingerprint(doc: &Doc) -> String {
     hex::encode(Sha256::digest(what.to_string()))
 }
 
-/// What an account's network takes: what its connection's description says (`meta.capabilities`, which is where a
-/// server's own limit lives), else the network profile the account names (the seeded ones are the defaults).
-async fn profile_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) -> Result<Option<Profile>> {
-    if let Some(found) = reach(tx, ctx.tenant, s(account, "connection")).await?.and_then(|c| c.capabilities(s(account, "network"))) {
-        return Ok(Some(found));
+/// What an account's network takes and asks: what its connection's description says (`meta.social`, or 0.7.0's
+/// `meta.capabilities`, which is where a server's own limit lives), else the network profile the account names (its
+/// `social` shape, else its fields; the seeded ones are the defaults).
+pub(crate) async fn rules_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) -> Result<Option<Rules>> {
+    if let Some(found) = reach(tx, ctx.tenant, s(account, "connection")).await?
+        && let Some(r) = found.social(s(account, "network"))?
+    {
+        return Ok(Some(r));
     }
     let Some(profile) = id(account, "profile") else { return Ok(None) };
-    Ok(Some(Profile::of(&k.get_tx(&elevated(ctx), tx, "SocialProfile", profile, false).await?)))
+    let p = k.get_tx(&elevated(ctx), tx, "SocialProfile", profile, false).await?;
+    let name = s(&p, "profile_name").unwrap_or("This network");
+    match p.get("social").filter(|v| v.is_object()) {
+        Some(v) => Rules::parse(v, name).map(Some).map_err(|e| Error::invalid(format!("the network profile {name}: {e}"))),
+        None => Ok(Some(Rules::of_fields(&p, name))),
+    }
 }
 
-async fn picture_of(k: &Kernel, ctx: &Ctx, image: Option<&str>) -> Result<Option<Picture>> {
-    let Some(file) = image.and_then(|i| i.strip_prefix("/files/")).and_then(|f| f.parse::<Uuid>().ok()) else { return Ok(None) };
-    let info = k.file_info(&elevated(ctx), file).await?;
-    Ok(Some(Picture { bytes: info.size, content_type: Some(info.content_type) }))
+/// The post's own content as one account's copy (0.7.0's: one text, a link, a picture, a first comment).
+async fn copy_of(k: &Kernel, ctx: &Ctx, doc: &Doc) -> Result<Copy> {
+    let mut media = vec![];
+    if let Some(file) = s(doc, "image").and_then(|i| i.strip_prefix("/files/")).and_then(|f| f.parse::<Uuid>().ok()) {
+        let info = k.file_info(&elevated(ctx), file).await?;
+        media.push(Piece {
+            kind: rules::kind_of(&info.content_type).into(),
+            content_type: Some(info.content_type),
+            bytes: Some(info.size),
+            alt: s(doc, "image_alt").map(str::to_string),
+            ..Default::default()
+        });
+    }
+    let link = s(doc, "link").filter(|l| !l.trim().is_empty()).map(str::to_string);
+    Ok(Copy {
+        items: vec![Item { text: s(doc, "text").unwrap_or_default().to_string(), link, media }],
+        first_comment: s(doc, "first_comment").map(str::to_string),
+        ..Default::default()
+    })
 }
 
 pub struct PostHook;
@@ -184,7 +127,6 @@ impl DocHook for PostHook {
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
         let system = elevated(hc.ctx);
         let brand = id(doc, "brand");
-        let text = s(doc, "text").unwrap_or_default();
         let link = s(doc, "link").filter(|l| !l.trim().is_empty());
         if link.is_some_and(|l| !(l.starts_with("https://") || l.starts_with("http://")) || l.contains(char::is_whitespace)) {
             return Err(Error::field("link", "is a web address"));
@@ -196,8 +138,7 @@ impl DocHook for PostHook {
         if image.is_some() && s(doc, "image_alt").is_none_or(|a| a.trim().is_empty()) {
             return Err(Error::field("image_alt", "says what the picture shows, for people who cannot see it"));
         }
-        let picture = picture_of(hc.kernel, hc.ctx, image).await?;
-        let first = s(doc, "first_comment");
+        let copy = copy_of(hc.kernel, hc.ctx, doc).await?;
         for target in rows(doc, "targets") {
             let Some(account) = id(&target, "account") else { continue };
             let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
@@ -208,9 +149,9 @@ impl DocHook for PostHook {
             if !a.get("active").and_then(Value::as_bool).unwrap_or(true) {
                 return Err(Error::field("targets", format!("{name} is paused")));
             }
-            match profile_of(hc.kernel, hc.ctx, hc.tx, &a).await? {
-                Some(profile) => {
-                    if let Some(why) = misfit(&profile, text, link, first, picture.as_ref()) {
+            match rules_of(hc.kernel, hc.ctx, hc.tx, &a).await? {
+                Some(r) => {
+                    if let Some(why) = rules::problems(&r, &copy).into_iter().next() {
                         return Err(Error::field("text", format!("for {name}: {why}")));
                     }
                 }
@@ -442,19 +383,18 @@ async fn send(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Value> {
         return Err(Error::invalid(format!("the connection {} is turned off", conn.name)));
     }
     // What its network takes may have been changed since the post was approved.
-    let profile = profile_of(k, &ctx, &mut tx, &account).await?.ok_or_else(|| Error::invalid(format!("{name} has no network profile")))?;
+    let profile = rules_of(k, &ctx, &mut tx, &account).await?.ok_or_else(|| Error::invalid(format!("{name} has no network profile")))?;
     let image = s(&post, "image").filter(|i| !i.is_empty());
-    let picture = picture_of(k, &ctx, image).await?;
-    if let Some(why) =
-        misfit(&profile, s(&post, "text").unwrap_or_default(), s(&post, "link").filter(|l| !l.is_empty()), s(&post, "first_comment"), picture.as_ref())
-    {
+    let copy = copy_of(k, &ctx, &post).await?;
+    let picture = copy.items[0].media.first().cloned();
+    if let Some(why) = rules::problems(&profile, &copy).into_iter().next() {
         return Err(Error::invalid(format!("for {name}: {why}")));
     }
     let calling = caller(k, &mut tx, tenant, &account, &conn).await?;
     let call = |operation: &str, inputs: Value, key: String| Call {
         connection: conn.id.to_string(),
-        operation: operation.into(),
-        inputs: conn.fit(operation, inputs),
+        operation: profile.op(operation).into(),
+        inputs: conn.fit(profile.op(operation), inputs),
         key: Some(key),
         entity: Some("SocialPublication".into()),
         record: Some(publication),
@@ -466,7 +406,7 @@ async fn send(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Value> {
         }
         let file: Uuid = image.strip_prefix("/files/").and_then(|f| f.parse().ok()).ok_or_else(|| Error::invalid("a post's picture is a file stored here"))?;
         let info = k.file_info(&elevated(&ctx), file).await?;
-        let alt = if profile.alt_text { s(&post, "image_alt").unwrap_or_default() } else { "" };
+        let alt = if profile.media.alt { s(&post, "image_alt").unwrap_or_default() } else { "" };
         // `file` is the stored file's id, for a description that sends it as a part or as the body; the picture's bytes
         // as base64 only for one that says it takes `data` (a network that wants it inside JSON).
         let mut inputs = json!({"file": file, "name": info.name, "content_type": info.content_type, "alt": alt, "size": info.size});
@@ -484,7 +424,7 @@ async fn send(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Value> {
     let created = at(&p, "created_at").unwrap_or_else(Utc::now).to_rfc3339_opts(SecondsFormat::Millis, true);
     let inputs = json!({"text": text, "link": link, "text_with_link": link.map_or_else(|| text.to_string(), |l| format!("{text} {l}")),
                         "media": media.iter().collect::<Vec<_>>(), "media_id": media, "alt": s(&post, "image_alt"), "created_at": created,
-                        "picture_type": picture.as_ref().and_then(|p| p.content_type.clone()), "picture_size": picture.as_ref().map(|p| p.bytes)});
+                        "picture_type": picture.as_ref().and_then(|p| p.content_type.clone()), "picture_size": picture.as_ref().and_then(|p| p.bytes)});
     let out = connections::call(k, &calling, Some(crate::APP), &call("publish", inputs, format!("publish:{publication}"))).await.map_err(crate::said)?;
     let external = text_of(&out["id"]).ok_or_else(|| Error::invalid("the connection's publish gives no id: its description maps one under result"))?;
     let values = json!({"external_id": external, "sent_at": Utc::now().to_rfc3339(), "permalink": text_of(&out["url"]), "media_ref": media,
@@ -555,42 +495,4 @@ pub(crate) async fn mark_sent(k: &Kernel, ctx: &Ctx, tx: &mut Tx, now: DateTime<
         k.set_values_tx(ctx, tx, "SocialPost", post, obj(values)).await?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn profile(name: &str, max: usize, link: Option<usize>) -> Profile {
-        Profile { name: name.into(), max_text: max, link_length: link, images: true, alt_text: true, ..Default::default() }
-    }
-
-    #[test]
-    fn what_a_profile_says_a_network_takes() {
-        let short = profile("Short", 280, Some(23));
-        assert!(misfit(&short, &"a".repeat(281), None, None, None).is_some_and(|w| w.contains("280")));
-        assert!(
-            misfit(&short, &"a".repeat(256), Some("https://example.org/a-very-long-path-that-is-shortened"), None, None).is_none(),
-            "a link is 23 and a space"
-        );
-        assert!(misfit(&short, &"a".repeat(257), Some("https://e.org"), None, None).is_some());
-        let plain = profile("Plain", 500, None);
-        assert!(misfit(&plain, &"a".repeat(490), Some("https://example.org/0123456789"), None, None).is_some(), "a link counts as written");
-        let pictured = Profile { media_required: true, ..profile("Pictures", 2200, None) };
-        assert!(misfit(&pictured, "Hello", None, None, None).is_some_and(|w| w.contains("image or a video")));
-        assert_eq!(misfit(&pictured, "Hello", None, None, Some(&Picture { bytes: 10, content_type: None })), None, "with its picture");
-        let video = Profile { images: false, videos: true, media_required: true, ..profile("Video", 2200, None) };
-        assert!(
-            misfit(&video, "Hello", None, None, Some(&Picture { bytes: 10, content_type: None })).is_some_and(|w| w.contains("video")),
-            "a picture is not a video"
-        );
-        let small = Profile { max_image_bytes: Some(1_000_000), ..profile("Small", 300, None) };
-        assert!(
-            misfit(&small, "Hi", None, None, Some(&Picture { bytes: 2_000_000, content_type: None }))
-                .is_some_and(|w| w.contains("at most 1.0 MB") || w.contains("KB"))
-        );
-        assert!(misfit(&profile("None", 300, None), "Hi", None, Some("first!"), None).is_some_and(|w| w.contains("first comment")));
-        let words = Profile { images: false, ..profile("Words", 300, None) };
-        assert!(misfit(&words, "Hi", None, None, Some(&Picture { bytes: 1, content_type: None })).is_some_and(|w| w.contains("no pictures")));
-    }
 }
