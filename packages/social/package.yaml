@@ -9,7 +9,11 @@ modules:
     label: Social
     icon: share-2
     order: 66
-    items: [SocialPost, SocialMessage, SocialAccount, SocialBrand, SocialPostingTime, SocialTemplate, SocialSet, SocialSnippet, SocialSignature, SocialVariable, SocialMediaAsset, SocialLinkTemplate, SocialFeed, SocialFeedItem, SocialPlug, SocialPlugRun, SocialNoticeOptOut, SocialDigestRun, SocialWritingPreset, SocialWritingUse, SocialReview, SocialProfile, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialSavedReply, SocialSettings]
+    # (round five) The app's own pages are the module's first rows (app.yaml shell.menu): Compose and Calendar
+    # (posts), Posting times, Accounts, Media, Inbox (messages), Numbers, Library (templates, sets, snippets,
+    # signatures, variables, link templates, saved replies), Automation (feeds and plugs) and Notices (opt-outs).
+    # The generic rows those pages replace are gone; what no page shows stays here.
+    items: [SocialBrand, SocialProfile, SocialReview, SocialPublication, SocialInsight, SocialMetric, SocialReply, SocialDigestRun, SocialWritingPreset, SocialWritingUse, SocialSettings]
 
 roles:
   - name: Social Writing Help
