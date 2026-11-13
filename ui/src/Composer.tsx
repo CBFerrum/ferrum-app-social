@@ -16,6 +16,7 @@ import { AccountOptions } from "./composer/Settings";
 import { Items, type Insertable } from "./composer/Items";
 import { Pick } from "./composer/Pick";
 import { Preview, type ServerCopy } from "./composer/Preview";
+import { PostNumbers } from "./PostNumbers";
 import { Writing, type Adapted } from "./composer/Writing";
 import { ReviewPanel } from "./composer/Review";
 import { type Mode, modeOf, When } from "./composer/When";
@@ -488,6 +489,7 @@ export function ComposerRoute() {
             {chosen.map((a) => (
               <Preview key={a} account={accountRow(a)} copy={copies.find((c) => c.account === a)} media={contentFor(draft, a).items.map((i) => i.media)} dimmed={dimmed} />
             ))}
+            {postId && status === "Published" && <section className="card card-body stack"><h2 className="section-title">{t("What it did")}</h2><PostNumbers post={postId} accounts={all} /></section>}
             {postId && post.data && <ReviewPanel post={post.data} onChanged={() => void client.invalidateQueries({ queryKey: ["social"] })} />}
           </div>
         }

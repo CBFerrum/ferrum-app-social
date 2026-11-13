@@ -14,6 +14,7 @@ export const routes: RouteObject[] = [
   { path: "queue", lazy: () => import("./Queue").then((m) => ({ Component: m.QueueRoute })) },
   { path: "media", lazy: () => import("./Media").then((m) => ({ Component: m.MediaRoute })) },
   { path: "inbox", lazy: () => import("./Inbox").then((m) => ({ Component: m.InboxRoute })) },
+  { path: "numbers", lazy: () => import("./Numbers").then((m) => ({ Component: m.NumbersRoute })) },
   { path: "e/SocialPost/:id", lazy: () => import("./Composer").then((m) => ({ Component: m.ComposerRoute })) },
   { path: "form/:entity/:id", lazy: page("FormView") },
   { path: "e/:entity", lazy: page("ListView") },

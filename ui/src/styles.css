@@ -281,3 +281,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* A small line of days. */
+.spark {
+  width: calc(120 / 14 * 1rem);
+  height: calc(28 / 14 * 1rem);
+  color: var(--primary);
+}
