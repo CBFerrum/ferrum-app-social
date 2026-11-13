@@ -34,8 +34,8 @@ account's copy, comment, and approve or ask for changes; what they say is kept a
 
 Every writing operation of the four descriptions carries an idempotency header. RetryAfter from the platform is
 treated as "later". New: Posting Time, Post Template, Set, Snippet, Signature, Variable, Review; the message
-`social.review_link`; Social Author may import posts. The interface is not rebuilt: docs/interface-notes.md is what the
-screens are built from.
+`social.review_link`; Social Author may import posts. The interface for all of it is in this release (below);
+docs/interface-notes.md is what its screens are built from.
 
 **Round two.** The media library (assets with description, size, source and credit; stock pictures and GIFs searched
 and taken through sources named in Social Settings, the source told of a download where it asks; media from an
@@ -93,6 +93,20 @@ keeps 0.7.0's Approve It until someone does. A connection a workspace copied fro
 runs on each person's own sign-in without `as: system`, has its pull refused plainly (people no longer create messages;
 the platform tells the administrators): add `"as": "system"` to its mapping. Pulls on the workspace's own sign-in, and
 inbound addresses, already wrote as the system and go on as they were.
+
+**The interface.** Social has its own pages for all of the above, each a row of the left menu (Ferrum 0.3.8's
+`shell.menu`): Compose (accounts by brand, the original and a version per account, follow-ups, several media with
+descriptions, the kind and the settings form drawn from the network's rules, each account's final copy, lengths and
+problems from the server as you type, a preview per account, templates, snippets, variables and signatures, writing
+help as proposals to accept, when: draft, now, a time, the next free posting time, repeats; review, review links),
+Calendar (month, week, day, an agenda on a phone; move a post by dragging or "Move to"; a quick look), Posting times,
+Accounts (add from the networks the package offers, connect, the picker after a sign-in that reaches several, check,
+disconnect), Media (library, upload, stock pictures and GIFs, from an address), Inbox (a desk with j, k, r and e),
+Numbers (a period against the one before, by network, account and kind, top posts, posts made on the network
+itself), Library, Feeds and plugs, and Notices. No network is named in the interface's code: a new network needs no
+interface change. Every word is in Arabic and Hindi too (written by the model, to be reviewed by native speakers).
+Built with Ferrum-Frontend c134911. Walked in a browser on a local server (the composer's checks, a draft with
+problems, the calendar, each page, a phone width); signing in to a real network, dragging and uploading were not.
 
 ## 0.7.0
 
