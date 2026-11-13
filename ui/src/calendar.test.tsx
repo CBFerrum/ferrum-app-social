@@ -157,3 +157,17 @@ describe("a chip in a crowded cell", () => {
     expect(c.getAttribute("aria-label")).toContain("Spring menu launch with a very long headline");
   });
 });
+
+describe("reading the posts", () => {
+  it("uses the first answer's targets: one list call, not one per account", async () => {
+    const fake = server();
+    await draw(<CalendarRoute />, "/calendar", at);
+    expect(fake.seen.filter((s) => s.line.startsWith("GET /api/v1/SocialPost?")).length).toBe(1);
+  });
+  it("falls back to a read per account only when no row has targets", async () => {
+    const bare = { rows: [{ id: "p1", headline: "A", scheduled_at: "2030-06-12T09:00:00Z", status: "Draft", brand: "b1" }] };
+    const fake = server([["GET", "/api/v1/SocialPost", bare]]);
+    await draw(<CalendarRoute />, "/calendar", at);
+    expect(fake.seen.filter((s) => s.line.startsWith("GET /api/v1/SocialPost?")).length).toBe(2);
+  });
+});
