@@ -514,7 +514,10 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     let Some(n) = (0..v.items.len()).find(|n| !sent.iter().any(|s| s["item"].as_u64() == Some(*n as u64))) else {
         return finish(k, &ctx, tx, publication, &post, &r, &conn, &calling, &sent).await.map(Step::Done);
     };
-    let item = &v.items[n];
+    let mut short = p.get("short_links").and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut shortened = v.items[n].clone();
+    crate::links::shorten(k, &ctx, &mut tx, publication, &mut short, &mut shortened.text, &mut shortened.link).await?;
+    let item = &shortened;
     if n > 0 && item.delay > 0 {
         let before = sent
             .iter()
@@ -580,7 +583,8 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     answer.remove("id");
     answer.remove("url");
     sent.push(json!({"item": n, "id": external, "url": text_of(&out["url"]), "media": media, "sent_at": Utc::now().to_rfc3339(), "answer": answer}));
-    let mut values = json!({"sent_items": sent, "next_at": null, "failure": null, "follow_ups": if v.items.len() > 1 { Some(format!("{as_:?}").to_lowercase()) } else { None }});
+    let mut values = json!({"sent_items": sent, "next_at": null, "failure": null, "follow_ups": if v.items.len() > 1 { Some(format!("{as_:?}").to_lowercase()) } else { None },
+                            "kind": kind, "short_links": if short.is_empty() { Value::Null } else { Value::Object(short) }});
     if n == 0 {
         values["external_id"] = json!(external);
         values["permalink"] = json!(text_of(&out["url"]));

@@ -143,6 +143,7 @@ pub(crate) async fn version(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, accou
     let kind = s(&target, "kind").or(s(account, "default_kind")).map(str::trim).filter(|k| !k.is_empty()).map(str::to_string);
     let mut v = Version { kind, settings, items, first_comment: s(doc, "first_comment").filter(|c| !c.trim().is_empty()).map(str::to_string) };
     crate::library::finish(k, ctx, tx, doc, account, &mut v).await?;
+    crate::links::track(k, ctx, tx, doc, account, &mut v).await?;
     Ok(v)
 }
 

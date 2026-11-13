@@ -35,6 +35,11 @@ impl Reach {
         self.desc["operations"].get(operation).is_some()
     }
 
+    /// Where its calls go.
+    pub fn base(&self) -> &str {
+        self.desc["base"].as_str().unwrap_or("\u{0}")
+    }
+
     /// Whether an operation only reads (a GET, the default), so calls it without a key.
     pub fn reads(&self, operation: &str) -> bool {
         self.desc["operations"][operation]["method"].as_str().is_none_or(|m| m.eq_ignore_ascii_case("GET"))
