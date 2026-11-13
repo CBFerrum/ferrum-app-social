@@ -252,3 +252,23 @@ Social*: a separate name for the medium's kind, e.g. `media_kind`); posting as a
 Postiz puts the token in the query); the 16384-character message limit; that scopes are passed space-separated.
 **Setup**: a VK ID application (id.vk.ru/business) with the redirect `{PUBLIC_URL}/api/connections/callback`; its id as
 `client_id` in the description (twice: `provider` and `refresh_vk`).
+
+## Twitch (`twitch.json`)
+
+**Does**: OAuth 2 (the workspace's Twitch app; `Client-Id` header beside the bearer, so the client id appears twice);
+the signed-in user's own channel is the account; two kinds: a chat message (500 characters, `/chat/messages`) and an
+announcement (`/chat/announcements`, a colour setting); follow-ups as replies to the message before
+(`reply_parent_message_id`); delete of a chat message (`/moderation/chat`, the answer first); followers of the channel as
+the account's number; the documented 20 messages in 30 seconds.
+**Never twice**: Twitch has no idempotency header and no call that reads a chat back, so a lost answer on a message or an
+announcement fails the call ("may have been sent") and is not sent again.
+**Cannot**: say why Twitch dropped a message in its words: it answers 200 with `is_sent: false` and a `drop_reason`; the
+description makes the missing id fail the call (*needed from the platform*: a refusal marker for a 2xx answer, as for Slack
+and VK); give an announcement an id (Twitch returns none: the id is `<channel>:announcement-<moment>` and deleting it is
+refused by Twitch); post in another channel (the account's own only; chatting elsewhere would need the channel as a
+setting and the moderator rights it implies); numbers for a message (none exist); media; mentions (typed `@name`).
+**Unverified**: the scope list (`moderator:manage:chat_messages` for deleting, `moderator:read:followers` for the count);
+the 20 messages in 30 seconds applies to an ordinary chatter (a moderator's is 100); `account_at: /user_id` (Twitch's
+token answer has no user; the account then shows without a name until `check`); a 204 answer for an announcement.
+**Setup**: a Twitch application (dev.twitch.tv/console) with the redirect `{PUBLIC_URL}/api/connections/callback`, a
+confidential client; its id twice in the description, its secret under `client_secret`; connect as the broadcaster.

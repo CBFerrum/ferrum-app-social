@@ -539,6 +539,9 @@ async fn scenario() {
     if wanted("vk") {
         vk(&t).await;
     }
+    if wanted("twitch") {
+        twitch(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -1967,4 +1970,119 @@ async fn vk(t: &T) {
     assert_eq!(deletes, ["POST /method/wall.deleteComment", "POST /method/wall.delete"], "the comment first, then the post");
     let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
     assert_eq!((checked["read"]["display_name"].as_str(), checked["read"]["picture"].as_str()), (Some("North Wind"), Some("https://sun.vk.test/me.png")));
+}
+
+// ───────────── Twitch ─────────────
+
+async fn twitch(t: &T) {
+    // Helix (dev.twitch.tv/docs/api): OAuth 2 at id.twitch.tv, `Client-Id` beside the bearer, /users, /chat/messages (a
+    // `drop_reason` when not sent, in a 200), /chat/announcements (204, no id), /moderation/chat, /channels/followers.
+    let chat: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let announced: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (c2, a2, l2) = (chat.clone(), announced.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, e: &str, m: &str| status(code, json!({"error": e, "status": code, "message": m}));
+        if r.path() == "/oauth2/token" {
+            let f = r.form();
+            if f.get("code").map(String::as_str) != Some("CODE-north") || f.get("client_secret").map(String::as_str) != Some("twitch-secret") {
+                return err(400, "Bad Request", "Invalid authorization code");
+            }
+            return ok(json!({"access_token": "tw-token", "refresh_token": "tw-refresh", "expires_in": 14000, "scope": ["user:write:chat"], "token_type": "bearer"}));
+        }
+        if r.header("authorization") != "Bearer tw-token" || r.header("client-id") != "twitch-app" {
+            return err(401, "Unauthorized", "Invalid OAuth token");
+        }
+        let mut chat = c2.lock().unwrap();
+        let q = r.query();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/helix/users") => ok(json!({"data": [{"id": "9001", "login": "northwind", "display_name": "Northwind", "profile_image_url": "https://static.twitch.test/p.png"}]})),
+            ("GET", "/helix/channels/followers") => ok(json!({"total": 4321, "data": []})),
+            ("POST", "/helix/chat/messages") => {
+                let b = r.json();
+                assert_eq!((b["broadcaster_id"].as_str(), b["sender_id"].as_str()), (Some("9001"), Some("9001")));
+                if b["message"] == "Forbidden" {
+                    return ok(json!({"data": [{"message_id": "", "is_sent": false, "drop_reason": {"code": "msg_duplicate", "message": "Your message was not sent because it is identical to the previous one you sent"}}]}));
+                }
+                let id = format!("msg-{}", chat.len() + 1);
+                chat.push(json!({"id": id, "message": b["message"], "reply": b["reply_parent_message_id"]}));
+                if l2.lock().unwrap().as_deref() == b["message"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"data": [{"message_id": id, "is_sent": true}]}))
+            }
+            ("POST", "/helix/chat/announcements") => {
+                assert_eq!((q["broadcaster_id"].as_str(), q["moderator_id"].as_str()), ("9001", "9001"));
+                a2.lock().unwrap().push(r.json());
+                Resp::Answer(204, vec![], String::new())
+            }
+            ("DELETE", "/helix/moderation/chat") => {
+                chat.retain(|m| m["id"] != q["message_id"].as_str());
+                Resp::Answer(204, vec![], String::new())
+            }
+            _ => err(404, "Not Found", "no such route"),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "twitch_north",
+            "twitch",
+            &[("https://api.twitch.tv", &net.base), ("https://id.twitch.tv", &net.base)],
+            json!({"client_secret": "twitch-secret"}),
+            |d| {
+                d["auth"]["provider"]["client_id"] = json!("twitch-app");
+                d["headers"]["client-id"] = json!("twitch-app");
+            },
+        )
+        .await;
+    t.sign_in(conn, "CODE-north").await;
+    let me = t.account("Northwind Twitch", "northwind", conn, "9001").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["max"].as_u64()), (Some("Twitch"), Some(500)));
+    let e = t.refused(&"a".repeat(501), vec![target(me)], json!({})).await;
+    assert!(e.contains("500"), "{e}");
+
+    // A chat message and a reply to it as the follow-up.
+    let p = t.post("Live in five", vec![target(me)], json!({"link": "https://northwind.example/live", "items": [{"text": "Starting now"}]})).await;
+    let out = t.out(p, me).await;
+    assert_eq!(out["external_id"], "9001:msg-1");
+    {
+        let c = chat.lock().unwrap();
+        assert_eq!(
+            (c[0]["message"].as_str(), c[1]["message"].as_str(), c[1]["reply"].as_str()),
+            (Some("Live in five https://northwind.example/live"), Some("Starting now"), Some("msg-1"))
+        );
+    }
+    // An announcement, with its colour.
+    let p = t.post("Giveaway tonight", vec![target_with(me, "announcement", json!({"color": "purple"}))], json!({})).await;
+    let ann = t.out(p, me).await;
+    assert_eq!(announced.lock().unwrap()[0], json!({"message": "Giveaway tonight", "color": "purple"}));
+    assert!(ann["external_id"].as_str().unwrap().starts_with("9001:announcement-"), "the API gives no id: {ann:?}");
+
+    // A lost answer: Twitch cannot be asked what is in the chat, so it is not sent again.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost one", vec![target(me)], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert!(post["failure"].as_str().unwrap().contains("may have been sent"), "{post:?}");
+    assert_eq!(net.to("POST", "/chat/messages").len(), 1);
+
+    // Twitch drops a message in a 200: the call fails, once (the reason is in the answer; see the notes).
+    net.clear();
+    let p = t.post("Forbidden", vec![target(me)], json!({})).await;
+    t.upkeep().await;
+    assert_eq!(t.get("SocialPost", p).await["status"], "Failed");
+    assert_eq!(net.to("POST", "/chat/messages").len(), 1);
+
+    net.clear();
+    t.delete_remote(&out).await;
+    let del = net.to("DELETE", "moderation");
+    assert_eq!(del.iter().map(|d| d.query()["message_id"].clone()).collect::<Vec<_>>(), ["msg-2", "msg-1"], "the answer first");
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
+    t.upkeep().await;
+    assert!(t.rows("SocialMetric", json!({"account": me.to_string()})).await.iter().any(|m| m["followers"] == 4321));
 }
