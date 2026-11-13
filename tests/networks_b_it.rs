@@ -545,6 +545,9 @@ async fn scenario() {
     if wanted("kick") {
         kick(&t).await;
     }
+    if wanted("dribbble") {
+        dribbble(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -2181,4 +2184,110 @@ async fn kick(t: &T) {
     assert_eq!(net.order(), ["DELETE /public/v1/chat/kick-2", "DELETE /public/v1/chat/kick-1"]);
     let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "northwind", "{checked}");
+}
+
+// ───────────── Dribbble ─────────────
+
+async fn dribbble(t: &T) {
+    // API v2 (developer.dribbble.com/v2): OAuth 2 at dribbble.com (a token that does not expire), /user with teams,
+    // POST /shots as multipart (`image`, `title`, `description`, `team_id`) answered 202 with the new shot's address in
+    // `Location`, /user/shots, /shots/{id}.
+    let shots: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (s2, l2) = (shots.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, m: &str| status(code, json!({"message": m}));
+        if r.path() == "/oauth/token" {
+            let f = r.form();
+            if f.get("code").map(String::as_str) != Some("CODE-north") || f.get("client_secret").map(String::as_str) != Some("dribbble-secret") {
+                return err(400, "bad code");
+            }
+            return ok(json!({"access_token": "db-token", "token_type": "bearer", "scope": "public upload", "created_at": 1700000000}));
+        }
+        if r.header("authorization") != "Bearer db-token" {
+            return err(401, "Bad credentials");
+        }
+        let mut shots = s2.lock().unwrap();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/v2/user") => ok(json!({"id": 31, "name": "Northwind", "login": "northwind", "avatar_url": "https://cdn.dribbble.test/a.png", "followers_count": 640,
+                                             "teams": [{"id": 5, "name": "Northwind Studio", "login": "nwstudio"}]})),
+            ("GET", "/v2/user/shots") => ok(Value::Array(shots.iter().rev().cloned().collect())),
+            ("GET", p) if p.starts_with("/v2/shots/") => ok(json!({"id": 1, "views_count": 1500, "likes_count": 30, "comments_count": 4})),
+            ("POST", "/v2/shots") => {
+                let title = r.part("title").map(|p| p.text()).unwrap_or_default();
+                let image = r.part("image");
+                if title == "Forbidden" {
+                    return err(422, "Image must be at least 400x300");
+                }
+                let image = image.expect("an image part");
+                assert_eq!((image.content.as_slice(), image.kind.as_deref()), (PNG, Some("image/png")));
+                let id = 4000 + shots.len() as i64;
+                shots.push(json!({"id": id, "title": title, "description": r.part("description").map(|p| p.text()), "team": r.part("team_id").map(|p| p.text()), "published_at": Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()}));
+                if l2.lock().unwrap().as_deref() == Some(title.as_str()) {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                with_headers(202, &[("location", &format!("https://api.dribbble.com/v2/shots/{id}"))], "")
+            }
+            ("DELETE", p) if p.starts_with("/v2/shots/") => {
+                let id: i64 = p.rsplit('/').next().unwrap().parse().unwrap();
+                shots.retain(|s| s["id"] != id);
+                Resp::Answer(204, vec![], String::new())
+            }
+            _ => err(404, "Not found"),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "dribbble_north",
+            "dribbble",
+            &[("https://api.dribbble.com", &net.base), ("https://dribbble.com", &net.base)],
+            json!({"client_secret": "dribbble-secret"}),
+            |d| {
+                d["auth"]["provider"]["client_id"] = json!("dribbble-app");
+            },
+        )
+        .await;
+    t.sign_in(conn, "CODE-north").await;
+    let me = t.account("Northwind Dribbble", "northwind", conn, "31").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["media"]["required"].as_bool(), rules["media"]["max"].as_u64()), (Some("Dribbble"), Some(true), Some(1)));
+    let teams = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "team"})).await.unwrap();
+    assert_eq!(teams["choices"], json!([{"value": "5", "label": "Northwind Studio"}]));
+    let e = t.refused("<p>No picture</p>", vec![target_with(me, "shot", json!({"title": "T"}))], json!({})).await;
+    assert!(e.contains("without an image"), "a shot needs its picture: {e}");
+    let e = t.refused("<p>Two</p>", vec![target_with(me, "shot", json!({"title": "T"}))], json!({"media": [t.media(&t.png, ""), t.media(&t.png, "")]})).await;
+    assert!(e.contains('1'), "exactly one picture: {e}");
+
+    let p =
+        t.post("<p>A new <b>logo</b></p>", vec![target_with(me, "shot", json!({"title": "Logo", "team": "5"}))], json!({"media": [t.media(&t.png, "")]})).await;
+    let out = t.out(p, me).await;
+    assert_eq!(
+        (out["external_id"].as_str(), out["permalink"].as_str()),
+        (Some("4000"), Some(format!("{}/shots/4000", net.base).as_str())),
+        "the host in the test is the fake's; the id is the last part of the Location header"
+    );
+    {
+        let s = shots.lock().unwrap()[0].clone();
+        assert_eq!((s["title"].as_str(), s["description"].as_str(), s["team"].as_str()), (Some("Logo"), Some("<p>A new <b>logo</b></p>"), Some("5")));
+    }
+    // A lost answer: the shot was made; the call finds it in the account's own shots by its title since it began.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("<p>x</p>", vec![target_with(me, "shot", json!({"title": "Lost one"}))], json!({"media": [t.media(&t.png, "")]})).await;
+    let kept = t.out(p, me).await;
+    assert!(kept["sent_at"].is_string() && net.to("POST", "/v2/shots").len() == 1, "sent once");
+    assert_eq!(shots.lock().unwrap().iter().filter(|s| s["title"] == "Lost one").count(), 1);
+    // A refusal, in Dribbble's words.
+    let p = t.post("<p>x</p>", vec![target_with(me, "shot", json!({"title": "Forbidden"}))], json!({"media": [t.media(&t.png, "")]})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("Image must be at least 400x300"));
+    t.later_upkeep().await;
+    let numbers = t.rows("SocialMetric", json!({})).await;
+    assert!(numbers.iter().any(|m| m["impressions"] == 1500 && m["engagements"] == 34), "{numbers:?}");
+    assert!(numbers.iter().any(|m| m["followers"] == 640));
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(net.order(), ["DELETE /v2/shots/4000"]);
 }
