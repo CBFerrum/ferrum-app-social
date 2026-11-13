@@ -315,7 +315,7 @@
   title_field: author
   description: A comment, mention or direct message to one of the brand's accounts, read through its connection, and handled by someone.
   fields:
-    - {name: external_id, type: data, no_copy: true, description: "The network's id for it: what keeps one message from arriving twice. Not read-only: a pull on a person's own connection is written as that person, and read-only fields would be dropped"}
+    - {name: external_id, type: data, read_only: true, no_copy: true, description: "The network's id for it: what keeps one message from arriving twice. Written by the connection's mapping, as the system (as: system)"}
     - {name: account_handle, type: data, description: "The account it came to, when the network says"}
     - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true, description: "Found by the handle, or by the post it answers; set it by hand when neither says"}
     - {name: thread, type: data, description: "The network's conversation it belongs to"}

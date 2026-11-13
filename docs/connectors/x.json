@@ -165,7 +165,8 @@
           "text": "/text",
           "thread": "/id",
           "via_connection": "connection.id"
-        }
+        },
+        "as": "system"
       }
     }
   ]

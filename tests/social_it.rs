@@ -357,7 +357,7 @@ fn description(base: &str, auth: Value, ops: &[&str], inbound: bool) -> Value {
         let map = json!({"entity": "SocialMessage", "items_at": "/items", "by": {"external_id": "item.id"},
             "set": {"kind": "item.kind == 'dm' ? 'Direct' : (item.kind == 'mention' ? 'Mention' : 'Comment')", "author": "item.from", "author_id": "item.from_id",
                     "text": "item.text", "account_handle": "/to", "post_external_id": "/on_post", "thread": "item.thread", "via_connection": "connection.id"},
-            "outside": true});
+            "outside": true, "as": "system"});
         d["inbound"] = json!({"verify": {"type": "token", "header": "x-token", "secret": "hook"}, "delivery_at": "/id", "map": map.clone()});
         d["pulls"] = json!([{"name": "inbox", "operation": "messages", "every_minutes": 5, "items_at": "/items", "cursor": "token", "next_at": "/next", "max_pages": 3, "map": map}]);
     }
