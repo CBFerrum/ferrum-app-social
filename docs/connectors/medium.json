@@ -1,0 +1,342 @@
+{
+  "base": "https://api.medium.com/v1",
+  "auth": {
+    "type": "bearer",
+    "secret": "integration_token"
+  },
+  "headers": {
+    "accept": "application/json",
+    "accept-charset": "utf-8"
+  },
+  "apps": [
+    "social"
+  ],
+  "timeout_ms": 60000,
+  "meta": {
+    "carries": {
+      "network": "Medium",
+      "provider": "medium"
+    },
+    "social": {
+      "name": "Medium",
+      "text": {
+        "format": "markdown",
+        "min": 1
+      },
+      "media": {
+        "kinds": [
+          "image"
+        ],
+        "max": 1,
+        "alt": true,
+        "image": {
+          "max_bytes": 10485760,
+          "types": [
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "image/tiff"
+          ]
+        }
+      },
+      "kinds": [
+        {
+          "name": "article",
+          "label": "Story"
+        }
+      ],
+      "follow_ups": {
+        "as": "none"
+      },
+      "link_preview": false,
+      "settings": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true,
+          "max": 100
+        },
+        {
+          "key": "tags",
+          "label": "Tags",
+          "type": "text",
+          "help": "Up to three, separated by commas"
+        },
+        {
+          "key": "canonical",
+          "label": "Original address",
+          "type": "text",
+          "help": "Where the story first appeared, if it did"
+        },
+        {
+          "key": "status",
+          "label": "Visibility",
+          "type": "select",
+          "default": "public",
+          "options": [
+            "public",
+            "draft",
+            "unlisted"
+          ]
+        },
+        {
+          "key": "license",
+          "label": "Licence",
+          "type": "select",
+          "options": [
+            "all-rights-reserved",
+            "cc-40-by",
+            "cc-40-by-sa",
+            "cc-40-by-nd",
+            "cc-40-by-nc",
+            "cc-40-by-nc-nd",
+            "cc-40-by-nc-sa",
+            "cc-40-zero",
+            "public-domain"
+          ]
+        },
+        {
+          "key": "notify",
+          "label": "Tell followers",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "publication",
+          "label": "Publication",
+          "type": "select",
+          "choices": {
+            "operation": "publications",
+            "inputs": {
+              "account_id": "account.id"
+            },
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/me",
+      "result": {
+        "people": {
+          "expr": "[{'id': answer.data.id, 'name': answer.data.name, 'handle': answer.data.username, 'picture': answer.data.imageUrl}]"
+        }
+      },
+      "error_at": "/errors/0/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/me",
+      "result": {
+        "name": "/data/name",
+        "handle": "/data/username",
+        "picture": "/data/imageUrl"
+      },
+      "error_at": "/errors/0/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "publications": {
+      "path": "/users/{{ inputs.account_id }}/publications",
+      "result": {
+        "items": {
+          "expr": "answer.data.map(p, {'id': p.id, 'name': p.name})"
+        }
+      },
+      "error_at": "/errors/0/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "account_id"
+      ]
+    },
+    "create_article": {
+      "method": "POST",
+      "path": "/users/{{ inputs.account_id }}/posts",
+      "body": "{\"title\": {{ inputs.title | json }}, \"contentFormat\": \"markdown\", \"content\": {{ inputs.content | json }}, \"publishStatus\": {{ (inputs.status or \"public\") | json }}, \"notifyFollowers\": {{ (inputs.notify or false) | json }}{% if inputs.tags %}, \"tags\": {{ inputs.tags | split(\",\") | map(\"trim\") | reject(\"equalto\", \"\") | list | json }}{% endif %}{% if inputs.canonical %}, \"canonicalUrl\": {{ inputs.canonical | json }}{% endif %}{% if inputs.license %}, \"license\": {{ inputs.license | json }}{% endif %}}",
+      "result": {
+        "id": {
+          "at": "/data/id",
+          "required": true
+        },
+        "url": "/data/url"
+      },
+      "error_at": "/errors/0/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "account_id",
+        "publication",
+        "title",
+        "content",
+        "status",
+        "notify",
+        "tags",
+        "canonical",
+        "license"
+      ]
+    },
+    "upload_image": {
+      "method": "POST",
+      "path": "/images",
+      "form": {
+        "image": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 10485760
+        }
+      },
+      "result": {
+        "url": {
+          "at": "/data/url",
+          "required": true
+        }
+      },
+      "error_at": "/errors/0/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "file"
+      ]
+    },
+    "create_in_publication": {
+      "method": "POST",
+      "path": "/publications/{{ inputs.publication }}/posts",
+      "body": "{\"title\": {{ inputs.title | json }}, \"contentFormat\": \"markdown\", \"content\": {{ inputs.content | json }}, \"publishStatus\": {{ (inputs.status or \"public\") | json }}, \"notifyFollowers\": {{ (inputs.notify or false) | json }}{% if inputs.tags %}, \"tags\": {{ inputs.tags | split(\",\") | map(\"trim\") | reject(\"equalto\", \"\") | list | json }}{% endif %}{% if inputs.canonical %}, \"canonicalUrl\": {{ inputs.canonical | json }}{% endif %}{% if inputs.license %}, \"license\": {{ inputs.license | json }}{% endif %}}",
+      "result": {
+        "id": {
+          "at": "/data/id",
+          "required": true
+        },
+        "url": "/data/url"
+      },
+      "error_at": "/errors/0/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "account_id",
+        "publication",
+        "title",
+        "content",
+        "status",
+        "notify",
+        "tags",
+        "canonical",
+        "license"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file"
+      ],
+      "steps": [
+        {
+          "name": "image",
+          "operation": "upload_image",
+          "inputs": {
+            "file": "inputs.file"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.image.url"
+        }
+      }
+    },
+    "publish": {
+      "steps": [
+        {
+          "name": "article",
+          "operation": "create_article",
+          "when": "not inputs.settings.publication",
+          "inputs": {
+            "account_id": "inputs.account_id",
+            "publication": "inputs.settings.publication",
+            "title": "inputs.settings.title",
+            "content": "('![' ~ (inputs.media_items[0].alt or '') ~ '](' ~ inputs.media[0] ~ ')\\n\\n' if inputs.media else '') ~ inputs.text_with_link",
+            "status": "inputs.settings.status",
+            "notify": "inputs.settings.notify",
+            "tags": "inputs.settings.tags",
+            "canonical": "inputs.settings.canonical",
+            "license": "inputs.settings.license"
+          }
+        },
+        {
+          "name": "in_publication",
+          "operation": "create_in_publication",
+          "when": "inputs.settings.publication",
+          "inputs": {
+            "account_id": "inputs.account_id",
+            "publication": "inputs.settings.publication",
+            "title": "inputs.settings.title",
+            "content": "('![' ~ (inputs.media_items[0].alt or '') ~ '](' ~ inputs.media[0] ~ ')\\n\\n' if inputs.media else '') ~ inputs.text_with_link",
+            "status": "inputs.settings.status",
+            "notify": "inputs.settings.notify",
+            "tags": "inputs.settings.tags",
+            "canonical": "inputs.settings.canonical",
+            "license": "inputs.settings.license"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.article != null ? answer.article.id : answer.in_publication.id"
+        },
+        "url": {
+          "expr": "answer.article != null ? answer.article.url : answer.in_publication.url"
+        }
+      },
+      "inputs": [
+        "account_id",
+        "settings",
+        "text_with_link",
+        "media",
+        "media_items"
+      ]
+    }
+  }
+}

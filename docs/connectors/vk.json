@@ -1,0 +1,637 @@
+{
+  "base": "https://api.vk.ru",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://id.vk.ru/authorize",
+      "token_url": "https://id.vk.ru/oauth2/auth",
+      "scopes": [
+        "vkid.personal_info",
+        "wall",
+        "photos",
+        "video"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "keep": [
+        "device_id"
+      ],
+      "refresh": "refresh_vk",
+      "account_at": "/user_id"
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.vk.ru",
+    "id.vk.ru",
+    "pu.vk.ru",
+    "pu.vk.com",
+    "ps.userapi.com",
+    "vu.mycdn.me"
+  ],
+  "timeout_ms": 60000,
+  "limit": {
+    "per": 3,
+    "every": 1,
+    "concurrent": 1
+  },
+  "meta": {
+    "carries": {
+      "network": "VK",
+      "provider": "vk"
+    },
+    "social": {
+      "name": "VK",
+      "text": {
+        "max": 16384,
+        "format": "plain"
+      },
+      "media": {
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "max": 10,
+        "image": {
+          "max_bytes": 26214400
+        },
+        "video": {
+          "max_bytes": 26214400
+        }
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Wall post"
+        }
+      ],
+      "follow_ups": {
+        "as": "comment",
+        "media": false,
+        "max": 20,
+        "text": {
+          "max": 4096,
+          "format": "plain"
+        }
+      },
+      "first_comment": true,
+      "link_preview": true,
+      "settings": [
+        {
+          "key": "friends_only",
+          "label": "Friends only",
+          "type": "bool",
+          "default": false
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "get_wall_upload_server": {
+      "method": "POST",
+      "path": "/method/photos.getWallUploadServer",
+      "form": {
+        "v": "5.251"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "upload_url": {
+          "expr": "has(answer.error) ? null : answer.response.upload_url",
+          "required": true
+        }
+      },
+      "changes": false
+    },
+    "upload_photo": {
+      "method": "POST",
+      "url": "{{ inputs.url }}",
+      "credentials": false,
+      "changes": false,
+      "form": {
+        "photo": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "server": {
+          "expr": "string(answer.server)"
+        },
+        "photo": "/photo",
+        "hash": "/hash"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "url",
+        "file"
+      ]
+    },
+    "save_wall_photo": {
+      "method": "POST",
+      "path": "/method/photos.saveWallPhoto",
+      "form": {
+        "v": "5.251",
+        "server": "{{ inputs.server }}",
+        "photo": "{{ inputs.photo }}",
+        "hash": "{{ inputs.hash }}"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "ref": {
+          "expr": "has(answer.error) ? null : 'photo' + string(answer.response[0].owner_id) + '_' + string(answer.response[0].id)",
+          "required": true
+        }
+      },
+      "inputs": [
+        "server",
+        "photo",
+        "hash"
+      ]
+    },
+    "video_save": {
+      "method": "POST",
+      "path": "/method/video.save",
+      "form": {
+        "v": "5.251"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "upload_url": {
+          "expr": "has(answer.error) ? null : answer.response.upload_url",
+          "required": true
+        },
+        "ref": {
+          "expr": "has(answer.error) ? null : 'video' + string(answer.response.owner_id) + '_' + string(answer.response.video_id)"
+        }
+      }
+    },
+    "upload_video": {
+      "method": "POST",
+      "url": "{{ inputs.url }}",
+      "credentials": false,
+      "changes": false,
+      "form": {
+        "video_file": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "video_id": "/video_id"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "url",
+        "file"
+      ]
+    },
+    "wall_post": {
+      "method": "POST",
+      "path": "/method/wall.post",
+      "form": {
+        "v": "5.251",
+        "message": "{{ inputs.message }}",
+        "attachments": "{{ inputs.attachments }}",
+        "friends_only": "{{ 1 if inputs.friends_only else 0 }}"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "id": {
+          "expr": "has(answer.error) ? null : inputs.owner + '_' + string(answer.response.post_id)",
+          "required": true
+        }
+      },
+      "inputs": [
+        "owner",
+        "message",
+        "attachments",
+        "friends_only"
+      ]
+    },
+    "wall_recent": {
+      "method": "POST",
+      "path": "/method/wall.get",
+      "form": {
+        "v": "5.251",
+        "count": "10"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "id": {
+          "expr": "has(answer.error) ? '' : answer.response.items.filter(p, p.text == inputs.message && p.date >= int(timestamp(inputs.after))).map(p, inputs.owner + '_' + string(p.id)).join('')"
+        }
+      },
+      "inputs": [
+        "owner",
+        "message",
+        "after"
+      ],
+      "changes": false
+    },
+    "create_comment": {
+      "method": "POST",
+      "path": "/method/wall.createComment",
+      "form": {
+        "v": "5.251",
+        "post_id": "{{ inputs.post }}",
+        "message": "{{ inputs.message }}"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "id": {
+          "expr": "has(answer.error) ? null : string(answer.response.comment_id)",
+          "required": true
+        }
+      },
+      "inputs": [
+        "post",
+        "message"
+      ]
+    },
+    "delete_post": {
+      "method": "POST",
+      "path": "/method/wall.delete",
+      "form": {
+        "v": "5.251",
+        "post_id": "{{ inputs.id | split('_') | last }}"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "done": {
+          "expr": "has(answer.error) ? null : true",
+          "required": true
+        }
+      },
+      "inputs": [
+        "id"
+      ]
+    },
+    "delete_comment": {
+      "method": "POST",
+      "path": "/method/wall.deleteComment",
+      "form": {
+        "v": "5.251",
+        "comment_id": "{{ inputs.id }}"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "done": {
+          "expr": "has(answer.error) ? null : true",
+          "required": true
+        }
+      },
+      "inputs": [
+        "id"
+      ]
+    },
+    "post_numbers": {
+      "method": "POST",
+      "path": "/method/wall.getById",
+      "form": {
+        "v": "5.251",
+        "posts": "{{ inputs.id }}"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "impressions": {
+          "expr": "has(answer.error) ? null : (has(answer.response.items[0].views) ? answer.response.items[0].views.count : null)"
+        },
+        "engagements": {
+          "expr": "has(answer.error) ? null : answer.response.items[0].likes.count + answer.response.items[0].reposts.count + answer.response.items[0].comments.count"
+        }
+      },
+      "inputs": [
+        "id"
+      ],
+      "changes": false
+    },
+    "refresh_vk": {
+      "method": "POST",
+      "url": "https://id.vk.ru/oauth2/auth",
+      "changes": false,
+      "form": {
+        "grant_type": "refresh_token",
+        "refresh_token": "{{ inputs.refresh_token }}",
+        "client_id": "{{ inputs.client_id }}",
+        "device_id": "{{ auth.device_id }}",
+        "state": "ferrum"
+      },
+      "result": {
+        "access_token": "/access_token",
+        "refresh_token": "/refresh_token",
+        "expires_in": "/expires_in"
+      },
+      "error_at": "/error_description",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "refresh_token",
+        "client_id"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file",
+        "content_type"
+      ],
+      "steps": [
+        {
+          "name": "slot",
+          "operation": "get_wall_upload_server",
+          "when": "'video' not in inputs.content_type"
+        },
+        {
+          "name": "photo",
+          "operation": "upload_photo",
+          "when": "'video' not in inputs.content_type",
+          "inputs": {
+            "url": "steps.slot.upload_url",
+            "file": "inputs.file"
+          }
+        },
+        {
+          "name": "saved",
+          "operation": "save_wall_photo",
+          "when": "'video' not in inputs.content_type",
+          "inputs": {
+            "server": "steps.photo.server",
+            "photo": "steps.photo.photo",
+            "hash": "steps.photo.hash"
+          }
+        },
+        {
+          "name": "vslot",
+          "operation": "video_save",
+          "when": "'video' in inputs.content_type"
+        },
+        {
+          "name": "video",
+          "operation": "upload_video",
+          "when": "'video' in inputs.content_type",
+          "inputs": {
+            "url": "steps.vslot.upload_url",
+            "file": "inputs.file"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.saved != null ? answer.saved.ref : answer.vslot.ref"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "account_id",
+        "settings",
+        "text_with_link",
+        "media",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "wall_post",
+          "inputs": {
+            "owner": "inputs.account_id",
+            "message": "inputs.text_with_link",
+            "attachments": "inputs.media | join(',')",
+            "friends_only": "inputs.settings.friends_only"
+          },
+          "confirm": {
+            "operation": "wall_recent",
+            "inputs": {
+              "owner": "sent.owner",
+              "message": "sent.message",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": {
+          "expr": "'https://vk.com/wall' + answer.post.id"
+        }
+      }
+    },
+    "reply": {
+      "inputs": [
+        "text",
+        "in_reply_to",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "comment",
+          "operation": "create_comment",
+          "inputs": {
+            "post": "inputs.in_reply_to | split('_') | last",
+            "message": "inputs.text"
+          }
+        }
+      ],
+      "result": {
+        "id": "/comment/id"
+      }
+    },
+    "delete": {
+      "inputs": [
+        "id",
+        "follow_up"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "delete_post",
+          "when": "inputs.follow_up != 'comment'",
+          "inputs": {
+            "id": "inputs.id"
+          }
+        },
+        {
+          "name": "comment",
+          "operation": "delete_comment",
+          "when": "inputs.follow_up == 'comment'",
+          "inputs": {
+            "id": "inputs.id"
+          }
+        }
+      ]
+    },
+    "metrics": {
+      "inputs": [
+        "id"
+      ],
+      "changes": false,
+      "steps": [
+        {
+          "name": "n",
+          "operation": "post_numbers",
+          "inputs": {
+            "id": "inputs.id"
+          }
+        }
+      ],
+      "result": {
+        "impressions": "/n/impressions",
+        "engagements": "/n/engagements"
+      }
+    },
+    "accounts": {
+      "method": "POST",
+      "path": "/method/users.get",
+      "form": {
+        "v": "5.251",
+        "fields": "photo_100,followers_count"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "people": {
+          "expr": "has(answer.error) ? [] : answer.response.map(u, {'id': string(u.id), 'name': u.first_name + ' ' + u.last_name, 'handle': has(u.screen_name) ? u.screen_name : 'id' + string(u.id), 'picture': has(u.photo_100) ? u.photo_100 : null})"
+        }
+      },
+      "changes": false
+    },
+    "me": {
+      "method": "POST",
+      "path": "/method/users.get",
+      "form": {
+        "v": "5.251",
+        "fields": "photo_100,followers_count"
+      },
+      "error_at": "/error/error_msg",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "name": {
+          "expr": "has(answer.error) ? null : answer.response[0].first_name + ' ' + answer.response[0].last_name"
+        },
+        "picture": {
+          "expr": "has(answer.error) ? null : (has(answer.response[0].photo_100) ? answer.response[0].photo_100 : null)"
+        },
+        "followers": {
+          "expr": "has(answer.error) ? null : (has(answer.response[0].followers_count) ? answer.response[0].followers_count : null)"
+        }
+      },
+      "changes": false
+    },
+    "account": {
+      "changes": false,
+      "steps": [
+        {
+          "name": "me",
+          "operation": "me"
+        }
+      ],
+      "result": {
+        "name": "/me/name",
+        "picture": "/me/picture",
+        "followers": "/me/followers"
+      }
+    }
+  }
+}

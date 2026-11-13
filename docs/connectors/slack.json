@@ -1,0 +1,491 @@
+{
+  "base": "https://slack.com/api",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://slack.com/oauth/v2/authorize",
+      "token_url": "https://slack.com/api/oauth.v2.access",
+      "revoke_url": "https://slack.com/api/auth.revoke",
+      "scopes": [
+        "chat:write",
+        "chat:write.public",
+        "channels:read",
+        "groups:read",
+        "channels:history",
+        "groups:history",
+        "files:write",
+        "users:read"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body",
+      "account_at": "/team/name",
+      "never_expires": true
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "slack.com",
+    "files.slack.com"
+  ],
+  "timeout_ms": 60000,
+  "limit": {
+    "per": 50,
+    "every": 60,
+    "concurrent": 2
+  },
+  "meta": {
+    "carries": {
+      "network": "Slack",
+      "provider": "slack"
+    },
+    "social": {
+      "name": "Slack",
+      "text": {
+        "max": 4000,
+        "count": "characters",
+        "format": "plain"
+      },
+      "media": {
+        "kinds": []
+      },
+      "kinds": [
+        {
+          "name": "message",
+          "label": "Message"
+        },
+        {
+          "name": "images",
+          "label": "Message with pictures",
+          "text": {
+            "max": 3000,
+            "count": "characters",
+            "format": "plain"
+          },
+          "media": {
+            "kinds": [
+              "image"
+            ],
+            "max": 10,
+            "alt": true,
+            "alt_max": 2000,
+            "image": {
+              "max_bytes": 26214400,
+              "types": [
+                "image/png",
+                "image/jpeg",
+                "image/gif",
+                "image/bmp"
+              ]
+            },
+            "required": true,
+            "min": 1
+          }
+        }
+      ],
+      "follow_ups": {
+        "as": "thread",
+        "media": false,
+        "max": 50
+      },
+      "link_preview": true,
+      "settings": [
+        {
+          "key": "channel",
+          "label": "Channel",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "channels",
+            "items_at": "/channels",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/workspaces",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle"
+      },
+      "mentions": {
+        "operation": "mentions",
+        "inputs": {
+          "query": "query"
+        },
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "format": "<@{{ value }}>"
+      }
+    }
+  },
+  "operations": {
+    "auth_test": {
+      "path": "/auth.test",
+      "changes": false,
+      "result": {
+        "team_id": "/team_id",
+        "team": "/team",
+        "user": "/user",
+        "ok": "/ok"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "accounts": {
+      "path": "/auth.test",
+      "changes": false,
+      "result": {
+        "workspaces": {
+          "expr": "answer.ok ? [{'id': answer.team_id, 'name': answer.team, 'handle': answer.user}] : []"
+        }
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "account": {
+      "path": "/auth.test",
+      "changes": false,
+      "result": {
+        "name": "/team",
+        "handle": "/user"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "channels": {
+      "path": "/conversations.list",
+      "query": {
+        "types": "public_channel,private_channel",
+        "exclude_archived": "true",
+        "limit": "1000"
+      },
+      "result": {
+        "channels": {
+          "expr": "answer.ok ? answer.channels.map(c, {'id': c.id, 'name': c.name}) : []"
+        }
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "mentions": {
+      "path": "/users.list",
+      "query": {
+        "limit": "200"
+      },
+      "result": {
+        "people": {
+          "expr": "answer.ok ? answer.members.filter(u, !u.deleted && !(has(u.is_bot) && u.is_bot) && (u.name.contains(inputs.query) || u.real_name.contains(inputs.query))).map(u, {'id': u.id, 'name': u.real_name}) : []"
+        }
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "query"
+      ]
+    },
+    "post_message": {
+      "method": "POST",
+      "path": "/chat.postMessage",
+      "body": "{\"channel\": {{ inputs.channel | json }}, \"text\": {{ inputs.text | json }}, \"unfurl_links\": true, \"metadata\": {\"event_type\": \"ferrum_social\", \"event_payload\": {\"ref\": {{ inputs.ref | json }}}}{% if inputs.thread_ts %}, \"thread_ts\": {{ inputs.thread_ts | json }}{% endif %}{% if inputs.media_items %}, \"blocks\": [{\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": {{ inputs.text | json }}}}{% for m in inputs.media_items %}, {\"type\": \"image\", \"slack_file\": {\"id\": {{ m.id | json }}}, \"alt_text\": {{ (m.alt or \"image\") | json }}}{% endfor %}]{% endif %}}",
+      "result": {
+        "ok": "/ok",
+        "channel": "/channel",
+        "ts": "/ts"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel",
+        "text",
+        "thread_ts",
+        "media_items",
+        "ref"
+      ]
+    },
+    "recent": {
+      "path": "/conversations.history",
+      "query": {
+        "channel": "{{ inputs.channel }}",
+        "limit": "15",
+        "include_all_metadata": "true"
+      },
+      "result": {
+        "ok": "/ok",
+        "channel": {
+          "expr": "inputs.channel"
+        },
+        "ts": {
+          "expr": "answer.ok ? answer.messages.filter(m, has(m.metadata) && m.metadata.event_payload.ref == inputs.ref).map(m, m.ts).join('') : null"
+        }
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel",
+        "ref"
+      ]
+    },
+    "get_permalink": {
+      "path": "/chat.getPermalink",
+      "query": {
+        "channel": "{{ inputs.channel }}",
+        "message_ts": "{{ inputs.ts }}"
+      },
+      "result": {
+        "permalink": "/permalink"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel",
+        "ts"
+      ]
+    },
+    "upload_slot": {
+      "path": "/files.getUploadURLExternal",
+      "query": {
+        "filename": "{{ inputs.name }}",
+        "length": "{{ inputs.size }}"
+      },
+      "result": {
+        "upload_url": {
+          "at": "/upload_url",
+          "required": true
+        },
+        "file_id": "/file_id"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "name",
+        "size"
+      ]
+    },
+    "put_bytes": {
+      "method": "POST",
+      "url": "{{ inputs.url }}",
+      "credentials": false,
+      "changes": false,
+      "body": {
+        "file": "{{ inputs.file }}",
+        "max_bytes": 26214400
+      },
+      "answer": "text",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "url",
+        "file"
+      ]
+    },
+    "complete_upload": {
+      "method": "POST",
+      "path": "/files.completeUploadExternal",
+      "body": "{\"files\": [{\"id\": {{ inputs.file_id | json }}, \"title\": {{ inputs.title | json }}}]}",
+      "result": {
+        "ok": "/ok",
+        "title": "/files/0/title",
+        "id": "/files/0/id"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "file_id",
+        "title"
+      ]
+    },
+    "file_info": {
+      "path": "/files.info",
+      "query": {
+        "file": "{{ inputs.file_id }}"
+      },
+      "result": {
+        "ok": "/ok",
+        "title": "/file/title",
+        "id": "/file/id"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "file_id"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file",
+        "name",
+        "size"
+      ],
+      "steps": [
+        {
+          "name": "slot",
+          "operation": "upload_slot",
+          "inputs": {
+            "name": "inputs.name",
+            "size": "inputs.size"
+          }
+        },
+        {
+          "name": "bytes",
+          "operation": "put_bytes",
+          "inputs": {
+            "url": "steps.slot.upload_url",
+            "file": "inputs.file"
+          }
+        },
+        {
+          "name": "done",
+          "operation": "complete_upload",
+          "inputs": {
+            "file_id": "steps.slot.file_id",
+            "title": "inputs.name"
+          },
+          "confirm": {
+            "operation": "file_info",
+            "inputs": {
+              "file_id": "sent.file_id"
+            },
+            "proves": "result.title == sent.title"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.slot.file_id"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "root",
+        "text_with_link",
+        "media_items"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "post_message",
+          "inputs": {
+            "channel": "inputs.settings.channel",
+            "text": "inputs.text_with_link",
+            "thread_ts": "(inputs.root | split(':') | last) if inputs.root else none",
+            "media_items": "inputs.media_items",
+            "ref": "key"
+          },
+          "confirm": {
+            "operation": "recent",
+            "inputs": {
+              "channel": "sent.channel",
+              "ref": "sent.ref"
+            },
+            "proves": "result.ts"
+          }
+        },
+        {
+          "name": "link",
+          "operation": "get_permalink",
+          "inputs": {
+            "channel": "steps.post.channel",
+            "ts": "steps.post.ts"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.post.ok ? concat(answer.post.channel, ':', answer.post.ts) : null",
+          "required": true
+        },
+        "url": "/link/permalink"
+      }
+    },
+    "delete": {
+      "method": "POST",
+      "path": "/chat.delete",
+      "body": "{\"channel\": {{ inputs.id | split(\":\") | first | json }}, \"ts\": {{ inputs.id | split(\":\") | last | json }}}",
+      "result": {
+        "deleted": {
+          "expr": "answer.ok ? true : null",
+          "required": true
+        }
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    }
+  }
+}
