@@ -105,7 +105,7 @@ disconnect), Media (library, upload, stock pictures and GIFs, from an address), 
 Numbers (a period against the one before, by network, account and kind, top posts, posts made on the network
 itself), Library, Feeds and plugs, and Notices. No network is named in the interface's code: a new network needs no
 interface change. Every word is in Arabic and Hindi too (written by the model, to be reviewed by native speakers).
-Built with Ferrum-Frontend c134911. Walked in a browser on a local server (the composer's checks, a draft with
+Built with Ferrum-Frontend 9cc64fb. Walked in a browser on a local server (the composer's checks, a draft with
 problems, the calendar, each page, a phone width); signing in to a real network, dragging and uploading were not.
 
 ## 0.7.0
@@ -118,11 +118,11 @@ Accounts are connections (the workspace's sign-in, a person's own, a key, or a s
 
 ## 0.6.13
 
-Rebuilt with Ferrum-Frontend 45dad7f, the design system as tuned after the landed build was reviewed. The left menu's icons are chosen so that none repeats on more than three rows and each fits its row; their drawings load beside the first page instead of inside it, so the page starts lighter; a row that scrolls sideways fades at the edge where there is more, in every browser and with reduced motion; a printed record leaves out empty fields and keeps its totals with the table; menus and popovers sit inside the page's landmarks for assistive technology; a selection bar folds what does not fit into More on a narrow screen. Nothing else changes.
+Rebuilt with Ferrum-Frontend 9e7190c, the design system as tuned after the landed build was reviewed. The left menu's icons are chosen so that none repeats on more than three rows and each fits its row; their drawings load beside the first page instead of inside it, so the page starts lighter; a row that scrolls sideways fades at the edge where there is more, in every browser and with reduced motion; a printed record leaves out empty fields and keeps its totals with the table; menus and popovers sit inside the page's landmarks for assistive technology; a selection bar folds what does not fit into More on a narrow screen. Nothing else changes.
 
 ## 0.6.12
 
-The home shows posts that did not go out: a "Did not go out" queue first, in the attention tone, each post with the network's reason (one line per account) and a Retry that sends it again only to the accounts that did not get it. Failed has its red status colour wherever the home lists a post. Its labels, the Retry action and the failure texts have names in Arabic and Hindi. Rebuilt with Ferrum-Frontend 0a47157.
+The home shows posts that did not go out: a "Did not go out" queue first, in the attention tone, each post with the network's reason (one line per account) and a Retry that sends it again only to the accounts that did not get it. Failed has its red status colour wherever the home lists a post. Its labels, the Retry action and the failure texts have names in Arabic and Hindi. Rebuilt with Ferrum-Frontend 76c4fad.
 
 ## 0.6.11
 
@@ -130,7 +130,7 @@ A post that could not be sent now says so. It has a Failed status, with the netw
 
 ## 0.6.10
 
-The interface follows the upgraded design system, rebuilt with Ferrum-Frontend 0a47157. Text uses the kit's type roles (nothing under 12px) and controls its height tokens; loading shows skeletons shaped like what is coming; empty, no matches, denied, offline and failed are told apart; status colours come from stored state ids. The interface check now runs the UI lint against an empty baseline. The home is rebuilt on the kit's work-home pattern: one page title, the main action as a button, queues with their counts, status at its natural width; its other own pages follow the same anatomy.
+The interface follows the upgraded design system, rebuilt with Ferrum-Frontend 76c4fad. Text uses the kit's type roles (nothing under 12px) and controls its height tokens; loading shows skeletons shaped like what is coming; empty, no matches, denied, offline and failed are told apart; status colours come from stored state ids. The interface check now runs the UI lint against an empty baseline. The home is rebuilt on the kit's work-home pattern: one page title, the main action as a button, queues with their counts, status at its natural width; its other own pages follow the same anatomy.
 
 ## 0.6.9
 
@@ -138,7 +138,7 @@ The reports it defines in code (their titles and parameters) have names in Arabi
 
 ## 0.6.8
 
-Rebuilt with Ferrum-Frontend c59c9a2: the names of its models, fields and manifest in Arabic and Hindi (102 each in ui/src/locales/names, which the platform serves to every page of the workspace, so a record's labels, the launcher and the bar read in the person's language). Translated by the model, to be reviewed by native speakers.
+Rebuilt with Ferrum-Frontend 43d7779: the names of its models, fields and manifest in Arabic and Hindi (102 each in ui/src/locales/names, which the platform serves to every page of the workspace, so a record's labels, the launcher and the bar read in the person's language). Translated by the model, to be reviewed by native speakers.
 
 ## 0.6.7
 
@@ -146,27 +146,27 @@ The assistant knows what its records mean in its pages (contributes.shell.assist
 
 ## 0.6.6
 
-Rebuilt with Ferrum-Frontend 5b22e7b: its own words carry built-in Arabic and Hindi (19 words each, ui/src/locales, translated by the model and to be reviewed by native speakers), fetched for the page's language only. The labels it keeps in objects, its dialogs, its page titles and the words it keeps in variables go through t() as well, and the names and sizes it shows as they are keep their order right to left. Its pages are drawn once their words are in, and its entry carries only the parts of the kit it uses.
+Rebuilt with Ferrum-Frontend 389b2af: its own words carry built-in Arabic and Hindi (19 words each, ui/src/locales, translated by the model and to be reviewed by native speakers), fetched for the page's language only. The labels it keeps in objects, its dialogs, its page titles and the words it keeps in variables go through t() as well, and the names and sizes it shows as they are keep their order right to left. Its pages are drawn once their words are in, and its entry carries only the parts of the kit it uses.
 
 ## 0.6.5
 
-Rebuilt with Ferrum-Frontend 6537d65: an action's link, code or token shown once is kept in a dialog to copy, and on a page that reads right to left, English left untranslated keeps its own order. Its own words go through the kit's t() (23 places), so a workspace's own words for its language reach them, and Admin, Interface words lists them under it (dist/words.json).
+Rebuilt with Ferrum-Frontend 1f5981d: an action's link, code or token shown once is kept in a dialog to copy, and on a page that reads right to left, English left untranslated keeps its own order. Its own words go through the kit's t() (23 places), so a workspace's own words for its language reach them, and Admin, Interface words lists them under it (dist/words.json).
 
 ## 0.6.4
 
-Rebuilt with Ferrum-Frontend d5d98f2: a workspace's own words for its interface (Admin, Interface words) reach its pages as they load; an attachment field that holds a picture shows it; and a value another record already has is said so, where the form said the record had been changed by someone else.
+Rebuilt with Ferrum-Frontend 8a1c2e7: a workspace's own words for its interface (Admin, Interface words) reach its pages as they load; an attachment field that holds a picture shows it; and a value another record already has is said so, where the form said the record had been changed by someone else.
 
 ## 0.6.3
 
-Rebuilt with Ferrum-Frontend 63280d3: right to left, its pages mirror as they read (icons that point along the line, margins and alignment by the line's start and end, arrow keys along it), and the records pages' words are in Arabic and Hindi.
+Rebuilt with Ferrum-Frontend 9d80f4f: right to left, its pages mirror as they read (icons that point along the line, margins and alignment by the line's start and end, arrow keys along it), and the records pages' words are in Arabic and Hindi.
 
 ## 0.6.2
 
-Rebuilt with Ferrum-Frontend a64416a: a new record's box whose default is 1 shows ticked, as it is saved. An action's dialog says every refusal, the errors on what the action made (another record's rows) among them, and an action with parameters and a confirmation asks once. A new account's Active box is ticked, as it is saved: its default was the number 1, which the form showed unticked.
+Rebuilt with Ferrum-Frontend 204b713: a new record's box whose default is 1 shows ticked, as it is saved. An action's dialog says every refusal, the errors on what the action made (another record's rows) among them, and an action with parameters and a confirmation asks once. A new account's Active box is ticked, as it is saved: its default was the number 1, which the form showed unticked.
 
 ## 0.6.1
 
-Rebuilt with Ferrum-Frontend a76295e: its pages show times on a person's own clock when they chose one on their Account page, while today and due dates stay on the workspace's day.
+Rebuilt with Ferrum-Frontend b39fffb: its pages show times on a person's own clock when they chose one on their Account page, while today and due dates stay on the workspace's day.
 
 ## 0.6.0
 
@@ -180,7 +180,7 @@ Best times to post (FERRUM-ECOSYSTEM-005).
 
 ## 0.5.1
 
-Rebuilt with Ferrum-Frontend 24c3951: its pages show times on the workspace's clock, naming the zone when it is not the browser's, a draft numbered on submit is headed as a draft, and a record of an app that is not installed says so.
+Rebuilt with Ferrum-Frontend d350579: its pages show times on the workspace's clock, naming the zone when it is not the browser's, a draft numbered on submit is headed as a draft, and a record of an app that is not installed says so.
 
 ## 0.5.0
 
@@ -206,7 +206,7 @@ Pictures on posts (FERRUM-ECOSYSTEM-005).
   within its 1 MB. Both connectors now offer `publish_image`.
 - A post with a picture goes only to accounts whose connection publishes pictures. Instagram takes
   a post with its picture; YouTube still takes video, which posts do not carry.
-- Rebuilt with Ferrum-Frontend bb60115: empty numbers read as the server does, and settings open as
+- Rebuilt with Ferrum-Frontend 20d08e5: empty numbers read as the server does, and settings open as
   their one record.
 
 ## 0.3.0
@@ -227,7 +227,7 @@ A connector for Bluesky (FERRUM-ECOSYSTEM-005).
 
 ## 0.2.5
 
-Rebuilt with Ferrum-Frontend 00dea07: in a workflow state that names what may change, the other fields show read-only, and the fields the state needs show required.
+Rebuilt with Ferrum-Frontend ae13c69: in a workflow state that names what may change, the other fields show read-only, and the fields the state needs show required.
 
 ## 0.2.4
 
@@ -235,7 +235,7 @@ Rebuilt with Ferrum-Frontend daeadda: after an action runs, a record page shows 
 
 ## 0.2.3
 
-Rebuilt with Ferrum-Frontend 80ff179: a field's label names its control for assistive technology, and a record whose title is a link shows that record's title, not its id.
+Rebuilt with Ferrum-Frontend 89b7cc7: a field's label names its control for assistive technology, and a record whose title is a link shows that record's title, not its id.
 
 ## 0.2.2
 
