@@ -1,0 +1,435 @@
+{
+  "base": "https://api.whop.com/api/v1",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://api.whop.com/oauth/authorize",
+      "token_url": "https://api.whop.com/oauth/token",
+      "scopes": [
+        "openid",
+        "profile",
+        "email",
+        "forum:post:create",
+        "forum:read",
+        "company:basic:read"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID"
+    }
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.whop.com"
+  ],
+  "timeout_ms": 60000,
+  "meta": {
+    "carries": {
+      "network": "Whop",
+      "provider": "whop"
+    },
+    "social": {
+      "name": "Whop",
+      "text": {
+        "format": "markdown",
+        "min": 1
+      },
+      "media": {
+        "kinds": [
+          "image",
+          "video",
+          "document",
+          "file"
+        ],
+        "max": 10,
+        "image": {
+          "max_bytes": 26214400
+        },
+        "video": {
+          "max_bytes": 26214400
+        },
+        "document": {
+          "max_bytes": 26214400
+        },
+        "other": {
+          "file": {
+            "max_bytes": 26214400
+          }
+        }
+      },
+      "kinds": [
+        {
+          "name": "post",
+          "label": "Forum post"
+        }
+      ],
+      "follow_ups": {
+        "as": "comment",
+        "media": false,
+        "max": 20
+      },
+      "first_comment": true,
+      "settings": [
+        {
+          "key": "company",
+          "label": "Company",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "companies",
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "experience",
+          "label": "Forum",
+          "type": "select",
+          "required": true,
+          "choices": {
+            "operation": "forums",
+            "inputs": {
+              "company": "settings.company"
+            },
+            "items_at": "/items",
+            "value_at": "/id",
+            "label_at": "/name"
+          }
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text"
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "url": "https://api.whop.com/oauth/userinfo",
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "people": {
+          "expr": "[{'id': answer.sub, 'name': has(answer.name) && answer.name != null ? answer.name : answer.preferred_username, 'handle': answer.preferred_username, 'picture': has(answer.picture) ? answer.picture : null}]"
+        }
+      }
+    },
+    "companies": {
+      "path": "/companies",
+      "query": {
+        "first": "50"
+      },
+      "result": {
+        "items": {
+          "expr": "answer.data.map(c, {'id': c.id, 'name': c.title})"
+        }
+      },
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "forums": {
+      "path": "/forums",
+      "query": {
+        "company_id": "{{ inputs.company }}",
+        "first": "50"
+      },
+      "result": {
+        "items": {
+          "expr": "answer.data.map(f, {'id': has(f.experience) ? f.experience.id : f.id, 'name': has(f.experience) ? f.experience.name : f.id})"
+        }
+      },
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "company"
+      ]
+    },
+    "create_file": {
+      "method": "POST",
+      "path": "/files",
+      "body": "{\"filename\": {{ inputs.name | json }}}",
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        },
+        "upload_url": {
+          "at": "/upload_url",
+          "required": true
+        }
+      },
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "name"
+      ]
+    },
+    "put_bytes": {
+      "method": "PUT",
+      "url": "{{ inputs.url }}",
+      "credentials": false,
+      "changes": false,
+      "body": {
+        "file": "{{ inputs.file }}",
+        "max_bytes": 26214400
+      },
+      "answer": "text",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "url",
+        "file"
+      ]
+    },
+    "file_status": {
+      "path": "/files/{{ inputs.id }}",
+      "result": {
+        "status": "/upload_status"
+      },
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "create_post": {
+      "method": "POST",
+      "path": "/forum_posts",
+      "body": "{\"experience_id\": {{ inputs.experience | json }}, \"content\": {{ inputs.content | json }}{% if inputs.title %}, \"title\": {{ inputs.title | json }}{% endif %}{% if inputs.parent %}, \"parent_id\": {{ inputs.parent | json }}{% endif %}{% if inputs.attachments %}, \"attachments\": [{% for a in inputs.attachments %}{% if not loop.first %}, {% endif %}{\"id\": {{ a | json }}}{% endfor %}]{% endif %}}",
+      "result": {
+        "id": {
+          "at": "/id",
+          "required": true
+        }
+      },
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "experience",
+        "content",
+        "title",
+        "parent",
+        "attachments"
+      ]
+    },
+    "recent_posts": {
+      "path": "/forum_posts",
+      "query": {
+        "experience_id": "{{ inputs.experience }}",
+        "first": "10"
+      },
+      "result": {
+        "id": {
+          "expr": "answer.data.filter(p, p.content == inputs.content && p.created_at >= inputs.after.substring(0, 19)).map(p, p.id).join('')"
+        }
+      },
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "experience",
+        "content",
+        "after"
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/forum_posts/{{ inputs.id }}",
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "account": {
+      "url": "https://api.whop.com/oauth/userinfo",
+      "error_at": "/error/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "result": {
+        "name": {
+          "expr": "has(answer.name) && answer.name != null ? answer.name : answer.preferred_username"
+        },
+        "handle": "/preferred_username",
+        "picture": "/picture",
+        "sub": "/sub"
+      },
+      "changes": false
+    },
+    "publish_media": {
+      "inputs": [
+        "file",
+        "name"
+      ],
+      "steps": [
+        {
+          "name": "record",
+          "operation": "create_file",
+          "inputs": {
+            "name": "inputs.name"
+          }
+        },
+        {
+          "name": "bytes",
+          "operation": "put_bytes",
+          "inputs": {
+            "url": "steps.record.upload_url",
+            "file": "inputs.file"
+          }
+        },
+        {
+          "name": "ready",
+          "operation": "file_status",
+          "inputs": {
+            "id": "steps.record.id"
+          },
+          "wait": {
+            "until": "result.status == 'ready'",
+            "fail_if": "result.status == 'failed'",
+            "every_secs": 2,
+            "within_secs": 600
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "answer.record.id"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "settings",
+        "text_with_link",
+        "media",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "post",
+          "operation": "create_post",
+          "inputs": {
+            "experience": "inputs.settings.experience",
+            "content": "inputs.text_with_link",
+            "title": "inputs.settings.title",
+            "attachments": "inputs.media"
+          },
+          "confirm": {
+            "operation": "recent_posts",
+            "inputs": {
+              "experience": "sent.experience",
+              "content": "sent.content",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/post/id",
+        "url": {
+          "expr": "'https://whop.com/experiences/' + inputs.settings.experience + '/' + answer.post.id"
+        }
+      }
+    },
+    "reply": {
+      "inputs": [
+        "settings",
+        "text",
+        "in_reply_to",
+        "created_at"
+      ],
+      "steps": [
+        {
+          "name": "comment",
+          "operation": "create_post",
+          "inputs": {
+            "experience": "inputs.settings.experience",
+            "content": "inputs.text",
+            "parent": "inputs.in_reply_to"
+          },
+          "confirm": {
+            "operation": "recent_posts",
+            "inputs": {
+              "experience": "sent.experience",
+              "content": "sent.content",
+              "after": "inputs.created_at"
+            },
+            "proves": "result.id"
+          }
+        }
+      ],
+      "result": {
+        "id": "/comment/id"
+      }
+    }
+  }
+}

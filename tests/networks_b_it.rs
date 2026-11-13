@@ -548,6 +548,9 @@ async fn scenario() {
     if wanted("dribbble") {
         dribbble(&t).await;
     }
+    if wanted("whop") {
+        whop(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -2290,4 +2293,148 @@ async fn dribbble(t: &T) {
     net.clear();
     t.delete_remote(&out).await;
     assert_eq!(net.order(), ["DELETE /v2/shots/4000"]);
+}
+
+// ───────────── Whop ─────────────
+
+async fn whop(t: &T) {
+    // API v1 (docs.whop.com): OAuth 2 with PKCE, /oauth/userinfo, /companies, /forums, a file record, a PUT to its upload
+    // address, polling its `upload_status`, /forum_posts (`experience_id`, `content`, `attachments`, `parent_id`).
+    let posts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let files: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let base: Arc<Mutex<String>> = Arc::default();
+    let (p2, f2, l2, b2) = (posts.clone(), files.clone(), lose.clone(), base.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, m: &str| status(code, json!({"error": {"type": "bad_request", "message": m}}));
+        if r.path() == "/oauth/token" {
+            let f = r.form();
+            if f.get("code").map(String::as_str) != Some("CODE-north") || f.get("code_verifier").is_none_or(|v| v.len() < 43) || f.get("client_id").map(String::as_str) != Some("whop-app") {
+                return err(400, "invalid_grant");
+            }
+            return ok(json!({"access_token": "wh-token", "refresh_token": "wh-refresh", "expires_in": 3600, "token_type": "Bearer"}));
+        }
+        if r.path().starts_with("/upload/") {
+            assert!(r.header("authorization").is_empty());
+            assert_eq!(r.body, PNG);
+            f2.lock().unwrap().iter_mut().for_each(|f| f["bytes"] = json!(r.body.len()));
+            return Resp::Answer(200, vec![], String::new());
+        }
+        if r.header("authorization") != "Bearer wh-token" {
+            return err(401, "Invalid token");
+        }
+        let mut posts = p2.lock().unwrap();
+        let mut files = f2.lock().unwrap();
+        let q = r.query();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/oauth/userinfo") => ok(json!({"sub": "user_1", "name": "Northwind", "preferred_username": "northwind", "picture": "https://img.whop.test/u.png"})),
+            ("GET", "/api/v1/companies") => ok(json!({"data": [{"id": "biz_1", "title": "Northwind Co"}]})),
+            ("GET", "/api/v1/forums") => {
+                assert_eq!(q["company_id"], "biz_1");
+                ok(json!({"data": [{"id": "forum_1", "experience": {"id": "exp_1", "name": "Announcements"}}]}))
+            }
+            ("POST", "/api/v1/files") => {
+                let id = format!("file_{}", files.len() + 1);
+                files.push(json!({"id": id, "name": r.json()["filename"], "polls": 0, "bytes": null}));
+                ok(json!({"id": id, "upload_url": format!("{}/upload/{id}", b2.lock().unwrap()), "upload_headers": {}}))
+            }
+            ("GET", p) if p.starts_with("/api/v1/files/") => {
+                let f = files.iter_mut().find(|f| p.ends_with(f["id"].as_str().unwrap())).expect("a file");
+                assert!(f["bytes"].is_number(), "the bytes came before the polling");
+                f["polls"] = json!(f["polls"].as_i64().unwrap() + 1);
+                ok(json!({"id": f["id"], "upload_status": if f["polls"].as_i64().unwrap() < 2 { "pending" } else { "ready" }}))
+            }
+            ("POST", "/api/v1/forum_posts") => {
+                let b = r.json();
+                if b["content"] == "Forbidden" {
+                    return err(403, "You do not have permission to post in this forum");
+                }
+                let id = format!("post_{}", posts.len() + 1);
+                posts.push(json!({"id": id, "content": b["content"], "title": b["title"], "parent_id": b["parent_id"], "attachments": b["attachments"], "experience_id": b["experience_id"], "created_at": Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()}));
+                if l2.lock().unwrap().as_deref() == b["content"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"id": id}))
+            }
+            ("GET", "/api/v1/forum_posts") => ok(json!({"data": posts.iter().rev().cloned().collect::<Vec<_>>()})),
+            ("DELETE", p) if p.starts_with("/api/v1/forum_posts/") => {
+                posts.retain(|x| x["id"] != p.rsplit('/').next().unwrap());
+                ok(json!(true))
+            }
+            _ => err(404, "Not found"),
+        }
+    })
+    .await;
+    *base.lock().unwrap() = net.base.clone();
+    let conn = t
+        .connect(
+            "whop_north",
+            "whop",
+            &[("https://api.whop.com/api/v1", &format!("{}/api/v1", net.base)), ("https://api.whop.com", &net.base)],
+            json!({}),
+            |d| {
+                d["auth"]["provider"]["client_id"] = json!("whop-app");
+            },
+        )
+        .await;
+    t.sign_in(conn, "CODE-north").await;
+    let me = t.account("Northwind Whop", "northwind", conn, "user_1").await;
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["format"].as_str()), (Some("Whop"), Some("markdown")));
+    let companies = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "company"})).await.unwrap();
+    assert_eq!(companies["choices"], json!([{"value": "biz_1", "label": "Northwind Co"}]));
+    let forums = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "experience", "settings": {"company": "biz_1"}})).await.unwrap();
+    assert_eq!(forums["choices"], json!([{"value": "exp_1", "label": "Announcements"}]), "the forums of the company picked before");
+    let on = |extra: Value| {
+        let mut s = json!({"company": "biz_1", "experience": "exp_1"});
+        s.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        target_with(me, "post", s)
+    };
+
+    // A forum post with a file: a record, the bytes, the status polled until ready, then the post names the file.
+    net.clear();
+    let p = t
+        .post(
+            "**Spring** is here",
+            vec![on(json!({"title": "Hello"}))],
+            json!({"link": "https://northwind.example/spring", "media": [t.media(&t.png, "")], "items": [{"text": "A reply"}]}),
+        )
+        .await;
+    let out = t.out(p, me).await;
+    assert_eq!(out["external_id"], "post_1");
+    assert_eq!(out["permalink"], "https://whop.com/experiences/exp_1/post_1");
+    let order: Vec<String> = net.order().into_iter().filter(|o| !o.contains("userinfo")).collect();
+    assert_eq!(
+        order,
+        [
+            "POST /api/v1/files",
+            "PUT /upload/file_1",
+            "GET /api/v1/files/file_1",
+            "GET /api/v1/files/file_1",
+            "POST /api/v1/forum_posts",
+            "POST /api/v1/forum_posts"
+        ]
+    );
+    {
+        let ps = posts.lock().unwrap();
+        assert_eq!(
+            (ps[0]["content"].as_str(), ps[0]["title"].as_str(), ps[0]["attachments"].clone()),
+            (Some("**Spring** is here https://northwind.example/spring"), Some("Hello"), json!([{"id": "file_1"}]))
+        );
+        assert_eq!((ps[1]["content"].as_str(), ps[1]["parent_id"].as_str(), ps[1]["experience_id"].as_str()), (Some("A reply"), Some("post_1"), Some("exp_1")));
+    }
+    // A lost answer: found again in the forum's latest posts by its words since it began.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost one", vec![on(json!({}))], json!({})).await;
+    let kept = t.out(p, me).await;
+    assert!(kept["sent_at"].is_string() && net.to("POST", "forum_posts").len() == 1, "sent once");
+    assert_eq!(posts.lock().unwrap().iter().filter(|x| x["content"] == "Lost one").count(), 1);
+    let p = t.post("Forbidden", vec![on(json!({}))], json!({})).await;
+    t.upkeep().await;
+    assert!(t.get("SocialPost", p).await["failure"].as_str().unwrap().contains("do not have permission to post in this forum"));
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(net.order(), ["DELETE /api/v1/forum_posts/post_2", "DELETE /api/v1/forum_posts/post_1"], "the reply first");
 }
