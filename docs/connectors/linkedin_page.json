@@ -1,0 +1,682 @@
+{
+ "base": "https://api.linkedin.com",
+ "auth": {
+  "type": "oauth",
+  "owner": "workspace",
+  "provider": {
+   "authorize_url": "https://www.linkedin.com/oauth/v2/authorization",
+   "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+   "revoke_url": "https://www.linkedin.com/oauth/v2/revoke",
+   "scopes": [
+    "rw_organization_admin",
+    "w_organization_social",
+    "r_organization_social",
+    "openid",
+    "profile"
+   ],
+   "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+   "client_secret": "client_secret",
+   "client_auth": "body",
+   "after": [
+    "userinfo"
+   ],
+   "keep": [
+    "person_id"
+   ],
+   "account_at": "/name"
+  }
+ },
+ "apps": [
+  "social"
+ ],
+ "allowed_hosts": [
+  "www.linkedin.com"
+ ],
+ "limit": {
+  "concurrent": 2
+ },
+ "meta": {
+  "capabilities": {
+   "name": "LinkedIn page",
+   "max_text": 3000,
+   "images": true,
+   "max_media": 20,
+   "alt_text": true,
+   "first_comment": true
+  },
+  "social": {
+   "name": "LinkedIn page",
+   "text": {
+    "max": 3000,
+    "count": "characters",
+    "format": "plain",
+    "fold": 210
+   },
+   "media": {
+    "kinds": [
+     "image",
+     "video"
+    ],
+    "max": 20,
+    "mixes": [
+     {
+      "image": 20
+     },
+     {
+      "video": 1
+     }
+    ],
+    "alt": true,
+    "alt_max": 4086,
+    "image": {
+     "types": [
+      "image/jpeg",
+      "image/png",
+      "image/gif"
+     ],
+     "max_width": 6012,
+     "max_height": 6012
+    },
+    "video": {
+     "types": [
+      "video/mp4"
+     ],
+     "max_bytes": 524288000,
+     "min_seconds": 3,
+     "max_seconds": 1800
+    }
+   },
+   "kinds": [
+    {
+     "name": "post",
+     "label": "Post"
+    },
+    {
+     "name": "document",
+     "label": "Document carousel",
+     "media": {
+      "kinds": [
+       "document"
+      ],
+      "required": true,
+      "max": 1,
+      "document": {
+       "types": [
+        "application/pdf"
+       ],
+       "max_bytes": 104857600
+      }
+     }
+    }
+   ],
+   "follow_ups": {
+    "as": "comment",
+    "media": false,
+    "text": {
+     "max": 1250
+    }
+   },
+   "settings": [
+    {
+     "key": "document_title",
+     "label": "Document title",
+     "type": "text",
+     "required": true,
+     "max": 400,
+     "when": {
+      "kind": [
+       "document"
+      ]
+     }
+    }
+   ],
+   "first_comment": true,
+   "link_preview": true,
+   "accounts": {
+    "operation": "accounts",
+    "items_at": "/elements",
+    "value_at": "/organizationalTarget~0/id",
+    "label_at": "/organizationalTarget~0/localizedName",
+    "handle_at": "/organizationalTarget~0/vanityName",
+    "kind_at": "/role"
+   }
+  }
+ },
+ "operations": {
+  "userinfo": {
+   "path": "/v2/userinfo",
+   "credentials": false,
+   "headers": {
+    "authorization": "Bearer {{ inputs.access_token }}"
+   },
+   "inputs": [
+    "access_token",
+    "refresh_token",
+    "client_id"
+   ],
+   "result": {
+    "person_id": "/sub",
+    "name": "/name"
+   },
+   "error_at": "/message"
+  },
+  "create_post": {
+   "method": "POST",
+   "path": "/rest/posts",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "body": "{\"author\": {{ inputs.author | json }}, \"commentary\": {{ inputs.commentary | json }}, \"visibility\": \"PUBLIC\", \"distribution\": {\"feedDistribution\": \"MAIN_FEED\", \"targetEntities\": [], \"thirdPartyDistributionChannels\": []}{% if inputs.items | length == 1 %}, \"content\": {\"media\": {\"id\": {{ inputs.items[0].id | json }}{% if inputs.title %}, \"title\": {{ inputs.title | json }}{% elif inputs.items[0].alt %}, \"altText\": {{ inputs.items[0].alt | json }}{% endif %}}}{% elif inputs.items | length > 1 %}, \"content\": {\"multiImage\": {\"images\": [{% for m in inputs.items %}{% if not loop.first %}, {% endif %}{\"id\": {{ m.id | json }}{% if m.alt %}, \"altText\": {{ m.alt | json }}{% endif %}}{% endfor %}]}}{% endif %}, \"lifecycleState\": \"PUBLISHED\", \"isReshareDisabledByAuthor\": false}",
+   "inputs": [
+    "author",
+    "commentary",
+    "items",
+    "title"
+   ],
+   "result": {
+    "id": {
+     "header": "x-restli-id",
+     "required": true
+    }
+   },
+   "error_at": "/message"
+  },
+  "find_posts": {
+   "path": "/rest/posts",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "query": {
+    "q": "author",
+    "author": "urn:li:organization:{{ inputs.account_id }}",
+    "count": "10",
+    "sortBy": "CREATED"
+   },
+   "inputs": [
+    "account_id",
+    "commentary"
+   ],
+   "result": {
+    "id": {
+     "expr": "size(answer.elements.filter(e, e.commentary == inputs.commentary)) > 0 ? answer.elements.filter(e, e.commentary == inputs.commentary)[0].id : null"
+    }
+   },
+   "error_at": "/message"
+  },
+  "publish": {
+   "inputs": [
+    "text_with_link",
+    "media_items",
+    "kind",
+    "settings",
+    "account_id"
+   ],
+   "steps": [
+    {
+     "name": "post",
+     "operation": "create_post",
+     "inputs": {
+      "author": "'urn:li:organization:' ~ inputs.account_id",
+      "commentary": "inputs.text_with_link | replace('\\\\', '\\\\\\\\') | replace('|', '\\\\|') | replace('{', '\\\\{') | replace('}', '\\\\}') | replace('@', '\\\\@') | replace('[', '\\\\[') | replace(']', '\\\\]') | replace('(', '\\\\(') | replace(')', '\\\\)') | replace('<', '\\\\<') | replace('>', '\\\\>') | replace('#', '\\\\#') | replace('*', '\\\\*') | replace('_', '\\\\_') | replace('~', '\\\\~')",
+      "items": "inputs.media_items or []",
+      "title": "inputs.settings.document_title if inputs.kind == 'document' else none"
+     },
+     "confirm": {
+      "operation": "find_posts",
+      "inputs": {
+       "account_id": "inputs.account_id",
+       "commentary": "sent.commentary"
+      },
+      "proves": "result.id"
+     }
+    }
+   ],
+   "result": {
+    "id": "/post/id",
+    "url": {
+     "expr": "'https://www.linkedin.com/feed/update/' + answer.post.id"
+    }
+   }
+  },
+  "init_images": {
+   "method": "POST",
+   "path": "/rest/images",
+   "query": {
+    "action": "initializeUpload"
+   },
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "body": "{\"initializeUploadRequest\": {\"owner\": {{ inputs.owner | json }}}}",
+   "inputs": [
+    "owner"
+   ],
+   "result": {
+    "upload_url": "/value/uploadUrl",
+    "urn": {
+     "at": "/value/image",
+     "required": true
+    }
+   },
+   "error_at": "/message",
+   "idempotency_header": "X-Ferrum-Upload-Key"
+  },
+  "init_documents": {
+   "method": "POST",
+   "path": "/rest/documents",
+   "query": {
+    "action": "initializeUpload"
+   },
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "body": "{\"initializeUploadRequest\": {\"owner\": {{ inputs.owner | json }}}}",
+   "inputs": [
+    "owner"
+   ],
+   "result": {
+    "upload_url": "/value/uploadUrl",
+    "urn": {
+     "at": "/value/document",
+     "required": true
+    }
+   },
+   "error_at": "/message",
+   "idempotency_header": "X-Ferrum-Upload-Key"
+  },
+  "init_videos": {
+   "method": "POST",
+   "path": "/rest/videos",
+   "query": {
+    "action": "initializeUpload"
+   },
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "body": "{\"initializeUploadRequest\": {\"owner\": {{ inputs.owner | json }}, \"fileSizeBytes\": {{ inputs.size | json }}, \"uploadCaptions\": false, \"uploadThumbnail\": false}}",
+   "inputs": [
+    "owner",
+    "size"
+   ],
+   "result": {
+    "urn": {
+     "at": "/value/video",
+     "required": true
+    },
+    "token": "/value/uploadToken",
+    "parts": "/value/uploadInstructions"
+   },
+   "error_at": "/message",
+   "idempotency_header": "X-Ferrum-Upload-Key"
+  },
+  "put_bytes": {
+   "method": "PUT",
+   "url": "{{ inputs.url }}",
+   "headers": {
+    "content-type": "application/octet-stream"
+   },
+   "body": {
+    "file": "{{ inputs.file }}"
+   },
+   "inputs": [
+    "url",
+    "file"
+   ],
+   "result": {
+    "etag": {
+     "header": "etag"
+    }
+   },
+   "error_at": "/message",
+   "idempotency_header": "X-Ferrum-Upload-Key"
+  },
+  "finalize_video": {
+   "method": "POST",
+   "path": "/rest/videos",
+   "query": {
+    "action": "finalizeUpload"
+   },
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "body": "{\"finalizeUploadRequest\": {\"video\": {{ inputs.urn | json }}, \"uploadToken\": {{ (inputs.token or \"\") | json }}, \"uploadedPartIds\": {{ inputs.etags | json }}}}",
+   "inputs": [
+    "urn",
+    "token",
+    "etags"
+   ],
+   "error_at": "/message"
+  },
+  "video_status": {
+   "path": "/rest/videos/{{ inputs.urn }}",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "inputs": [
+    "urn"
+   ],
+   "result": {
+    "status": "/status"
+   },
+   "error_at": "/message"
+  },
+  "image_status": {
+   "path": "/rest/images/{{ inputs.urn }}",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "inputs": [
+    "urn"
+   ],
+   "result": {
+    "status": "/status"
+   },
+   "error_at": "/message"
+  },
+  "document_status": {
+   "path": "/rest/documents/{{ inputs.urn }}",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "inputs": [
+    "urn"
+   ],
+   "result": {
+    "status": "/status"
+   },
+   "error_at": "/message"
+  },
+  "publish_media": {
+   "inputs": [
+    "file",
+    "content_type",
+    "size",
+    "account_id"
+   ],
+   "steps": [
+    {
+     "name": "image",
+     "operation": "init_images",
+     "when": "not (inputs.content_type is startingwith('video/')) and not (inputs.content_type == 'application/pdf')",
+     "inputs": {
+      "owner": "'urn:li:organization:' ~ inputs.account_id"
+     }
+    },
+    {
+     "name": "document",
+     "operation": "init_documents",
+     "when": "inputs.content_type == 'application/pdf'",
+     "inputs": {
+      "owner": "'urn:li:organization:' ~ inputs.account_id"
+     }
+    },
+    {
+     "name": "video",
+     "operation": "init_videos",
+     "when": "inputs.content_type is startingwith('video/')",
+     "inputs": {
+      "owner": "'urn:li:organization:' ~ inputs.account_id",
+      "size": "inputs.size"
+     }
+    },
+    {
+     "name": "put",
+     "operation": "put_bytes",
+     "when": "not (inputs.content_type is startingwith('video/'))",
+     "inputs": {
+      "url": "(steps.image or steps.document).upload_url",
+      "file": "inputs.file"
+     }
+    },
+    {
+     "name": "parts",
+     "operation": "put_bytes",
+     "when": "inputs.content_type is startingwith('video/')",
+     "for_each": "steps.video.parts",
+     "range": {
+      "file": "inputs.file",
+      "offset": "item.firstByte",
+      "size": "item.lastByte - item.firstByte + 1"
+     },
+     "inputs": {
+      "url": "item.uploadUrl",
+      "file": "inputs.file"
+     }
+    },
+    {
+     "name": "finalize",
+     "operation": "finalize_video",
+     "when": "inputs.content_type is startingwith('video/')",
+     "inputs": {
+      "urn": "steps.video.urn",
+      "token": "steps.video.token",
+      "etags": "steps.parts | map(attribute='etag') | list"
+     },
+     "confirm": {
+      "operation": "video_status",
+      "inputs": {
+       "urn": "sent.urn"
+      },
+      "proves": "result.status in ['PROCESSING', 'AVAILABLE']"
+     }
+    },
+    {
+     "name": "ready",
+     "operation": "video_status",
+     "when": "inputs.content_type is startingwith('video/')",
+     "inputs": {
+      "urn": "steps.video.urn"
+     },
+     "wait": {
+      "until": "result.status == 'AVAILABLE'",
+      "fail_if": "result.status in ['PROCESSING_FAILED', 'WAITING_UPLOAD']",
+      "every_secs": 5,
+      "within_secs": 1800
+     }
+    },
+    {
+     "name": "image_ready",
+     "operation": "image_status",
+     "when": "steps.image",
+     "inputs": {
+      "urn": "steps.image.urn"
+     },
+     "wait": {
+      "until": "result.status == 'AVAILABLE'",
+      "fail_if": "result.status == 'PROCESSING_FAILED'",
+      "every_secs": 3,
+      "within_secs": 600
+     }
+    },
+    {
+     "name": "document_ready",
+     "operation": "document_status",
+     "when": "steps.document",
+     "inputs": {
+      "urn": "steps.document.urn"
+     },
+     "wait": {
+      "until": "result.status == 'AVAILABLE'",
+      "fail_if": "result.status == 'PROCESSING_FAILED'",
+      "every_secs": 3,
+      "within_secs": 600
+     }
+    }
+   ],
+   "result": {
+    "id": {
+     "expr": "answer.image != null ? answer.image.urn : (answer.document != null ? answer.document.urn : answer.video.urn)"
+    }
+   }
+  },
+  "create_comment": {
+   "method": "POST",
+   "path": "/rest/socialActions/{{ inputs.post }}/comments",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "body": "{\"actor\": {{ inputs.actor | json }}, \"object\": {{ inputs.post | json }}, \"message\": {\"text\": {{ inputs.text | json }}}}",
+   "inputs": [
+    "actor",
+    "post",
+    "text"
+   ],
+   "result": {
+    "id": {
+     "expr": "has(answer.id) ? string(answer.id) : headers['x-restli-id']"
+    }
+   },
+   "error_at": "/message"
+  },
+  "read_post": {
+   "path": "/rest/posts/{{ inputs.id }}",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "inputs": [
+    "id"
+   ],
+   "result": {
+    "author": "/author"
+   },
+   "error_at": "/message"
+  },
+  "reply": {
+   "inputs": [
+    "text",
+    "in_reply_to",
+    "account_id"
+   ],
+   "steps": [
+    {
+     "name": "owner",
+     "operation": "read_post",
+     "when": "not inputs.account_id",
+     "inputs": {
+      "id": "inputs.in_reply_to"
+     }
+    },
+    {
+     "name": "comment",
+     "operation": "create_comment",
+     "inputs": {
+      "actor": "('urn:li:organization:' ~ inputs.account_id) if inputs.account_id else steps.owner.author",
+      "post": "inputs.in_reply_to",
+      "text": "inputs.text | replace('\\\\', '\\\\\\\\') | replace('|', '\\\\|') | replace('{', '\\\\{') | replace('}', '\\\\}') | replace('@', '\\\\@') | replace('[', '\\\\[') | replace(']', '\\\\]') | replace('(', '\\\\(') | replace(')', '\\\\)') | replace('<', '\\\\<') | replace('>', '\\\\>') | replace('#', '\\\\#') | replace('*', '\\\\*') | replace('_', '\\\\_') | replace('~', '\\\\~')"
+     }
+    }
+   ],
+   "result": {
+    "id": "/comment/id"
+   }
+  },
+  "delete": {
+   "method": "DELETE",
+   "path": "/rest/{% if inputs.follow_up == 'comment' %}socialActions/{{ inputs.root }}/comments/{{ inputs.id }}{% else %}posts/{{ inputs.id }}{% endif %}",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "inputs": [
+    "id",
+    "follow_up",
+    "root"
+   ],
+   "error_at": "/message"
+  },
+  "accounts": {
+   "path": "/v2/organizationalEntityAcls?q=roleAssignee&state=APPROVED&projection=(elements*(role,organizationalTarget~(localizedName,vanityName)))",
+   "error_at": "/message"
+  },
+  "metrics": {
+   "path": "/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=urn%3Ali%3Aorganization%3A{{ inputs.account_id }}&{% if 'ugcPost' in inputs.id %}ugcPosts{% else %}shares{% endif %}=List({{ inputs.id }})",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "inputs": [
+    "id",
+    "account_id"
+   ],
+   "result": {
+    "impressions": "/elements/0/totalShareStatistics/impressionCount",
+    "reach": "/elements/0/totalShareStatistics/uniqueImpressionsCount",
+    "clicks": "/elements/0/totalShareStatistics/clickCount",
+    "engagements": {
+     "expr": "answer.elements[0].totalShareStatistics.likeCount + answer.elements[0].totalShareStatistics.commentCount + answer.elements[0].totalShareStatistics.shareCount"
+    }
+   },
+   "error_at": "/message"
+  },
+  "network_size": {
+   "path": "/rest/networkSizes/urn%3Ali%3Aorganization%3A{{ inputs.account_id }}",
+   "query": {
+    "edgeType": "COMPANY_FOLLOWED_BY_MEMBER"
+   },
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "inputs": [
+    "account_id"
+   ],
+   "result": {
+    "followers": "/firstDegreeSize"
+   },
+   "error_at": "/message"
+  },
+  "organization": {
+   "path": "/rest/organizations/{{ inputs.account_id }}",
+   "headers": {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0"
+   },
+   "inputs": [
+    "account_id"
+   ],
+   "result": {
+    "name": "/localizedName",
+    "handle": "/vanityName"
+   },
+   "error_at": "/message"
+  },
+  "account": {
+   "inputs": [
+    "account_id"
+   ],
+   "changes": false,
+   "steps": [
+    {
+     "name": "size",
+     "operation": "network_size",
+     "inputs": {
+      "account_id": "inputs.account_id"
+     }
+    },
+    {
+     "name": "org",
+     "operation": "organization",
+     "inputs": {
+      "account_id": "inputs.account_id"
+     }
+    }
+   ],
+   "result": {
+    "followers": "/size/followers",
+    "name": "/org/name",
+    "handle": "/org/handle"
+   }
+  }
+ }
+}

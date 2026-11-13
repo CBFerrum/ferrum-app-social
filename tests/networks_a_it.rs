@@ -39,7 +39,7 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] = &["x"];
+const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -195,6 +195,7 @@ type Handler = fn(&mut Net, &Req) -> Resp;
 fn handler(net: &str) -> Option<Handler> {
     Some(match net {
         "x" => fake_x,
+        "li" | "liw" => fake_linkedin,
         _ => return None,
     })
 }
@@ -493,6 +494,27 @@ async fn scenario() {
     let brand = uid(&k.insert(&admin, "SocialBrand", obj(json!({"brand_name": "Northwind"}))).await.unwrap()["id"]);
     let t = T { k: k.clone(), tenant, admin, net, base: format!("http://127.0.0.1:{port}"), brand, descs: Mutex::default() };
     x(&t).await;
+    linkedin(&t).await;
+    linkedin_page(&t).await;
+}
+
+/// A path's segment as it was meant, percent-decoded.
+fn decoded(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%'
+            && let Some(v) = s.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            out.push(v);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
 }
 
 /// Basic client authentication as the token address must see it.
@@ -768,4 +790,307 @@ async fn x(t: &T) {
     assert_eq!((c["kind"].as_str(), c["post_external_id"].as_str()), (Some("Comment"), Some("17001")));
     assert_eq!(got.iter().find(|m| m["external_id"] == "902").unwrap()["kind"], "Mention");
     assert_eq!(uid(&c["account"]), account);
+}
+
+// ───────────── LinkedIn (a member, and an organisation's page) ─────────────
+
+fn fake_linkedin(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, m: &str| status(code, json!({"message": m, "status": code}));
+    let base = n.base.clone();
+    if r.path == "/oauth/v2/accessToken" {
+        let f = r.form();
+        let client = f.get("client_id").map(String::as_str) == Some("li-client") && f.get("client_secret").map(String::as_str) == Some("li-secret");
+        let fine = match f.get("grant_type").map(String::as_str) {
+            Some("authorization_code") => {
+                f.get("redirect_uri").is_some_and(|u| u.ends_with("/api/connections/callback")) && f.get("code").is_some_and(|c| c.starts_with("CODE-li"))
+            }
+            Some("refresh_token") => n.list("li:refresh").contains(&json!(f.get("refresh_token"))),
+            _ => false,
+        };
+        if !client || !fine {
+            return status(400, json!({"error": "invalid_request", "error_description": "A required parameter is missing or wrong"}));
+        }
+        let i = n.next();
+        n.tokens("li").push(json!(format!("LA-{i}")));
+        n.list("li:refresh").push(json!(format!("LR-{i}")));
+        return ok(
+            json!({"access_token": format!("LA-{i}"), "expires_in": 5184000, "refresh_token": format!("LR-{i}"), "refresh_token_expires_in": 31536000, "scope": f.get("scope")}),
+        );
+    }
+    if r.path.starts_with("/dms-uploads/") {
+        if !n.valid("li", r) {
+            return err(401, "Empty or invalid access token");
+        }
+        let key = r.path.trim_start_matches("/dms-uploads/").to_string();
+        let mut up = n.get("li:uploads");
+        if up.is_null() {
+            up = json!({});
+        }
+        up[&key] = json!(String::from_utf8_lossy(&r.body).to_string());
+        n.set("li:uploads", up);
+        return Resp(201, vec![("etag".into(), format!("etag-{key}"))], vec![]);
+    }
+    if !n.valid("li", r) {
+        return err(401, "Empty or invalid access token");
+    }
+    if r.path == "/v2/userinfo" {
+        return ok(json!({"sub": "p1", "name": "Ana Person", "picture": "https://media.licdn.test/ana.jpg"}));
+    }
+    if r.path == "/v2/organizationalEntityAcls" {
+        return ok(json!({"elements": [{"role": "ADMINISTRATOR", "organizationalTarget": "urn:li:organization:777",
+                                        "organizationalTarget~": {"id": 777, "localizedName": "Northwind Ltd", "vanityName": "northwind"}}]}));
+    }
+    if r.header("linkedin-version").is_none() || r.header("x-restli-protocol-version") != Some("2.0.0") {
+        return err(400, "A Linkedin-Version header is required");
+    }
+    let seg: Vec<String> = r.path.trim_start_matches("/rest/").split('/').map(decoded).collect();
+    let seg: Vec<&str> = seg.iter().map(String::as_str).collect();
+    match (r.method.as_str(), seg.as_slice()) {
+        ("POST", [what @ ("images" | "documents" | "videos")]) if r.query.get("action").map(String::as_str) == Some("initializeUpload") => {
+            let b = r.json();
+            let owner = b["initializeUploadRequest"]["owner"].as_str().unwrap_or_default().to_string();
+            if !owner.starts_with("urn:li:person:p1") && owner != "urn:li:organization:777" {
+                return err(403, "Not enough permissions to upload for this owner");
+            }
+            let i = n.next();
+            let kind = &what[..what.len() - 1];
+            let urn = format!("urn:li:{kind}:{i}");
+            let mut media = n.get("li:media");
+            if media.is_null() {
+                media = json!({});
+            }
+            media[&urn] = json!({"polls": 0, "owner": owner});
+            n.set("li:media", media);
+            if *what == "videos" {
+                let size = b["initializeUploadRequest"]["fileSizeBytes"].as_u64().unwrap_or(0);
+                let half = size / 2;
+                return ok(json!({"value": {"video": urn, "uploadToken": "", "uploadInstructions": [
+                    {"uploadUrl": format!("{base}/liw/dms-uploads/{i}-0"), "firstByte": 0, "lastByte": half - 1},
+                    {"uploadUrl": format!("{base}/liw/dms-uploads/{i}-1"), "firstByte": half, "lastByte": size - 1}]}}));
+            }
+            ok(json!({"value": {"uploadUrl": format!("{base}/liw/dms-uploads/{i}"), kind: urn}}))
+        }
+        ("POST", ["videos"]) if r.query.get("action").map(String::as_str) == Some("finalizeUpload") => {
+            let b = &r.json()["finalizeUploadRequest"];
+            let i = b["video"].as_str().unwrap_or_default().rsplit(':').next().unwrap_or_default().to_string();
+            if b["uploadedPartIds"] != json!([format!("etag-{i}-0"), format!("etag-{i}-1")]) {
+                return err(400, "uploadedPartIds do not match the parts");
+            }
+            n.list("li:finalized").push(b["video"].clone());
+            empty(200)
+        }
+        ("GET", [what @ ("videos" | "images" | "documents"), urn]) => {
+            let mut media = n.get("li:media");
+            let finalized = n.list("li:finalized").contains(&json!(urn));
+            let m = &mut media[*urn];
+            if m.is_null() {
+                return err(404, "Not found");
+            }
+            if m["owner"].as_str().is_some_and(|o| o.starts_with("urn:li:person")) && *what != "videos" {
+                return err(403, "Not enough permissions to access: images.GET");
+            }
+            m["polls"] = json!(m["polls"].as_u64().unwrap_or(0) + 1);
+            let status = match (*what, finalized, m["polls"].as_u64().unwrap_or(0)) {
+                ("videos", false, _) => "WAITING_UPLOAD",
+                ("videos", true, p) if p < 3 => "PROCESSING",
+                _ => "AVAILABLE",
+            };
+            n.set("li:media", media);
+            ok(json!({"id": urn, "status": status}))
+        }
+        ("POST", ["posts"]) => {
+            let b = r.json();
+            let text = b["commentary"].as_str().unwrap_or_default().to_string();
+            if b["author"] != "urn:li:person:p1" && b["author"] != "urn:li:organization:777" {
+                return err(403, "Not enough permissions to post as this author");
+            }
+            if n.list("li:posts").iter().any(|p| p["commentary"] == text && p["author"] == b["author"]) {
+                return err(422, "Content is a duplicate of an existing post");
+            }
+            let id = format!("urn:li:share:{}", n.next());
+            n.list("li:posts")
+                .push(json!({"id": id, "author": b["author"], "commentary": text, "content": b["content"], "lifecycleState": b["lifecycleState"]}));
+            Resp(201, vec![("x-restli-id".into(), id)], vec![])
+        }
+        ("GET", ["posts"]) if r.query.get("q").map(String::as_str) == Some("author") => {
+            let author = r.query.get("author").cloned().unwrap_or_default();
+            let mine: Vec<Value> = n.list("li:posts").iter().filter(|p| p["author"] == json!(author)).cloned().collect();
+            ok(json!({"elements": mine}))
+        }
+        ("GET", ["posts", urn]) => match n.list("li:posts").iter().find(|p| p["id"] == json!(urn)).cloned() {
+            Some(p) => ok(p),
+            None => err(404, "Not found"),
+        },
+        ("DELETE", ["posts", urn]) => {
+            let urn = urn.to_string();
+            n.list("li:posts").retain(|p| p["id"] != json!(urn));
+            empty(204)
+        }
+        ("POST", ["socialActions", post, "comments"]) => {
+            let b = r.json();
+            if b["object"] != json!(post) {
+                return err(400, "object must be the post the comment is under");
+            }
+            let id = format!("{}", 7000 + n.next());
+            n.list("li:comments").push(json!({"id": id, "post": post, "actor": b["actor"], "text": b["message"]["text"]}));
+            Resp(201, vec![("x-restli-id".into(), format!("urn:li:comment:({post},{id})"))], json!({"id": id, "object": post}).to_string().into_bytes())
+        }
+        ("DELETE", ["socialActions", _post, "comments", id]) => {
+            let id = id.to_string();
+            n.list("li:comments").retain(|c| c["id"] != json!(id));
+            empty(204)
+        }
+        ("GET", ["organizationalEntityShareStatistics"]) => {
+            if r.query.get("organizationalEntity").map(String::as_str) != Some("urn:li:organization:777") || !r.query.contains_key("shares") {
+                return err(400, "organizationalEntity and shares are required");
+            }
+            ok(
+                json!({"elements": [{"totalShareStatistics": {"impressionCount": 500, "uniqueImpressionsCount": 300, "clickCount": 20, "likeCount": 9, "commentCount": 3, "shareCount": 2, "engagement": 0.05}}]}),
+            )
+        }
+        ("GET", ["networkSizes", urn]) if *urn == "urn:li:organization:777" => ok(json!({"firstDegreeSize": 1234})),
+        ("GET", ["organizations", "777"]) => ok(json!({"id": 777, "localizedName": "Northwind Ltd", "vanityName": "northwind"})),
+        _ => err(404, "Not found"),
+    }
+}
+
+async fn linkedin(t: &T) {
+    let conn = t
+        .connect("linkedin", "li", &[], json!({"client_secret": "li-secret"}), |d| {
+            let text =
+                d.to_string().replace("https://api.linkedin.com", &format!("{}/li", t.base)).replace("https://www.linkedin.com", &format!("{}/liw", t.base));
+            *d = serde_json::from_str(&text).unwrap();
+        })
+        .await;
+    let q = t.sign_in(conn, "CODE-li-1").await;
+    assert!(q["scope"].contains("w_member_social"), "{q:?}");
+    // Words LinkedIn's text format reserves are escaped, so they are read as written.
+    let key = format!("publish:{}", Uuid::now_v7());
+    let first = t.call("linkedin", "publish", post_in("Hello (world) #news_today @me", None, &[], &[]), Some(&key)).await.unwrap();
+    {
+        let mut n = t.net();
+        let p = n.list("li:posts")[0].clone();
+        assert_eq!(p["commentary"], r"Hello \(world\) \#news\_today \@me");
+        assert_eq!((p["author"].as_str(), p["lifecycleState"].as_str()), (Some("urn:li:person:p1"), Some("PUBLISHED")), "as the member the sign-in read");
+    }
+    assert!(first["url"].as_str().unwrap().ends_with(&format!("/feed/update/{}", first["id"].as_str().unwrap())), "{first}");
+    // A picture, registered, put to the address given, attached with its description.
+    let pic = t.medium("cat.png", "image/png", b"PNG-CAT", None, json!({}), None).await;
+    let up = t.call("linkedin", "publish_media", pic, Some(&format!("media:{key}:9:0"))).await.unwrap();
+    assert!(up["id"].as_str().unwrap().starts_with("urn:li:image:"));
+    let ids = vec![up["id"].as_str().unwrap().to_string()];
+    t.call("linkedin", "publish", post_in("With a cat", None, &[("cat.png", "image/png", 7)], &ids), Some(&format!("{key}:p"))).await.unwrap();
+    {
+        let mut n = t.net();
+        let p = n.list("li:posts").last().cloned().unwrap();
+        assert_eq!(p["content"]["media"], json!({"id": ids[0], "altText": "What it shows"}));
+        assert!(n.get("li:uploads").as_object().unwrap().values().any(|v| v == "PNG-CAT"), "the bytes went to the upload address");
+    }
+    // A video: cut into the parts LinkedIn names, finalised with their etags, waited for.
+    let video: Vec<u8> = (0..1000).map(|i| (i % 200) as u8 + 32).collect();
+    let v = t.medium("clip.mp4", "video/mp4", &video, None, json!({}), None).await;
+    let vid = t.call("linkedin", "publish_media", v, Some(&format!("media:{key}:9:1"))).await.unwrap();
+    assert_eq!(t.net().list("li:finalized").clone(), vec![vid["id"].clone()]);
+    let asked = t.net().asked("li");
+    assert!(asked.iter().filter(|a| a.starts_with("GET /rest/videos/")).count() >= 2, "{asked:?}");
+    // A document carousel, its title from the settings.
+    let doc = t.medium("deck.pdf", "application/pdf", b"%PDF-1.7 deck", Some("document"), json!({"document_title": "Our deck"}), None).await;
+    let d = t.call("linkedin", "publish_media", doc, Some(&format!("media:{key}:9:2"))).await.unwrap();
+    let mut inputs = post_in("The deck", None, &[("deck.pdf", "application/pdf", 13)], &[d["id"].as_str().unwrap().to_string()]);
+    inputs["kind"] = json!("document");
+    inputs["settings"] = json!({"document_title": "Our deck"});
+    t.call("linkedin", "publish", inputs, Some(&format!("{key}:d"))).await.unwrap();
+    assert_eq!(t.net().list("li:posts").last().unwrap()["content"]["media"]["title"], "Our deck");
+    // A follow-up as a comment, and the first comment, as the member.
+    let follow = follow_in(post_in("More in the comments", None, &[], &[]), 1, 2, first["id"].as_str().unwrap(), &kept(0, &first));
+    let c = t.call("linkedin", "reply", follow, Some(&format!("{key}:1"))).await.unwrap();
+    {
+        let mut n = t.net();
+        let made = n.list("li:comments")[0].clone();
+        assert_eq!((made["actor"].as_str(), made["post"].as_str(), made["id"].as_str()), (Some("urn:li:person:p1"), first["id"].as_str(), c["id"].as_str()));
+    }
+    // Deleting the comment under its post, then the post.
+    t.call("linkedin", "delete", json!({"id": c["id"], "item": 1, "follow_up": "comment", "root": first["id"]}), Some(&format!("delete:{key}:1")))
+        .await
+        .unwrap();
+    assert!(t.net().list("li:comments").is_empty());
+    t.call("linkedin", "delete", json!({"id": first["id"], "item": 0, "follow_up": null, "root": first["id"]}), Some(&format!("delete:{key}"))).await.unwrap();
+    assert!(!t.net().list("li:posts").iter().any(|p| p["id"] == first["id"]));
+    // A lost answer: a member's posts cannot be read back, so the call says it may have been sent, and there is one.
+    t.net().lose.insert("POST /li/rest/posts".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("li:posts").len();
+    assert!(t.call("linkedin", "publish", post_in("Once only", None, &[], &[]), Some(&lost)).await.is_err());
+    assert!(refuses_again(&t.call("linkedin", "publish", post_in("Once only", None, &[], &[]), Some(&lost)).await.unwrap_err()));
+    assert_eq!(t.net().list("li:posts").len(), before + 1);
+    // A refusal in LinkedIn's words.
+    let e = t.call("linkedin", "publish", post_in("Once only", None, &[], &[]), Some(&format!("publish:{}", Uuid::now_v7()))).await.unwrap_err();
+    assert!(e.to_string().contains("duplicate of an existing post"), "{e}");
+    let account = t.account("Ana on LinkedIn", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "LinkedIn");
+    let a = t.call("linkedin", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!(a["name"], "Ana Person");
+}
+
+async fn linkedin_page(t: &T) {
+    let conn = t
+        .connect("linkedin_page", "li", &[], json!({"client_secret": "li-secret"}), |d| {
+            let text =
+                d.to_string().replace("https://api.linkedin.com", &format!("{}/li", t.base)).replace("https://www.linkedin.com", &format!("{}/liw", t.base));
+            *d = serde_json::from_str(&text).unwrap();
+        })
+        .await;
+    let q = t.sign_in(conn, "CODE-li-2").await;
+    assert!(q["scope"].contains("w_organization_social") && q["scope"].contains("rw_organization_admin"), "{q:?}");
+    // The page picked from what the sign-in administers.
+    let account = t.account("Northwind on LinkedIn", conn).await;
+    let reach = t.action(account, "reachable", json!({})).await.unwrap();
+    assert_eq!((reach["accounts"][0]["id"].as_str(), reach["accounts"][0]["name"].as_str()), (Some("777"), Some("Northwind Ltd")), "{reach}");
+    t.action(account, "choose", json!({"picked": ["777"]})).await.unwrap();
+    let row = t.k.get(&t.admin, "SocialAccount", account, false).await.unwrap();
+    assert_eq!((row["network_id"].as_str(), row["handle"].as_str()), (Some("777"), Some("northwind")));
+    let page = |text: &str| {
+        let mut v = post_in(text, Some("https://northwind.test"), &[], &[]);
+        v["account_id"] = json!("777");
+        v
+    };
+    // A picture as the organisation, waited for until available, then the post.
+    let key = format!("publish:{}", Uuid::now_v7());
+    let pic = t.medium("cat.png", "image/png", b"PNG-PAGE", None, json!({}), Some("777")).await;
+    let up = t.call("linkedin_page", "publish_media", pic, Some(&format!("media:{key}"))).await.unwrap();
+    assert!(t.net().asked("li").iter().any(|a| a.starts_with("GET /rest/images/")), "a page's picture is waited for");
+    let mut v = page("Spring at Northwind");
+    v["media"] = json!([up["id"]]);
+    v["media_items"] = json!([{"id": up["id"], "alt": "A cat", "content_type": "image/png"}]);
+    let first = t.call("linkedin_page", "publish", v, Some(&key)).await.unwrap();
+    assert_eq!(t.net().list("li:posts").last().unwrap()["author"], "urn:li:organization:777");
+    // A lost answer on a page's post: read back among the page's posts, not sent again.
+    t.net().lose.insert("POST /li/rest/posts".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let before = t.net().list("li:posts").len();
+    assert!(t.call("linkedin_page", "publish", page("Exactly once"), Some(&lost)).await.is_err());
+    let found = t.call("linkedin_page", "publish", page("Exactly once"), Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("li:posts").len(), before + 1, "one post");
+    assert_eq!(found["id"], t.net().list("li:posts").last().unwrap()["id"], "the one read back");
+    // The first comment, as the organisation that wrote the post (Social gives a first comment no account).
+    t.call(
+        "linkedin_page",
+        "reply",
+        json!({"text": "Ask us anything", "in_reply_to": first["id"], "root": first["id"]}),
+        Some(&format!("first_comment:{key}")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(t.net().list("li:comments").last().unwrap()["actor"], "urn:li:organization:777");
+    // Numbers, after the token is refreshed.
+    t.expire(conn).await;
+    let m = t.call("linkedin_page", "metrics", json!({"id": first["id"], "account_id": "777", "handle": "northwind"}), None).await.unwrap();
+    assert_eq!(
+        (m["impressions"].as_i64(), m["reach"].as_i64(), m["clicks"].as_i64(), m["engagements"].as_i64()),
+        (Some(500), Some(300), Some(20), Some(14)),
+        "{m}"
+    );
+    assert_eq!(t.net().last("liw", "POST", "/oauth/v2/accessToken").form()["grant_type"], "refresh_token");
+    let a = t.call("linkedin_page", "account", json!({"account_id": "777", "handle": "northwind"}), None).await.unwrap();
+    assert_eq!((a["followers"].as_i64(), a["name"].as_str()), (Some(1234), Some("Northwind Ltd")));
 }
