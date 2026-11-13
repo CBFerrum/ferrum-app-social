@@ -1,0 +1,291 @@
+{
+  "base": "https://api.twitch.tv/helix",
+  "auth": {
+    "type": "oauth",
+    "owner": "workspace",
+    "provider": {
+      "authorize_url": "https://id.twitch.tv/oauth2/authorize",
+      "token_url": "https://id.twitch.tv/oauth2/token",
+      "revoke_url": "https://id.twitch.tv/oauth2/revoke",
+      "scopes": [
+        "user:write:chat",
+        "user:read:chat",
+        "moderator:manage:announcements",
+        "moderator:manage:chat_messages",
+        "moderator:read:followers"
+      ],
+      "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
+      "client_secret": "client_secret",
+      "client_auth": "body",
+      "account_at": "/user_id"
+    }
+  },
+  "headers": {
+    "client-id": "REPLACE-WITH-THE-APPS-CLIENT-ID"
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.twitch.tv"
+  ],
+  "timeout_ms": 30000,
+  "limit": {
+    "per": 20,
+    "every": 30,
+    "concurrent": 1
+  },
+  "meta": {
+    "carries": {
+      "network": "Twitch",
+      "provider": "twitch"
+    },
+    "social": {
+      "name": "Twitch",
+      "text": {
+        "max": 500,
+        "count": "characters",
+        "format": "plain"
+      },
+      "media": {
+        "kinds": []
+      },
+      "kinds": [
+        {
+          "name": "message",
+          "label": "Chat message"
+        },
+        {
+          "name": "announcement",
+          "label": "Announcement",
+          "follow_ups": {
+            "as": "none"
+          }
+        }
+      ],
+      "follow_ups": {
+        "as": "thread",
+        "media": false,
+        "max": 20
+      },
+      "settings": [
+        {
+          "key": "color",
+          "label": "Announcement colour",
+          "type": "select",
+          "default": "primary",
+          "options": [
+            "primary",
+            "blue",
+            "green",
+            "orange",
+            "purple"
+          ],
+          "when": {
+            "kind": [
+              "announcement"
+            ]
+          }
+        }
+      ],
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/people",
+        "value_at": "/id",
+        "label_at": "/name",
+        "handle_at": "/handle",
+        "picture_at": "/picture"
+      }
+    }
+  },
+  "operations": {
+    "accounts": {
+      "path": "/users",
+      "result": {
+        "people": {
+          "expr": "answer.data.map(u, {'id': u.id, 'name': u.display_name, 'handle': u.login, 'picture': u.profile_image_url})"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "get_user": {
+      "path": "/users",
+      "result": {
+        "name": "/data/0/display_name",
+        "handle": "/data/0/login",
+        "picture": "/data/0/profile_image_url"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "followers": {
+      "path": "/channels/followers",
+      "query": {
+        "broadcaster_id": "{{ inputs.channel }}",
+        "first": "1"
+      },
+      "result": {
+        "total": "/total"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel"
+      ]
+    },
+    "send_chat": {
+      "method": "POST",
+      "path": "/chat/messages",
+      "body": "{\"broadcaster_id\": {{ inputs.channel | json }}, \"sender_id\": {{ inputs.channel | json }}, \"message\": {{ inputs.message | json }}{% if inputs.reply_to %}, \"reply_parent_message_id\": {{ inputs.reply_to | json }}{% endif %}}",
+      "result": {
+        "id": {
+          "expr": "size(answer.data) > 0 && answer.data[0].is_sent ? answer.data[0].message_id : null",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel",
+        "message",
+        "reply_to"
+      ]
+    },
+    "announce": {
+      "method": "POST",
+      "path": "/chat/announcements",
+      "query": {
+        "broadcaster_id": "{{ inputs.channel }}",
+        "moderator_id": "{{ inputs.channel }}"
+      },
+      "body": "{\"message\": {{ inputs.message | json }}, \"color\": {{ (inputs.color or \"primary\") | json }}}",
+      "result": {
+        "id": {
+          "expr": "'announcement-' + now"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "channel",
+        "message",
+        "color"
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/moderation/chat",
+      "query": {
+        "broadcaster_id": "{{ inputs.id | split(':') | first }}",
+        "moderator_id": "{{ inputs.id | split(':') | first }}",
+        "message_id": "{{ inputs.id | split(':') | last }}"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    },
+    "account": {
+      "changes": false,
+      "inputs": [
+        "account_id"
+      ],
+      "steps": [
+        {
+          "name": "me",
+          "operation": "get_user"
+        },
+        {
+          "name": "fans",
+          "operation": "followers",
+          "inputs": {
+            "channel": "inputs.account_id"
+          }
+        }
+      ],
+      "result": {
+        "name": "/me/name",
+        "handle": "/me/handle",
+        "picture": "/me/picture",
+        "followers": "/fans/total"
+      }
+    },
+    "publish": {
+      "inputs": [
+        "account_id",
+        "kind",
+        "text_with_link",
+        "reply_to",
+        "settings"
+      ],
+      "steps": [
+        {
+          "name": "message",
+          "operation": "send_chat",
+          "when": "inputs.kind != 'announcement'",
+          "inputs": {
+            "channel": "inputs.account_id",
+            "message": "inputs.text_with_link",
+            "reply_to": "(inputs.reply_to | split(':') | last) if inputs.reply_to else none"
+          }
+        },
+        {
+          "name": "announcement",
+          "operation": "announce",
+          "when": "inputs.kind == 'announcement'",
+          "inputs": {
+            "channel": "inputs.account_id",
+            "message": "inputs.text_with_link",
+            "color": "inputs.settings.color"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "concat(inputs.account_id, ':', answer.message != null ? answer.message.id : answer.announcement.id)"
+        },
+        "url": {
+          "expr": "'https://www.twitch.tv/popout/' + inputs.account_id + '/chat'"
+        }
+      }
+    }
+  }
+}
