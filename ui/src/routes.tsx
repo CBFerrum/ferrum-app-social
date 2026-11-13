@@ -8,6 +8,9 @@ const page = (name: "FormView" | "ListView" | "ReportView" | "AppSettingsPage" |
 export const routes: RouteObject[] = [
   { index: true, lazy: () => import("./Home").then((m) => ({ Component: m.Home })) },
   { path: "accounts", lazy: () => import("./Accounts").then((m) => ({ Component: m.AccountsRoute })) },
+  { path: "compose", lazy: () => import("./Composer").then((m) => ({ Component: m.ComposerRoute })) },
+  { path: "compose/:id", lazy: () => import("./Composer").then((m) => ({ Component: m.ComposerRoute })) },
+  { path: "e/SocialPost/:id", lazy: () => import("./Composer").then((m) => ({ Component: m.ComposerRoute })) },
   { path: "form/:entity/:id", lazy: page("FormView") },
   { path: "e/:entity", lazy: page("ListView") },
   { path: "e/:entity/:id", lazy: page("FormView") },
