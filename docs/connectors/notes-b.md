@@ -288,3 +288,21 @@ moderation:chat_message:manage`), that `type: user` with the broadcaster's own i
 the token address takes the client secret in the body.
 **Setup**: an app in Kick's developer settings (needs two-factor sign-in) with the redirect
 `{PUBLIC_URL}/api/connections/callback`; its id in the description, its secret under `client_secret`.
+
+## Dribbble (`dribbble.json`)
+
+**Does**: OAuth 2 (`public upload`; Dribbble's tokens do not expire, `never_expires`); the user is the account; a shot
+with exactly one picture (png, jpeg, gif; at least 400x300; 8 MB), a title (required), an html description and the team to
+post as (choices from `/user`); the shot's id from the `Location` header of the 202 answer; delete; views as impressions,
+likes + comments as engagements; followers; the documented 60 requests a minute.
+**Never twice**: no idempotency header. After a lost answer the call reads the user's own shots for one with that title
+published since the publication began; Dribbble makes a shot asynchronously (202), so one not yet listed is not found and
+the call fails rather than sending again.
+**Cannot**: tags, scheduling (`scheduled_for`), low profile, rebounds; follow-ups (the API has no comments); the picture's
+description; a GIF's smaller limit; the media as a first-class thing for a design: the picture is sent as a part from the
+stored file (the `publish_media` step is a read of the account that returns the file id, as for Telegram).
+**Unverified**: `DELETE /shots/{id}` and `GET /shots/{id}` counts (`views_count`, `likes_count`, `comments_count`) and
+`team_id` on create; the size limits; `published_at` on `/user/shots`; that `headers.location` is lower-cased in the
+expression. The 202's `Location` is read as the platform stores it.
+**Setup**: an application at dribbble.com/account/applications/new with the callback
+`{PUBLIC_URL}/api/connections/callback`; its id in the description, its secret under `client_secret`.
