@@ -213,3 +213,128 @@ Accounts, Headline).
   counts client-side from the rules for live feedback.
 - The review link page cannot show pictures (the platform's link page shows no files); it shows `preview` text with
   each medium's description.
+
+## 9. Round two (each line here is an addition; nothing above changes but where a line below says so)
+
+### 9.1 Composer (round two)
+
+- **A draft may hold problems (round two).** While a post is Draft or Rejected, a save is refused only for structure:
+  an unknown or another brand's account, a kind or a setting key the network does not have, a medium for an item there
+  is not, a bad address, a picture without its description (`image_alt`), a file not stored here. Everything else
+  (lengths, media rules, required answers, variables with no value, what a connection cannot send) is kept and listed
+  by `copies` (`problems`), and refused when the post leaves Draft: `send_for_review`, `publish_now`, `add_to_queue`,
+  and again when sent. A post In Review or Approved is held to every rule on save, as in 0.8.0. This replaces the first
+  bullet of section 8.
+- **Check without saving (round two).** `POST /api/v1/SocialPost/_calc` with the post's body as the API takes it
+  (`brand`, `text`, `link`, `image`, `image_alt`, `first_comment`, `targets` with `kind`/`text`/`link`/`settings`,
+  `items`, `media`, `add_signature`, `signature`, and `"want_checks": true`) answers the computed post with `checks` =
+  exactly what the `copies` action answers (`{copies: [...]}`). Nothing is written (the platform's preview runs the
+  post's hooks and rolls back); it needs read on posts, reads the accounts with the caller's rights, calls no network,
+  so it may be called on a debounce. Why `_calc`: it is the platform's call for an unsaved body ("live totals"), so no
+  record is needed and the generic API's shape is the input. Drop the client-side copy of the counting.
+- **`fold` (round two):** `Text.fold` (in `text` and in a kind's `text`): characters after which the network shows
+  "see more"; the preview's only, never checked. `copies` items carry `fold`.
+- `copies` items also carry `fold`; a media line may name `asset` (link SocialMediaAsset) instead of `file`: its file,
+  kind, description, width, height and length fill what the line leaves empty on save.
+
+### 9.2 New settings (SocialSettings, round two)
+
+`media_sources` (text: connection names, one a line; the first is the default), `fetch_connection`,
+`shorten_connection`, `shorten_text_links` (check), `writing_connection`, `writing_model` (default
+`claude-sonnet-5-5`), `digest_day` (Monday … Sunday, Never; default Monday), `digest_time` (`HH:MM`, default 09:00).
+
+### 9.3 New records (round two)
+
+| Entity | Fields | Notes |
+|---|---|---|
+| SocialMediaAsset "Media Asset" (list "Media Library") | `asset_name`, `file` (required), `kind`, `alt`, `width`, `height`, `seconds`, `source` (Upload, Address, Stock, Generated, Feed), R/O `source_name`, `source_id`, `content_type`, `bytes`, `added_by`; `credit`, `credit_link`, `licence`, `brand` | Tags are the platform's. Kind, type and size filled from the file |
+| SocialLinkTemplate "Link Template" | `template_name`, `brand`, `account`, `parameters` (one `name=value` a line; values may hold `{{post}}`, `{{post_id}}`, `{{account}}`, `{{handle}}`, `{{network}}`, `{{kind}}`, `{{brand}}`, `{{tags}}`), `in_text` (check), `exclude` (hosts, one a line), `active` | Most specific active wins: account, brand, workspace |
+| SocialWritingPreset "Rewrite Preset" | `preset_name`, `instruction` | Seeded: Shorter, Longer, Friendlier, More Formal, Fix Grammar |
+| SocialWritingUse "Writing Help Use" | R/O `post`, `brand`, `action`, `by`, `prompt`, `answer`, `connection` | Every use; erased with the person (`by`) |
+| SocialPlug "Plug" | `plug_name`, `brand`, `account`, `trigger` (Number Reached, Time Passed), `measure` (impressions, engagements, clicks; label Number), `threshold`, `within_hours` (24), `after_minutes` (60), `action` (Repost, Comment, Others Like, Others Repost, Others Comment), `text`, `targets` (other accounts), `delay_minutes`, `max_runs` (1), `active` | Run by the upkeep |
+| SocialPlugRun "Plug Run" | R/O `plug`, `publication`, `account`, `state` (Done, Refused, Skipped), `note`, `external_id`, `at` | One per plug, publication and acting account |
+| SocialFeed "Feed" | `feed_name`, `connection`, `operation` (feed), `brand`, `targets`, `template`, `set`, `then` (Draft, Send for Review, Add to Queue, Publish Now), `rewrite`, `rewrite_instruction`, `take_picture`, `every_minutes` (60), `owner`, R/O `since`, `read_at`, `last_error`, `active` | Generic list and form |
+| SocialFeedItem "Feed Item" | R/O `feed`, `title`, `link`, `published_at`, `post`, `state` (Made, Skipped, Failed), `note` | |
+| SocialNoticeOptOut "Notice Opt-out" | `person` (email), `notice` (went_out, failed, review, reconnect, repeat_stopped, digest) | One per person and notice |
+| SocialDigestRun "Digest Run" | R/O `week`, `sent_at`, `people` | |
+
+Changed (round two): SocialBrand `voice` (text), `report_to` (email), R/O `numbers` (json: `{from, to, publications,
+impressions, engagements, clicks, before: {…}, top: {headline, engagements, permalink}}`); SocialPublication R/O `kind`,
+`short_links` (json `{long address: {url, id}}`); SocialMedia `asset`; SocialPost hidden `want_checks`, `checks`.
+
+### 9.4 New actions (round two)
+
+| Entity, action | Params | Result |
+|---|---|---|
+| SocialBrand `media_search` (read only) | `query` (required), `source` (a name from `media_sources`), `page` | `{source, page, items: [{id, preview, url, credit, credit_link, licence, width, height, alt, kind}]}` |
+| SocialBrand `media_take` (hidden; Social Author or Manager) | `id` (required), `source`, `url`, `name`, `alt`, `credit`, `credit_link`, `licence`, `width`, `height` (pass back the search item) | `{entity: "SocialMediaAsset", id, file}` |
+| SocialBrand `media_from_address` (Social Author or Manager) | `url` (required), `name`, `alt` | `{entity, id, file}` |
+| SocialBrand `write_new` (Social Writing Help) | `prompt` | `{text}` |
+| SocialPost `write` | `prompt` | `{text}` |
+| SocialPost `rewrite` | `instruction`, or `preset` (a Rewrite Preset's id) | `{text}` |
+| SocialPost `adapt` | — | `{versions: [{account, account_name, text, length, max, fits}]}`: fill each `targets[].text` only when the person accepts |
+| SocialPost `hashtags` | `count` (5) | `{hashtags: ["#…"]}` |
+| SocialPost `describe` | `medium` (index into `media`, 0 = `image` when no lines) | `{alt, medium}` |
+| SocialPost `thread` | `parts` (3) | `{items: [text]}` |
+| SocialPost `picture` | `prompt` | `{entity: "SocialMediaAsset", id, file}` |
+
+Writing actions need the role **Social Writing Help** (refused `403` "writing help is for those holding Social Writing
+Help"), and Social Settings' `writing_connection` (refused `422` "no connection is set for writing help"). Nothing is
+saved over the post: show the answer, let the person take it.
+
+### 9.5 Reports (round two)
+
+`/r/social_by_network`, `/r/social_by_kind`, `/r/social_period_compare` (rows `{measure, this_period, period_before,
+change, change_pct}`; `meta.before_from`, `before_to`), `/r/social_followers_by_day` (`account` param),
+`/r/social_top_posts` (`by`: engagements | impressions | clicks, `limit`). Params as the others (`from_date`,
+`to_date`, `brand`). A post's panel: `GET /api/v1/SocialPublication?filters=[["post","=",id]]` (each account's
+numbers, `sent_items`, `short_links`, clicks), `GET /api/v1/SocialMetric?filters=[["publication","=",pub]]` and
+`GET /api/v1/SocialInsight?filters=[["publication","=",pub]]` (by day). A brand's week: `numbers` on SocialBrand; its
+document `GET /api/v1/SocialBrand/{id}/print?template=social.brand_report`.
+
+### 9.6 Notices (round two)
+
+Templates `social.went_out`, `social.failed` (`values.failures`), `social.review` (`values.notice`: waiting, reminder,
+escalated, approved, rejected, not_done; also the approval policy's `message`), `social.reconnect` (`values.reason`:
+refused, or none for the upgrade's), `social.repeat_stopped`, `social.digest`, `social.brand_report_mail`, and the
+writing prompts `social.prompt_system`, `_write`, `_rewrite`, `_adapt`, `_hashtags`, `_alt`, `_thread`, `_picture`
+(read for the person asking, never sent). A person's notice settings page lists SocialNoticeOptOut rows with
+`person` = their address.
+
+### 9.7 Accounts' Connect (round two, read from `server/src/controllers/connections.rs`)
+
+`connect` on an OAuth account answers `{connect: {method: "POST", path: "/api/connections/{id}/connect"}}`. The
+browser, signed in (cookie session; the call is refused without a browser session), POSTs that path and gets JSON
+`{url}`: the provider's sign-in address, not a redirect. Open it (a new window or the same tab). The provider returns
+to `GET /api/connections/callback?state=&code=`, which answers a plain HTML page ("The account is connected. You can
+close this window.", or why not) and goes nowhere else. The screen then calls `check` (state `Connected`), and
+`reachable` / `choose` where the description has an `accounts` operation. A session connection answers `{signed_in,
+state, note}` at once; `disconnect` revokes.
+
+### 9.8 Menu and Create (round two)
+
+The bar's Create opens `social/compose` (app.yaml `shell.create`). Rows wanted in the left menu, for the app's own
+pages: Compose `social/compose` (icon `square-pen`, Author), Calendar `social/calendar` (`calendar`, all roles),
+Posting times `social/queue` (`clock`, all), Accounts `social/accounts` (`at-sign`, all; Manager acts), Media
+`social/media` (`image`, all), Inbox `social/inbox` (`inbox`, all), Numbers `social/numbers` (`bar-chart-3`, all),
+Library `social/library` (`library`, all); Feeds and Plugs stay generic lists (`SocialFeed`, `SocialPlug` in the
+module's items). **The platform has no way for a package or a manifest to declare a menu row for an app's own page**:
+`ModuleDef.items` takes entities and `report:<name>` only (`crates/meta/src/types.rs`), and the frame's
+`moduleLinks` (`web/src/app/Shell.tsx`) drops anything else; the only page rows (the till, Chat, Calendar, Meet,
+Documents) are written into the frame. Needed: an item `page:<path>` with a label and icon (or a manifest point such as
+`contributes.shell.nav`), shown to the roles given. Until then the app's own pages reach each other from Social's home.
+
+### 9.9 Names for ar/hi (round two)
+
+Entities: Media Asset, Media Library, Link Template(s), Rewrite Preset(s), Writing Help Use(s), Plug(s), Plug Run(s),
+Feed(s), Feed Item(s), Notice Opt-out(s), Digest Run(s). Fields: Name, From, Its Id There, Credit, Credit Link,
+Licence, File Type, Size (Bytes), Added By, Parameters, Links in the Words Too, Not On, Instruction, Action, By,
+Prompt, Answer, Connection, Trigger (Number Reached, Time Passed), Number, Threshold, Within (Hours), After (Minutes),
+Comment, Other Accounts, Not Before (Minutes), Max Runs, State (Done, Refused, Skipped, Made, Failed), Note, Then
+(Draft, Send for Review, Add to Queue, Publish Now), Rewrite With Writing Help, How to Rewrite, Take Its Picture, Read
+Every (Minutes), Owner, Items From, Person, Notice, Week, People, Voice, Weekly Report To, Last Seven Days, Short
+Links, Picture and GIF Sources, Media From an Address Through, Shorten Links Through, Shorten Links in the Words Too,
+Writing Help Through, Writing Model, Weekly Digest On, Weekly Digest At; actions Find Pictures, Take a Picture, Add
+Media From an Address, Write a Post, Write It, Rewrite It, Adapt for Each Account, Suggest Hashtags, Describe the
+Picture, Split Into a Thread, Make a Picture; report titles Social Numbers by Network, by Kind of Post, Against the
+Period Before, Social Followers by Day, Social Top Posts; role Social Writing Help.
