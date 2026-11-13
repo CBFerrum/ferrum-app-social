@@ -480,6 +480,9 @@ async fn scenario() {
     if wanted("telegram") {
         telegram(&t).await;
     }
+    if wanted("discord") {
+        discord(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -621,4 +624,176 @@ async fn telegram(t: &T) {
     net.clear();
     let checked = t.act(&t.manager, "SocialAccount", news, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind News", "{checked}");
+}
+
+// ───────────── Discord ─────────────
+
+const DC_TOKEN: &str = "MTA.bot.token";
+
+async fn discord(t: &T) {
+    // REST v10 (discord.com/developers/docs): `Authorization: Bot <token>`, a User-Agent, JSON or multipart (a
+    // `payload_json` part and `files[n]`), a `nonce` with `enforce_nonce` to make a message once, a thread of a message
+    // that has the message's own id.
+    let messages: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let threads: Arc<Mutex<Vec<String>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (m2, th2, l2) = (messages.clone(), threads.clone(), lose.clone());
+    let net = fake(move |r| {
+        if r.header("authorization") != format!("Bot {DC_TOKEN}") || !r.header("user-agent").starts_with("DiscordBot (") {
+            return status(401, json!({"message": "401: Unauthorized", "code": 0}));
+        }
+        let Some(path) = r.path().strip_prefix("/api/v10") else { return status(404, json!({"message": "404: Not Found", "code": 0})) };
+        let seg: Vec<&str> = path.trim_matches('/').split('/').collect();
+        let mut messages = m2.lock().unwrap();
+        match (r.method.as_str(), seg.as_slice()) {
+            ("GET", ["users", "@me"]) => ok(json!({"id": "B1", "username": "northwind-bot", "bot": true})),
+            ("GET", ["users", "@me", "guilds"]) => {
+                ok(json!([{"id": "G1", "name": "Northwind HQ", "icon": "abc123"}, {"id": "G2", "name": "Elsewhere", "icon": null}]))
+            }
+            ("GET", ["guilds", "G1"]) => ok(json!({"id": "G1", "name": "Northwind HQ", "approximate_member_count": 250})),
+            ("GET", ["guilds", "G1", "channels"]) => ok(json!([
+                {"id": "C0", "type": 4, "name": "Info"}, {"id": "C1", "type": 0, "name": "announcements", "parent_id": "C0"},
+                {"id": "C2", "type": 2, "name": "Voice"}, {"id": "C3", "type": 5, "name": "news"}])),
+            ("GET", ["guilds", "G1", "members", "search"]) => {
+                assert_eq!(r.query().get("query").map(String::as_str), Some("an"));
+                ok(json!([{"user": {"id": "U9", "username": "ana", "global_name": "Ana Lima"}, "nick": null}]))
+            }
+            ("GET", ["channels", id]) => {
+                if th2.lock().unwrap().iter().any(|x| x == id) {
+                    ok(json!({"id": id, "type": 11}))
+                } else {
+                    status(404, json!({"message": "Unknown Channel", "code": 10003}))
+                }
+            }
+            ("POST", ["channels", c, "messages", m, "threads"]) => {
+                let mut th = th2.lock().unwrap();
+                if th.iter().any(|x| x == m) {
+                    return status(400, json!({"message": "A thread has already been created for this message", "code": 160004}));
+                }
+                assert!(messages.iter().any(|x| x["id"] == *m && x["channel_id"] == *c), "a thread is made from a message that is there");
+                assert_eq!(r.json()["auto_archive_duration"], 1440);
+                th.push(m.to_string());
+                ok(json!({"id": m, "type": 11}))
+            }
+            ("POST", ["channels", c, "messages"]) => {
+                let allowed = ["C1", "C2"].contains(c) || th2.lock().unwrap().iter().any(|x| x == c);
+                if !allowed {
+                    return status(403, json!({"message": "Missing Permissions", "code": 50013}));
+                }
+                let (body, files) = if r.header("content-type").starts_with("multipart/form-data") {
+                    let payload: Value = serde_json::from_str(&r.part("payload_json").expect("payload_json").text()).unwrap();
+                    let files: Vec<Value> = (0..10)
+                        .filter_map(|i| r.part(&format!("files[{i}]")))
+                        .map(|p| json!({"filename": p.filename, "type": p.kind, "same": p.content == PNG}))
+                        .collect();
+                    (payload, files)
+                } else {
+                    assert_eq!(r.header("content-type"), "application/json");
+                    (r.json(), vec![])
+                };
+                let nonce = body["nonce"].as_str().unwrap_or_default().to_string();
+                assert!(!nonce.is_empty() && nonce.len() <= 25 && body["enforce_nonce"] == true, "{body}");
+                if let Some(old) = messages.iter().find(|x| x["nonce"] == nonce.as_str() && x["channel_id"] == *c) {
+                    return ok(old.clone());
+                }
+                let id = format!("M{}", messages.len() + 1);
+                let msg = json!({"id": id, "channel_id": c, "content": body["content"], "nonce": nonce, "attachments": body["attachments"], "files": files,
+                                 "reference": body["message_reference"]["message_id"], "mentions": body["allowed_mentions"]});
+                messages.push(msg.clone());
+                if l2.lock().unwrap().as_deref() == body["content"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(msg)
+            }
+            ("DELETE", ["channels", c, "messages", m]) => {
+                messages.retain(|x| !(x["id"] == *m && x["channel_id"] == *c));
+                Resp::Answer(204, vec![], String::new())
+            }
+            _ => status(404, json!({"message": "404: Not Found", "code": 0})),
+        }
+    })
+    .await;
+    let conn = t.connect("discord_north", "discord", &[("https://discord.com", &net.base)], json!({"bot_token": DC_TOKEN}), |_| {}).await;
+    // Connecting: the servers the bot is in; the server's channels are the choices (text and announcement ones only).
+    let hq = t.account("Northwind Discord", "northwind", conn, "G1").await;
+    let rules = t.rules(hq).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["format"].as_str(), rules["text"]["max"].as_u64()), (Some("Discord"), Some("markdown"), Some(2000)));
+    let reached = t.act(&t.manager, "SocialAccount", hq, "reachable", Value::Null).await.unwrap();
+    assert_eq!(reached["accounts"][0]["picture"], "https://cdn.discordapp.com/icons/G1/abc123.png");
+    assert_eq!(reached["accounts"][1]["picture"], Value::Null);
+    let channels = t.act(&t.author, "SocialAccount", hq, "choices", json!({"setting": "channel"})).await.unwrap();
+    assert_eq!(channels["choices"], json!([{"value": "C1", "label": "announcements"}, {"value": "C3", "label": "news"}]), "no category and no voice channel");
+    let found = t.act(&t.author, "SocialAccount", hq, "mentions", json!({"query": "an"})).await.unwrap();
+    assert_eq!(found["mentions"][0]["text"], "<@U9>");
+    let on = |channel: &str| target_with(hq, "message", json!({"channel": channel}));
+    let e = t.refused("No channel", vec![target(hq)], json!({})).await;
+    assert!(e.contains("Channel is needed"), "{e}");
+
+    // A text post: markdown as it is, the link after the words, one message once (the nonce).
+    let p = t.post("**Spring** is here", vec![on("C1")], json!({"link": "https://northwind.example/spring"})).await;
+    let first = t.out(p, hq).await;
+    assert_eq!(first["external_id"], "C1:M1");
+    {
+        let m = messages.lock().unwrap();
+        assert_eq!(m[0]["content"], "**Spring** is here https://northwind.example/spring");
+        assert_eq!(m[0]["mentions"], json!({"parse": ["users"]}), "never @everyone");
+    }
+
+    // Pictures: one request, a payload_json and a files[n] part for each, the description of each.
+    net.clear();
+    let p = t.post("Two views", vec![on("C1")], json!({"media": [t.media(&t.png, "front"), t.media(&t.png, "back")]})).await;
+    let pics = t.out(p, hq).await;
+    let sends: Vec<Req> = net.to("POST", "/messages");
+    assert_eq!(sends.len(), 1, "both files in the one message: {:?}", net.order());
+    assert!(sends[0].part("files[0]").unwrap().content == PNG && sends[0].part("files[1]").unwrap().content == PNG);
+    let payload: Value = serde_json::from_str(&sends[0].part("payload_json").unwrap().text()).unwrap();
+    assert_eq!(payload["attachments"], json!([{"id": 0, "description": "front"}, {"id": 1, "description": "back"}]));
+    assert_eq!(payload["content"], "Two views");
+    assert_eq!(pics["external_id"], "C1:M2");
+
+    // Replies as a thread of the first message: made once, then each answer posted in it.
+    net.clear();
+    let p = t.post("Launch", vec![on("C1")], json!({"items": [{"text": "Details"}, {"text": "More"}]})).await;
+    let threaded = t.out(p, hq).await;
+    let m = messages.lock().unwrap().clone();
+    let root = m.iter().find(|x| x["content"] == "Launch").unwrap()["id"].as_str().unwrap().to_string();
+    assert_eq!(net.to("POST", "/threads").len(), 1, "one thread: {:?}", net.order());
+    let in_thread: Vec<&Value> = m.iter().filter(|x| x["channel_id"] == root.as_str()).collect();
+    assert_eq!(in_thread.iter().map(|x| x["content"].as_str().unwrap()).collect::<Vec<_>>(), ["Details", "More"]);
+    assert_eq!(threaded["sent_items"].as_array().unwrap().len(), 3);
+
+    // A lost answer: the message was made, and sent again under the same nonce it is the same message.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost one", vec![on("C1")], json!({})).await;
+    let kept = t.out(p, hq).await;
+    assert!(kept["sent_at"].is_string(), "{kept:?}");
+    assert_eq!(messages.lock().unwrap().iter().filter(|x| x["content"] == "Lost one").count(), 1, "one message");
+    let tries = net.to("POST", "/messages");
+    assert_eq!(tries.len(), 2, "sent again after the answer was lost");
+    assert_eq!(tries[0].json()["nonce"], tries[1].json()["nonce"]);
+
+    // A refusal, in Discord's words.
+    let p = t.post("Not here", vec![on("C3")], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert!(post["failure"].as_str().unwrap().contains("Missing Permissions"), "{post:?}");
+
+    // A first comment: an answer in the channel to the first message.
+    let p = t.post("Question?", vec![on("C1")], json!({"first_comment": "Answer here"})).await;
+    t.out(p, hq).await;
+    let m = messages.lock().unwrap().clone();
+    let asked = m.iter().find(|x| x["content"] == "Question?").unwrap();
+    let answer = m.iter().find(|x| x["content"] == "Answer here").unwrap();
+    assert_eq!((answer["channel_id"].clone(), answer["reference"].clone()), (asked["channel_id"].clone(), asked["id"].clone()));
+
+    // Delete: by channel and message.
+    net.clear();
+    t.delete_remote(&first).await;
+    assert_eq!(net.order(), ["DELETE /api/v10/channels/C1/messages/M1"]);
+    let checked = t.act(&t.manager, "SocialAccount", hq, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind HQ", "{checked}");
+    let n = t.rows("SocialMetric", json!({})).await;
+    let _ = n;
 }
