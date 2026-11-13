@@ -533,6 +533,9 @@ async fn scenario() {
     if wanted("tumblr") {
         tumblr(&t).await;
     }
+    if wanted("lemmy") {
+        lemmy(&t).await;
+    }
 }
 
 // ───────────── Telegram ─────────────
@@ -1653,4 +1656,151 @@ async fn tumblr(t: &T) {
     assert_eq!(net.seen()[0].form()["id"], gallery["external_id"].as_str().unwrap().split(':').nth(1).unwrap());
     let checked = t.act(&t.manager, "SocialAccount", blog, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind Notes", "{checked}");
+}
+
+// ───────────── Lemmy ─────────────
+
+async fn lemmy(t: &T) {
+    // HTTP API v3 (join-lemmy.org/api): /user/login for a jwt, /site, /community/list, /search, /pictrs/image (field
+    // `images[]`), /post, /post/list, /comment, /comment/list, /post/delete, /comment/delete.
+    let posts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let comments: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let logins: Arc<Mutex<usize>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let (p2, c2, g2, l2) = (posts.clone(), comments.clone(), logins.clone(), lose.clone());
+    let net = fake(move |r| {
+        let err = |code: u16, e: &str| status(code, json!({"error": e}));
+        if r.path() == "/api/v3/user/login" {
+            let b = r.json();
+            if b["username_or_email"] != "northwind" || b["password"] != "lemmy-pass" {
+                return err(400, "incorrect_login");
+            }
+            *g2.lock().unwrap() += 1;
+            return ok(json!({"jwt": "JWT-1", "registration_created": false, "verify_email_sent": false}));
+        }
+        if r.header("authorization") != "Bearer JWT-1" {
+            return err(400, "not_logged_in");
+        }
+        let mut posts = p2.lock().unwrap();
+        let mut comments = c2.lock().unwrap();
+        let q = r.query();
+        let community = |id: i64, title: &str| json!({"community": {"id": id, "name": title.to_lowercase(), "title": title}});
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/api/v3/site") => ok(json!({"my_user": {"local_user_view": {"person": {"id": 5, "name": "northwind", "display_name": "Northwind", "avatar": "https://lemmy.test/pictrs/image/me.png"}}}})),
+            ("GET", "/api/v3/community/list") => ok(json!({"communities": [community(11, "Linux"), community(12, "Rust")]})),
+            ("GET", "/api/v3/search") => {
+                assert_eq!((q["q"].as_str(), q["type_"].as_str()), ("ru", "Communities"));
+                ok(json!({"communities": [community(12, "Rust")]}))
+            }
+            ("POST", "/pictrs/image") => {
+                let f = r.part("images[]").expect("an images[] part");
+                assert_eq!(f.content, PNG);
+                ok(json!({"msg": "ok", "files": [{"file": "abc123.png", "delete_token": "d"}]}))
+            }
+            ("POST", "/api/v3/post") => {
+                let b = r.json();
+                if b["name"] == "Forbidden" {
+                    return err(400, "language_not_allowed");
+                }
+                let id = 300 + posts.len() as i64;
+                posts.push(json!({"post": {"id": id, "name": b["name"], "ap_id": format!("https://lemmy.test/post/{id}"), "published": Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()}, "input": b}));
+                if l2.lock().unwrap().as_deref() == b["name"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"post_view": {"post": {"id": id, "ap_id": format!("https://lemmy.test/post/{id}")}}}))
+            }
+            ("GET", "/api/v3/post/list") => {
+                assert_eq!(q.get("sort").map(String::as_str), Some("New"));
+                ok(json!({"posts": posts.iter().rev().map(|p| json!({"post": p["post"]})).collect::<Vec<_>>()}))
+            }
+            ("GET", "/api/v3/post") => ok(json!({"post_view": {"counts": {"upvotes": 7, "downvotes": 1, "comments": 2, "score": 6}}})),
+            ("POST", "/api/v3/comment") => {
+                let b = r.json();
+                let id = 500 + comments.len() as i64;
+                comments.push(json!({"comment": {"id": id, "content": b["content"], "published": Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()}, "post_id": b["post_id"]}));
+                if l2.lock().unwrap().as_deref() == b["content"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                ok(json!({"comment_view": {"comment": {"id": id}}}))
+            }
+            ("GET", "/api/v3/comment/list") => ok(json!({"comments": comments.iter().rev().filter(|c| c["post_id"].as_i64().map(|n| n.to_string()).as_deref() == Some(q["post_id"].as_str())).map(|c| json!({"comment": c["comment"]})).collect::<Vec<_>>()})),
+            ("POST", "/api/v3/post/delete") => {
+                let id = r.json()["post_id"].as_i64().unwrap();
+                posts.retain(|p| p["post"]["id"] != id);
+                ok(json!({}))
+            }
+            ("POST", "/api/v3/comment/delete") => {
+                let id = r.json()["comment_id"].as_i64().unwrap();
+                comments.retain(|c| c["comment"]["id"] != id);
+                ok(json!({}))
+            }
+            _ => err(404, "not_found"),
+        }
+    })
+    .await;
+    let conn =
+        t.connect("lemmy_north", "lemmy", &[("https://lemmy.example", &net.base)], json!({"username": "northwind", "password": "lemmy-pass"}), |_| {}).await;
+    // Connecting: a session from the account's user name and password, on first use; the user is the account.
+    let me = t.account("Northwind Lemmy", "northwind", conn, "5").await;
+    assert_eq!(*logins.lock().unwrap(), 1, "signed in once, and the session kept");
+    let rules = t.rules(me).await;
+    assert_eq!((rules["name"].as_str(), rules["follow_ups"]["as"].as_str()), (Some("Lemmy"), Some("comment")));
+    let all = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "community"})).await.unwrap();
+    assert_eq!(all["choices"], json!([{"value": "11", "label": "Linux"}, {"value": "12", "label": "Rust"}]));
+    let found = t.act(&t.author, "SocialAccount", me, "choices", json!({"setting": "community", "query": "ru"})).await.unwrap();
+    assert_eq!(found["choices"], json!([{"value": "12", "label": "Rust"}]), "searched when something was typed");
+    let post_in = |settings: Value| target_with(me, "post", settings);
+
+    // A link post with a picture as its thumbnail, and a comment as a follow-up.
+    let p = t
+        .post(
+            "We shipped **Spring**.",
+            vec![post_in(json!({"community": "12", "title": "Spring is here"}))],
+            json!({"link": "https://northwind.example/spring", "media": [t.media(&t.png, "A cat")], "items": [{"text": "More details below"}]}),
+        )
+        .await;
+    let out = t.out(p, me).await;
+    assert_eq!((out["external_id"].as_str(), out["permalink"].as_str()), (Some("300"), Some("https://lemmy.test/post/300")));
+    {
+        let i = posts.lock().unwrap()[0]["input"].clone();
+        assert_eq!((i["name"].as_str(), i["community_id"].as_i64(), i["body"].as_str()), (Some("Spring is here"), Some(12), Some("We shipped **Spring**.")));
+        assert_eq!((i["url"].as_str(), i["alt_text"].as_str()), (Some("https://northwind.example/spring"), Some("A cat")));
+        assert_eq!(i["custom_thumbnail"], format!("{}/pictrs/image/abc123.png", net.base), "the uploaded picture, as the thumbnail of the link");
+        let c = comments.lock().unwrap()[0].clone();
+        assert_eq!((c["comment"]["content"].as_str(), c["post_id"].as_i64()), (Some("More details below"), Some(300)));
+    }
+    assert!(net.order().iter().position(|o| o == "POST /pictrs/image") < net.order().iter().position(|o| o == "POST /api/v3/post"), "the picture first");
+    // A picture and no link: the picture is the post.
+    let p = t.post("Just a picture", vec![post_in(json!({"community": "12", "title": "Photo"}))], json!({"media": [t.media(&t.png, "")]})).await;
+    t.out(p, me).await;
+    assert_eq!(posts.lock().unwrap()[1]["input"]["url"], format!("{}/pictrs/image/abc123.png", net.base));
+
+    // A lost answer on the post, and on a comment: both found again by what they said, since they began.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("Lost", vec![post_in(json!({"community": "12", "title": "Lost one"}))], json!({})).await;
+    let kept = t.out(p, me).await;
+    assert!(kept["sent_at"].is_string() && net.to("POST", "/api/v3/post").len() == 1, "sent once");
+    *lose.lock().unwrap() = Some("Lost comment".into());
+    let p = t.post("Body", vec![post_in(json!({"community": "12", "title": "With comment"}))], json!({"items": [{"text": "Lost comment"}]})).await;
+    t.out(p, me).await;
+    assert_eq!(comments.lock().unwrap().iter().filter(|c| c["comment"]["content"] == "Lost comment").count(), 1, "one comment");
+
+    // A refusal, in Lemmy's error code.
+    let p = t.post("No", vec![post_in(json!({"community": "12", "title": "Forbidden"}))], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert!(post["failure"].as_str().unwrap().contains("language_not_allowed"), "{post:?}");
+
+    t.later_upkeep().await;
+    assert!(t.rows("SocialMetric", json!({})).await.iter().any(|m| m["engagements"] == 10), "7 + 1 + 2");
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(net.order(), ["POST /api/v3/comment/delete", "POST /api/v3/post/delete"], "the comment first, then the post");
+    assert_eq!(net.seen()[0].json(), json!({"comment_id": 500, "deleted": true}));
+    let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
+    assert_eq!(*logins.lock().unwrap(), 1, "still one session");
 }
