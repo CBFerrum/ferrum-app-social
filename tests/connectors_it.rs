@@ -76,3 +76,24 @@ fn the_package_ships_every_description_as_the_file_is() {
         }
     });
 }
+
+/// The network profiles 0.6 seeded stay for the accounts linked to them by name, and say what their networks'
+/// descriptions say: each carries the description's rules (`social`), which a profile's own fields never override.
+#[test]
+fn the_seeded_profiles_are_their_descriptions_rules() {
+    deep(|| {
+        let packages = ferrum_app_social::packages().unwrap();
+        let social = packages.iter().find(|p| p.manifest.package == "social").unwrap();
+        let seed = social.manifest.seed.iter().find(|s| s.entity == "SocialProfile").unwrap();
+        assert_eq!(seed.records.len(), 8);
+        for r in &seed.records {
+            let name = r["profile_name"].as_str().unwrap();
+            let file = name.to_lowercase();
+            let d: Value = serde_json::from_str(&std::fs::read_to_string(dir().join(format!("{file}.json"))).unwrap()).unwrap();
+            let mut want = d["meta"]["social"].clone();
+            want["name"] = Value::String(name.to_string());
+            assert_eq!(r["social"], want, "{name}: run scripts/ship_connections.py");
+            assert_eq!(r["max_text"], d["meta"]["social"]["text"]["max"], "{name}");
+        }
+    });
+}
