@@ -198,11 +198,9 @@ pub(crate) fn fingerprint(doc: &Doc) -> String {
 }
 
 /// The fields a copy of a post's content carries: to a template, a set, a duplicate, the next occurrence of a repeat.
-#[allow(dead_code)]
 pub(crate) const CONTENT: [&str; 9] = ["headline", "brand", "text", "link", "image", "image_alt", "first_comment", "add_signature", "signature"];
 
 /// `from`'s content as a new record's values (child lines without their ids), its own fields over them.
-#[allow(dead_code)]
 pub(crate) fn content_of(from: &Doc, own: Value) -> Doc {
     let mut out = Doc::new();
     for f in CONTENT {
@@ -232,7 +230,6 @@ pub(crate) fn accounts(doc: &Doc) -> Vec<Uuid> {
 }
 
 /// Posts that name any of `accounts` and go out between `from` and `to` (the queue's look at what is taken).
-#[allow(dead_code)]
 pub(crate) async fn taken(k: &Kernel, ctx: &Ctx, tx: &mut Tx, accounts: &[Uuid], from: &str, to: &str, except: Uuid) -> Result<Vec<Doc>> {
     let ids: Vec<Value> = accounts.iter().map(|a| json!(a.to_string())).collect();
     let filters = parse_filters(&json!([["scheduled_at", ">=", from], ["scheduled_at", "<=", to], ["targets.account", "in", ids]]))?;

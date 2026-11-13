@@ -148,12 +148,44 @@
     - {name: published_at, type: datetime, read_only: true, no_copy: true}
     - {name: waiting_for, type: text, read_only: true, no_copy: true, label: Waiting For, visible_if: "!isEmpty(doc.waiting_for)", description: "Approved and due, but not sent: an account it goes to cannot be reached yet (not connected, its sign-in refused, or its connection off). It goes when every account can be."}
     - {name: failure, type: text, read_only: true, no_copy: true, visible_if: "doc.status == 'Failed'", description: "What each account's network said when it would not take the post"}
+    - {name: repeat_every, type: int, min: 1, label: Repeat Every, description: "Empty: it goes once. Each time it goes out, the next is made as a post of its own"}
+    - {name: repeat_unit, type: select, options: [Days, Weeks, Months], default: Days, label: Repeat Unit}
+    - {name: repeat_until, type: date, label: Repeat Until, description: "The last day it may go out on"}
+    - {name: repeat_count, type: int, min: 2, label: Times in All, description: "How many times it goes out, the first included"}
+    - {name: repeat_of, type: link, to: SocialPost, read_only: true, no_copy: true, label: Repeat Of, description: "The first of the posts it repeats"}
+    - {name: repeat_index, type: int, read_only: true, no_copy: true, label: Occurrence}
+    - {name: repeat_from, type: datetime, read_only: true, no_copy: true, hidden: true, description: "When the first of them went out: each next is counted from it"}
+    - {name: repeat_next, type: link, to: SocialPost, read_only: true, no_copy: true, label: Next Occurrence}
+    - {name: repeat_key, type: data, read_only: true, no_copy: true, hidden: true, unique: true}
+    - {name: repeat_note, type: text, read_only: true, no_copy: true, visible_if: "!isEmpty(doc.repeat_note)", label: Not Repeated, description: "Why its next occurrence could not be made"}
+    - {name: origin, type: link, to: SocialPost, read_only: true, no_copy: true, label: Copied From}
   actions:
     - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
     - {name: approve, label: Approve It, permission: write, condition: "doc.status == 'In Review'"}
     - {name: reject, label: Send It Back, permission: write, condition: "doc.status == 'In Review'", params: [{name: note, type: text, label: Why}]}
     - {name: retry, label: Retry, permission: write, condition: "doc.status == 'Failed'", confirm: "Send it again to the accounts it did not reach?"}
+    - {name: publish_now, label: Publish Now, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'Approved'", confirm: "Send it now? A post not yet approved goes as soon as it is."}
+    - {name: add_to_queue, label: Add to Queue, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'In Review' || doc.status == 'Approved'"}
+    - {name: reschedule, label: Move, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'In Review' || doc.status == 'Approved'", params: [{name: at, type: datetime, label: Goes Out At, required: true}]}
+    - {name: unschedule, label: Back to Draft, permission: write, condition: "doc.status == 'In Review' || doc.status == 'Approved'", confirm: "Take it off the calendar and back to a draft? It needs approving again."}
+    - {name: duplicate, label: Duplicate, permission: write}
+    - {name: stop_repeat, label: Stop Repeating, permission: write, condition: "!isEmpty(doc.repeat_every)"}
   list: {columns: [headline, brand, scheduled_at, status], sort: scheduled_at desc}
+
+- name: SocialPostingTime
+  label: Posting Time
+  label_plural: Posting Times
+  kind: master
+  module: social
+  title_field: time
+  description: "A time posts go out at, on the workspace's clock: an account's own, else its brand's. Add to Queue gives a post the first of them that its accounts have free."
+  fields:
+    - {name: brand, type: link, to: SocialBrand, in_list: true, in_filter: true, description: "Filled from the account when one is named"}
+    - {name: account, type: link, to: SocialAccount, in_list: true, in_filter: true, description: "Empty: every account of the brand that has no times of its own"}
+    - {name: weekday, type: select, options: [Every Day, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday], default: Every Day, in_list: true}
+    - {name: time, type: data, required: true, in_list: true, description: "Hours and minutes, as 09:30"}
+    - {name: active, type: check, default: true, in_list: true}
+  list: {columns: [brand, account, weekday, time, active], sort: time asc}
 
 - name: SocialPublication
   label: Publication
