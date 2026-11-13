@@ -285,7 +285,7 @@ pub(crate) async fn copies_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> 
             .map(|(n, i)| {
                 let t = if n > 0 { follow.text.as_ref().unwrap_or(&text) } else { &text };
                 let length = rules::length(t, &i.text) + i.link.as_deref().map_or(0, |l| t.link_counts.unwrap_or_else(|| rules::length(t, l)) + 1);
-                json!({"text": i.text, "link": i.link, "delay_minutes": i.delay, "length": length, "max": t.max,
+                json!({"text": i.text, "link": i.link, "delay_minutes": i.delay, "length": length, "max": t.max, "fold": t.fold,
                        "media": i.media.iter().map(|m| json!({"file": format!("/files/{}", m.file), "kind": m.kind, "alt": m.alt, "name": m.name})).collect::<Vec<_>>()})
             })
             .collect();
