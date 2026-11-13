@@ -177,6 +177,15 @@ export function Home() {
           ))}
         </Queue>
       </QueueGrid>
+      <HomeSection title={tr("Elsewhere in Social")}>
+        <div className="row">
+          <ButtonLink to="/numbers">{tr("Numbers")}</ButtonLink>
+          <ButtonLink to="/media">{tr("Media")}</ButtonLink>
+          <ButtonLink to="/library">{tr("Library")}</ButtonLink>
+          <ButtonLink to="/automation">{tr("Feeds and plugs")}</ButtonLink>
+          <ButtonLink to="/notices">{tr("Which notices reach you")}</ButtonLink>
+        </div>
+      </HomeSection>
       <HomeSection
         title={tr("What posts did")}
         actions={
