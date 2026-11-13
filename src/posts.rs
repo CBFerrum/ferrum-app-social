@@ -70,7 +70,9 @@ fn follow(r: &Rules, v: &Version) -> FollowAs {
 
 /// Why account `a`'s copy of `doc` cannot go, in plain words naming the account; `None` when it can. Also what its
 /// connection must offer for it.
-pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc, any_profiles: bool) -> Result<Option<(String, String)>> {
+/// `strict`: everything a post must be to leave Draft; else what even a draft may not hold (structure: a kind or a
+/// setting the network does not have, a medium for an item there is not).
+pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc, any_profiles: bool, strict: bool) -> Result<Option<(String, String)>> {
     let name = s(a, "account_name").unwrap_or_default().to_string();
     let v = content::version(k, ctx, tx, doc, a).await.map_err(|e| match e {
         Error::Validation(f) => Error::Validation(
@@ -86,15 +88,19 @@ pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc
     let r = match rules_of(k, ctx, tx, a).await? {
         Some(r) => r,
         // A workspace not yet updated has no profiles: nothing says what its networks take.
-        None if any_profiles => {
+        None if any_profiles && strict => {
             return Ok(Some(("targets".into(), format!("{name} has no network profile, so it is not known what its network takes"))));
         }
+        None if !strict => return Ok(None),
         None => {
             let open = Rules::default();
             return Ok(conn_misses(tx, ctx, a, &open, &v, &name).await?.map(|why| ("targets".into(), why)));
         }
     };
-    if let Some(why) = rules::problems(&r, &v.copy()).into_iter().next() {
+    if !strict {
+        return Ok(rules::structural(&r, &v.copy()).into_iter().next().map(|why| ("targets".into(), format!("for {name}: {why}"))));
+    }
+    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy())).next() {
         return Ok(Some(("text".into(), format!("for {name}: {why}"))));
     }
     Ok(conn_misses(tx, ctx, a, &r, &v, &name).await?.map(|why| (if why.contains("pictures") { "image" } else { "targets" }.into(), why)))
@@ -114,6 +120,19 @@ async fn conn_misses(tx: &mut Tx, ctx: &Ctx, a: &Doc, r: &Rules, v: &Version, na
         return Ok(Some(format!("{name}'s connection cannot add comments")));
     }
     Ok(None)
+}
+
+/// Refused, in the words `unfit` gives, unless every account's copy of `doc` may leave Draft.
+pub(crate) async fn ready(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+    let system = elevated(hc.ctx);
+    let profiles = any_profile(hc).await?;
+    for account in content::accounts(doc) {
+        let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
+        if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles, true).await? {
+            return Err(Error::field(&field, why));
+        }
+    }
+    Ok(())
 }
 
 pub struct PostHook;
@@ -184,7 +203,9 @@ impl DocHook for PostHook {
             if !a.get("active").and_then(Value::as_bool).unwrap_or(true) {
                 return Err(Error::field("targets", format!("{name} is paused")));
             }
-            if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles).await? {
+            // A draft keeps what is wrong with its content (`copies` says it); it is refused when it leaves Draft.
+            let strict = !matches!(s(doc, "status").unwrap_or("Draft"), "Draft" | "Rejected");
+            if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles, strict).await? {
                 return Err(Error::field(&field, why));
             }
         }
@@ -243,6 +264,7 @@ async fn copies(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> {
             Ok(v) => (v, vec![]),
             Err(e) => (Version::default(), vec![e.to_string()]),
         };
+        problems.extend(v.problems.iter().cloned());
         problems.extend(rules::problems(&r, &v.copy()));
         let kind = r.kind(v.kind.as_deref()).ok().flatten();
         let (text, _, follow, _) = r.effective(kind);
@@ -507,7 +529,7 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     // What its network takes may have been changed since the post was approved: looked at again.
     let r = rules_of(k, &ctx, &mut tx, &account).await?.ok_or_else(|| Error::invalid(format!("{name} has no network profile")))?;
     let v = content::version(k, &ctx, &mut tx, &post, &account).await?;
-    if let Some(why) = rules::problems(&r, &v.copy()).into_iter().next() {
+    if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy())).next() {
         return Err(Error::invalid(format!("for {name}: {why}")));
     }
     let kind = r.kind(v.kind.as_deref()).ok().flatten().map(|k| k.name.clone());

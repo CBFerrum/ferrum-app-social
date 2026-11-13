@@ -85,14 +85,39 @@ pub(crate) async fn finish(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, accoun
         return Ok(());
     }
     let values = variables(k, ctx, tx, id(doc, "brand"), id(account, "id")).await?;
-    let unknown = |name: String| Error::field("text", format!("no variable is called {name} for {}", s(account, "account_name").unwrap_or("this account")));
+    let mut unknown = vec![];
     for item in &mut v.items {
-        item.text = fill(&item.text, &values).map_err(unknown)?;
+        item.text = fill_known(&item.text, &values, &mut unknown);
     }
     if let Some(c) = v.first_comment.as_mut() {
-        *c = fill(c, &values).map_err(unknown)?;
+        *c = fill_known(c, &values, &mut unknown);
     }
+    unknown.dedup();
+    let who = s(account, "account_name").unwrap_or("this account");
+    v.problems.extend(unknown.into_iter().map(|name| format!("no variable is called {name} for {who}")));
     Ok(())
+}
+
+/// `text` with each `{{name}}` that has a value filled; the others left as written and named in `unknown`.
+fn fill_known(text: &str, values: &HashMap<String, String>, unknown: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("{{") {
+        let Some(len) = rest[start + 2..].find("}}") else { break };
+        let whole = &rest[start..start + 4 + len];
+        let name = rest[start + 2..start + 2 + len].trim();
+        out.push_str(&rest[..start]);
+        match values.get(name) {
+            Some(v) => out.push_str(v),
+            None => {
+                unknown.push(name.to_string());
+                out.push_str(whole);
+            }
+        }
+        rest = &rest[start + 4 + len..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The accounts an action was given: a list of ids, or ids separated by commas or lines.

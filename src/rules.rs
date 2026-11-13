@@ -431,6 +431,17 @@ pub fn length(t: &Text, text: &str) -> usize {
     n + unit(&text[at..])
 }
 
+/// What is wrong with `copy` that no draft may hold: a kind the network does not have, an answer to a setting it
+/// does not ask.
+pub fn structural(r: &Rules, copy: &Copy) -> Vec<String> {
+    let mut out = vec![];
+    if let Err(why) = r.kind(copy.kind.as_deref()) {
+        out.push(why);
+    }
+    out.extend(copy.settings.keys().filter(|k| !r.settings.iter().any(|s| s.key == **k)).map(|k| format!("{} asks nothing called {k}", r.name())));
+    out
+}
+
 /// What is wrong with `copy` for a network with these rules, in plain words: empty when nothing is.
 pub fn problems(r: &Rules, copy: &Copy) -> Vec<String> {
     let name = r.name();

@@ -377,6 +377,11 @@ impl T {
     async fn insert(&self, ctx: &Ctx, entity: &str, v: Value) -> Doc {
         self.k.insert(ctx, entity, obj(v)).await.unwrap_or_else(|e| panic!("insert {entity}: {e:?}"))
     }
+    /// A post saved, then sent for review: a draft may hold what its networks refuse, leaving Draft may not.
+    async fn ready(&self, ctx: &Ctx, v: Value) -> std::result::Result<Value, Error> {
+        let d = self.k.insert(ctx, "SocialPost", obj(v)).await?;
+        self.k.run_action(ctx, "SocialPost", uid(&d["id"]), "send_for_review", Value::Null).await
+    }
     async fn get(&self, entity: &str, id: Uuid) -> Doc {
         self.k.get(&self.admin, entity, id, false).await.unwrap_or_else(|e| panic!("get {entity}: {e:?}"))
     }
@@ -625,14 +630,10 @@ async fn scenario() {
                "scheduled_at": at.to_rfc3339(), "targets": targets.iter().map(|a| json!({"account": a.to_string()})).collect::<Vec<_>>()})
     };
     // 100 characters; the link counts 10 and a space.
-    refused(
-        t.k.insert(&author, "SocialPost", obj(post(&"a".repeat(90), &[nw_key]))).await,
-        "invalid",
-        "for Northwind Chirp: Chirp takes 100 characters, and this post is 101",
-    );
+    refused(t.ready(&author, post(&"a".repeat(90), &[nw_key])).await, "invalid", "for Northwind Chirp: Chirp takes 100 characters, and this post is 101");
     t.insert(&author, "SocialPost", post(&"a".repeat(89), &[nw_key])).await;
-    refused(t.k.insert(&author, "SocialPost", obj(post("Spring is here", &[co_key]))).await, "invalid", "Contoso Chirp is another brand's");
-    refused(t.k.insert(&author, "SocialPost", obj(post("Spring is here", &[nw_pictured]))).await, "invalid", "takes no post without an image or a video");
+    refused(t.ready(&author, post("Spring is here", &[co_key])).await, "invalid", "Contoso Chirp is another brand's");
+    refused(t.ready(&author, post("Spring is here", &[nw_pictured])).await, "invalid", "takes no post without an image or a video");
     let png = t.k.store_file(&author, None, "spring.png", "image/png", b"\x89PNG\r\n\x1a\nspring").await.unwrap();
     let big = t.k.store_file(&author, None, "big.png", "image/png", &vec![7u8; 6000]).await.unwrap();
     let pictured_post = |targets: &[Uuid], file: &Value, alt: Option<&str>| {
@@ -641,27 +642,19 @@ async fn scenario() {
         p["image_alt"] = json!(alt);
         p
     };
-    refused(t.k.insert(&author, "SocialPost", obj(pictured_post(&[nw_key], &png, None))).await, "invalid", "says what the picture shows");
-    refused(
-        t.k.insert(&author, "SocialPost", obj(pictured_post(&[nw_key], &big, Some("Big")))).await,
-        "invalid",
-        "takes pictures of at most 5 KB, and this one is 6 KB",
-    );
-    refused(t.k.insert(&author, "SocialPost", obj(pictured_post(&[nw_words], &png, Some("Sage")))).await, "invalid", "Chirp Words takes no pictures");
-    refused(
-        t.k.insert(&author, "SocialPost", obj(pictured_post(&[nw_pia], &png, Some("Sage")))).await,
-        "invalid",
-        "Pia's Chirp's connection cannot publish pictures",
-    );
+    refused(t.ready(&author, pictured_post(&[nw_key], &png, None)).await, "invalid", "says what the picture shows");
+    refused(t.ready(&author, pictured_post(&[nw_key], &big, Some("Big"))).await, "invalid", "takes pictures of at most 5 KB, and this one is 6 KB");
+    refused(t.ready(&author, pictured_post(&[nw_words], &png, Some("Sage"))).await, "invalid", "Chirp Words takes no pictures");
+    refused(t.ready(&author, pictured_post(&[nw_pia], &png, Some("Sage"))).await, "invalid", "Pia's Chirp's connection cannot publish pictures");
     let mut commented = post("Spring is here", &[nw_words]);
     commented["first_comment"] = json!("More at the link");
-    refused(t.k.insert(&author, "SocialPost", obj(commented)).await, "invalid", "Chirp Words takes no first comment");
+    refused(t.ready(&author, commented).await, "invalid", "Chirp Words takes no first comment");
     let mut bad_link = post("Spring", &[nw_key]);
     bad_link["link"] = json!("northwind dot example");
-    refused(t.k.insert(&author, "SocialPost", obj(bad_link)).await, "invalid", "is a web address");
+    refused(t.ready(&author, bad_link).await, "invalid", "is a web address");
     let mut elsewhere = pictured_post(&[nw_key], &png, Some("Sage"));
     elsewhere["image"] = json!("https://elsewhere.example/sage.png");
-    refused(t.k.insert(&author, "SocialPost", obj(elsewhere)).await, "invalid", "is a picture stored here");
+    refused(t.ready(&author, elsewhere).await, "invalid", "is a picture stored here");
     // A network's profile edited: the post is looked at again where it is sent (below).
 
     // ───────────── review: someone other than the author approves ─────────────
@@ -918,13 +911,26 @@ async fn scenario() {
     // Settings: what the network asks is answered per account, refused when missing or not asked, passed on.
     let mut asked = tagged("Hello threads", &[], "Settings");
     asked["targets"] = json!([target(nw_threads, json!({}))]);
-    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "for Northwind Threads: Audience is needed");
+    refused(t.ready(&author, asked.clone()).await, "invalid", "for Northwind Threads: Audience is needed");
     asked["targets"] = json!([target(nw_threads, json!({"settings": {"audience": "followers", "colour": "red"}}))]);
-    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Chirp Threads asks nothing called colour");
+    refused(t.ready(&author, asked.clone()).await, "invalid", "Chirp Threads asks nothing called colour");
     asked["targets"] = json!([target(nw_threads, json!({"settings": {"audience": "nobody"}}))]);
-    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Audience is one of everyone, followers");
+    refused(t.ready(&author, asked.clone()).await, "invalid", "Audience is one of everyone, followers");
     asked["targets"] = json!([target(nw_threads, json!({"kind": "reel", "settings": {"audience": "followers"}}))]);
-    refused(t.k.insert(&author, "SocialPost", obj(asked.clone())).await, "invalid", "Chirp Threads has no kind of post called reel");
+    refused(t.ready(&author, asked.clone()).await, "invalid", "Chirp Threads has no kind of post called reel");
+    // (round two) A draft keeps what its networks would refuse, says it, and may not leave Draft with it; a kind or a
+    // setting the network does not have is refused even in a draft; a post in review is held to every rule on save.
+    let mut half = tagged(&"a".repeat(150), &[], "Half written");
+    half["link"] = Value::Null;
+    half["targets"] = json!([target(nw_threads, json!({}))]);
+    let half = t.insert(&author, "SocialPost", half).await;
+    let said = t.act(&author, "SocialPost", uid(&half["id"]), "copies", Value::Null).await.unwrap()["copies"][0]["problems"].clone();
+    assert!(said.to_string().contains("Audience is needed") && said.to_string().contains("takes 100 characters, and this post is 150"), "{said}");
+    refused(t.act(&author, "SocialPost", uid(&half["id"]), "send_for_review", Value::Null).await, "invalid", "takes 100 characters, and this post is 150");
+    refused(t.act(&author, "SocialPost", uid(&half["id"]), "add_to_queue", Value::Null).await, "invalid", "this post is 150");
+    t.k.update(&author, "SocialPost", uid(&half["id"]), obj(json!({"text": "Fixed", "targets": [target(nw_threads, answered.clone())]})), None).await.unwrap();
+    t.act(&author, "SocialPost", uid(&half["id"]), "send_for_review", Value::Null).await.unwrap();
+    refused(t.k.update(&author, "SocialPost", uid(&half["id"]), obj(json!({"text": "b".repeat(150)})), None).await, "invalid", "takes 100 characters");
     // Versions: the original to one account, the account's own words to another.
     let mut versions = tagged("The original words", &[nw_key], "Versions");
     versions["targets"] =
@@ -955,7 +961,7 @@ async fn scenario() {
                              {"item": 2, "file": pics[2]["url"], "alt": "Third"}]);
     let mut too_many = thread.clone();
     too_many["media"] = json!([{"item": 4, "file": pics[0]["url"]}]);
-    refused(t.k.insert(&author, "SocialPost", obj(too_many)).await, "invalid", "a medium is for item 4, and Northwind Threads has 3");
+    refused(t.ready(&author, too_many).await, "invalid", "a medium is for item 4, and Northwind Threads has 3");
     let thread = t.insert(&author, "SocialPost", thread).await;
     let thread_id = uid(&thread["id"]);
     go(thread_id).await;
@@ -1001,7 +1007,7 @@ async fn scenario() {
     let mut commented = tagged("Post with comments", &[nw_comments], "Comments");
     commented["items"] = json!([{"text": "A comment", "delay_minutes": 0}]);
     commented["media"] = json!([{"item": 2, "file": pics[0]["url"]}]);
-    refused(t.k.insert(&author, "SocialPost", obj(commented.clone())).await, "invalid", "Chirp Comments takes no media after the post");
+    refused(t.ready(&author, commented.clone()).await, "invalid", "Chirp Comments takes no media after the post");
     commented["media"] = json!([]);
     let commented = t.insert(&author, "SocialPost", commented).await;
     go(uid(&commented["id"])).await;
@@ -1172,11 +1178,11 @@ async fn scenario() {
     signed["add_signature"] = json!(true);
     let mut unknown = signed.clone();
     unknown["text"] = json!("Visit {{nope}}");
-    refused(t.k.insert(&author, "SocialPost", obj(unknown)).await, "invalid", "no variable is called nope for Northwind Chirp");
+    refused(t.ready(&author, unknown).await, "invalid", "no variable is called nope for Northwind Chirp");
     let mut long = signed.clone();
     long["text"] = json!(format!("{} {{{{shop}}}}", "a".repeat(56)));
     long["link"] = Value::Null;
-    refused(t.k.insert(&author, "SocialPost", obj(long)).await, "invalid", "for Northwind Words: Chirp Words takes 100 characters, and this post is 101");
+    refused(t.ready(&author, long).await, "invalid", "for Northwind Words: Chirp Words takes 100 characters, and this post is 101");
     let signed = t.insert(&author, "SocialPost", signed).await;
     let copies = t.act(&author, "SocialPost", uid(&signed["id"]), "copies", Value::Null).await.unwrap();
     let key_copy = copies["copies"].as_array().unwrap().iter().find(|c| c["account"] == json!(nw_key)).unwrap().clone();

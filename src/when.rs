@@ -181,6 +181,7 @@ pub(crate) async fn action(hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: 
     let system = elevated(hc.ctx);
     let out = match name {
         "add_to_queue" => {
+            crate::posts::ready(hc, doc).await?;
             let when = free_time(hc.kernel, hc.ctx, hc.tx, post, doc, Utc::now()).await?;
             set_time(hc.kernel, hc.ctx, hc.tx, post, doc, Some(when)).await?;
             json!({"scheduled_at": when.to_rfc3339(), "status": s(doc, "status")})

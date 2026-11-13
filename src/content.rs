@@ -52,6 +52,9 @@ pub(crate) struct Version {
     pub settings: Map<String, Value>,
     pub items: Vec<It>,
     pub first_comment: Option<String>,
+    /// What is wrong with it that is not the network's rules (a variable with no value): a draft keeps it, leaving
+    /// Draft refuses it.
+    pub problems: Vec<String>,
 }
 
 impl Version {
@@ -141,7 +144,8 @@ pub(crate) async fn version(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, accou
         settings.extend(given.clone());
     }
     let kind = s(&target, "kind").or(s(account, "default_kind")).map(str::trim).filter(|k| !k.is_empty()).map(str::to_string);
-    let mut v = Version { kind, settings, items, first_comment: s(doc, "first_comment").filter(|c| !c.trim().is_empty()).map(str::to_string) };
+    let mut v =
+        Version { kind, settings, items, first_comment: s(doc, "first_comment").filter(|c| !c.trim().is_empty()).map(str::to_string), problems: vec![] };
     crate::library::finish(k, ctx, tx, doc, account, &mut v).await?;
     crate::links::track(k, ctx, tx, doc, account, &mut v).await?;
     Ok(v)
