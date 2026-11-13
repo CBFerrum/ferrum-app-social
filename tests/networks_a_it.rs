@@ -39,7 +39,7 @@ fn uid(v: &Value) -> Uuid {
 // ───────────── shape ─────────────
 
 /// The descriptions written here, each tested below.
-const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook"];
+const NETWORKS: &[&str] = &["x", "linkedin", "linkedin_page", "facebook", "instagram", "instagram_standalone"];
 
 #[test]
 fn every_network_is_a_description_with_its_rules() {
@@ -197,6 +197,7 @@ fn handler(net: &str) -> Option<Handler> {
         "x" => fake_x,
         "li" | "liw" => fake_linkedin,
         "fb" | "fbv" | "fbr" => fake_facebook,
+        "igf" | "igs" | "igt" | "igr" => fake_instagram,
         _ => return None,
     })
 }
@@ -498,6 +499,8 @@ async fn scenario() {
     linkedin(&t).await;
     linkedin_page(&t).await;
     facebook(&t).await;
+    instagram(&t).await;
+    instagram_standalone(&t).await;
 }
 
 /// The tables of the workspace's database any of `secrets` rests in, as text.
@@ -1410,4 +1413,304 @@ async fn facebook(t: &T) {
     t.call("facebook", "delete", json!({"id": first["id"], "account_id": "P1"}), Some(&format!("delete:{key}"))).await.unwrap();
     assert!(!t.net().list("fb:posts").iter().any(|p| p["id"] == first["id"]));
     assert!(rests(&t.k, &[PAGE_TOKEN]).await.is_empty(), "{:?}", rests(&t.k, &[PAGE_TOKEN]).await);
+}
+
+// ───────────── Instagram (through a Facebook page, and with Instagram's own sign-in) ─────────────
+
+fn fake_instagram(n: &mut Net, r: &Req) -> Resp {
+    let err = |code: u16, m: &str, c: u32| status(code, json!({"error": {"message": m, "type": "OAuthException", "code": c}}));
+    let base = n.base.clone();
+    let seg: Vec<&str> = r.path.trim_start_matches('/').split('/').collect();
+    // Sign-in: Facebook's (a code, then a long-lived token), or Instagram's own (a code at api.instagram.com, then
+    // ig_exchange_token, renewed by ig_refresh_token).
+    let grant = r.query.get("grant_type").map(String::as_str);
+    if seg.get(1) == Some(&"oauth") || r.path == "/oauth/access_token" {
+        let f = r.form();
+        let client =
+            f.get("client_id").is_some_and(|c| c == "igf-client" || c == "igs-client") && f.get("client_secret").map(String::as_str) == Some("ig-secret");
+        if grant != Some("fb_exchange_token") && (!client || !f.contains_key("code")) {
+            return err(400, "Invalid platform app", 101);
+        }
+        let i = n.next();
+        if grant == Some("fb_exchange_token") {
+            n.tokens("ig").push(json!(format!("IGL-{i}")));
+            return ok(json!({"access_token": format!("IGL-{i}"), "expires_in": 5183944}));
+        }
+        n.list("ig:short").push(json!(format!("IGS-{i}")));
+        if r.path == "/oauth/access_token" {
+            return ok(json!({"access_token": format!("IGS-{i}"), "user_id": 17841400, "permissions": "instagram_business_basic"}));
+        }
+        n.tokens("ig").push(json!(format!("IGS-{i}")));
+        return ok(json!({"access_token": format!("IGS-{i}"), "expires_in": 3600}));
+    }
+    if matches!(grant, Some("ig_exchange_token") | Some("ig_refresh_token")) {
+        let given = r.query.get("access_token").cloned().unwrap_or_default();
+        let known = if grant == Some("ig_exchange_token") { n.list("ig:short").contains(&json!(given)) } else { n.list("ig:tokens").contains(&json!(given)) };
+        if !known || (grant == Some("ig_exchange_token") && r.query.get("client_secret").map(String::as_str) != Some("ig-secret")) {
+            return err(400, "Invalid OAuth access token", 190);
+        }
+        let i = n.next();
+        n.tokens("ig").push(json!(format!("IGLL-{i}")));
+        return ok(json!({"access_token": format!("IGLL-{i}"), "token_type": "bearer", "expires_in": 5183944}));
+    }
+    if !n.valid("ig", r) {
+        return err(401, "Invalid OAuth access token.", 190);
+    }
+    let mut cs = n.get("ig:containers");
+    if cs.is_null() {
+        cs = json!({});
+    }
+    if seg[0] == "ig-api-upload" {
+        let cid = seg.last().unwrap().to_string();
+        if r.header("offset") != Some("0") || r.header("file_size").map(str::to_string) != Some(r.body.len().to_string()) || cs[&cid].is_null() {
+            return err(400, "offset and file_size are required", 100);
+        }
+        cs[&cid]["bytes"] = json!(r.body.len());
+        n.set("ig:containers", cs);
+        return ok(json!({"success": true, "message": "Upload successful"}));
+    }
+    let rest: Vec<&str> = seg[1..].to_vec();
+    let user = |u: &str| u == "IG1" || u == "me";
+    let status_of = |c: &Value, all: &Value| -> &'static str {
+        if c["published"] == true {
+            return "PUBLISHED";
+        }
+        if c["media_type"] == "CAROUSEL" {
+            let kids = c["children"].as_array().cloned().unwrap_or_default();
+            return if kids.iter().all(|k| all[k.as_str().unwrap_or_default()]["polls"].as_u64() >= Some(1)) { "FINISHED" } else { "IN_PROGRESS" };
+        }
+        let video = c["upload"] == true;
+        match (video, c["bytes"].as_u64().unwrap_or(0) > 0, c["polls"].as_u64().unwrap_or(0)) {
+            (true, false, _) => "IN_PROGRESS",
+            (_, _, p) if p >= 1 => "FINISHED",
+            _ => "IN_PROGRESS",
+        }
+    };
+    match (r.method.as_str(), rest.as_slice()) {
+        ("GET", ["me", "accounts"]) => ok(json!({"data": [
+            {"name": "Northwind", "instagram_business_account": {"id": "IG1", "username": "northwind.ig", "name": "Northwind", "profile_picture_url": "https://cdn.test/ig.jpg"}},
+            {"name": "A page without Instagram"}]})),
+        ("POST", [u, "media"]) if user(u) => {
+            let b = r.json();
+            let video = b["upload_type"] == "resumable";
+            if b["media_type"].is_null() && b["image_url"].as_str().is_none_or(str::is_empty) {
+                return err(400, "The parameter image_url is required.", 100);
+            }
+            if b["media_type"] == "CAROUSEL" && b["children"].as_array().is_none_or(|c| c.len() < 2) {
+                return err(400, "A carousel has at least two children", 100);
+            }
+            let cid = format!("C{}", n.next());
+            cs[&cid] = json!({"media_type": b["media_type"], "image_url": b["image_url"], "upload": video, "carousel_item": b["is_carousel_item"], "children": b["children"],
+                              "caption": b["caption"], "collaborators": b["collaborators"], "trial": b["trial_params"], "bytes": 0, "polls": 0, "published": false});
+            n.set("ig:containers", cs);
+            let mut out = json!({"id": cid});
+            if video {
+                out["uri"] = json!(format!("{base}/igr/ig-api-upload/v25.0/{cid}"));
+            }
+            ok(out)
+        }
+        ("GET", [""]) => {
+            let ids: Vec<String> = r.query.get("ids").map(|i| i.split(',').map(str::to_string).collect()).unwrap_or_default();
+            let mut out = json!({});
+            for id in &ids {
+                let polls = cs[id]["polls"].as_u64().unwrap_or(0) + 1;
+                cs[id]["polls"] = json!(polls);
+                out[id] = json!({"id": id, "status_code": status_of(&cs[id], &cs)});
+            }
+            n.set("ig:containers", cs);
+            ok(out)
+        }
+        ("POST", [u, "media_publish"]) if user(u) => {
+            let id = r.json()["creation_id"].as_str().unwrap_or_default().to_string();
+            match status_of(&cs[&id], &cs) {
+                "FINISHED" => {}
+                "PUBLISHED" => return err(400, "The media has already been published", 9007),
+                _ => return err(400, "Media ID is not available", 9007),
+            }
+            cs[&id]["published"] = json!(true);
+            let mid = format!("M{}", n.next());
+            let caption = cs[&id]["caption"].clone();
+            n.set("ig:containers", cs);
+            n.list("ig:media").insert(0, json!({"id": mid, "caption": caption, "container": id}));
+            ok(json!({"id": mid}))
+        }
+        ("GET", [u, "media"]) if user(u) => ok(json!({"data": n.list("ig:media").clone()})),
+        ("POST", [m, "comments"]) => {
+            let id = format!("{}", 1800 + n.next());
+            n.list("ig:comments").push(json!({"id": id, "on": m, "message": r.json()["message"]}));
+            ok(json!({"id": id}))
+        }
+        ("GET", [_m, "insights"]) => ok(json!({"data": [{"name": "reach", "values": [{"value": 70}]}, {"name": "views", "values": [{"value": 120}]},
+                                                        {"name": "total_interactions", "values": [{"value": 15}]}, {"name": "likes", "values": [{"value": 10}]}]})),
+        ("GET", [u]) if user(u) => {
+            ok(json!({"id": "IG1", "followers_count": 999, "username": "northwind.ig", "name": "Northwind", "profile_picture_url": "https://cdn.test/ig.jpg"}))
+        }
+        ("GET", [id]) if id.starts_with('M') => ok(json!({"id": id, "permalink": format!("https://www.instagram.com/p/{id}/")})),
+        ("GET", [id]) if id.starts_with('C') => {
+            let polls = cs[*id]["polls"].as_u64().unwrap_or(0) + 1;
+            cs[*id]["polls"] = json!(polls);
+            let st = status_of(&cs[*id], &cs);
+            n.set("ig:containers", cs);
+            ok(json!({"id": id, "status_code": st, "status": "Finished: Media has been uploaded and it is ready to be published."}))
+        }
+        _ => err(404, "Unsupported request", 100),
+    }
+}
+
+/// What Social would give `publish_media` with the public address it does not give yet (see notes-a.md).
+async fn ig_medium(t: &T, name: &str, ct: &str, bytes: &[u8], kind: &str, account: Option<&str>) -> Value {
+    let mut m = t.medium(name, ct, bytes, Some(kind), json!({}), account).await;
+    m["url"] = json!(format!("https://files.northwind.test/{name}"));
+    m
+}
+
+async fn instagram(t: &T) {
+    let conn = t
+        .connect("instagram", "igf", &["graph.facebook.com", "rupload.facebook.com"], json!({"client_secret": "ig-secret"}), |d| {
+            let text = d.to_string().replace(&format!("{}/igf/ig-api-upload", t.base), &format!("{}/igr/ig-api-upload", t.base));
+            *d = serde_json::from_str(&text).unwrap();
+        })
+        .await;
+    t.sign_in(conn, "CODE-ig").await;
+    let account = t.account("Northwind Instagram", conn).await;
+    assert_eq!(t.action(account, "rules", json!({})).await.unwrap()["rules"]["name"], "Instagram");
+    let reach = t.action(account, "reachable", json!({})).await.unwrap();
+    assert_eq!(reach["accounts"].as_array().unwrap().len(), 1, "a page without Instagram is not offered: {reach}");
+    t.action(account, "choose", json!({"picked": ["IG1"]})).await.unwrap();
+    let on = |mut v: Value, kind: &str, settings: Value| {
+        v["account_id"] = json!("IG1");
+        v["kind"] = json!(kind);
+        v["settings"] = settings;
+        v
+    };
+    let key = format!("publish:{}", Uuid::now_v7());
+    // One picture: a container from its address, waited for, published, its permalink read.
+    let m = ig_medium(t, "a.jpg", "image/jpeg", b"JPEG-A", "post", Some("IG1")).await;
+    let a = t.call("instagram", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap();
+    assert_eq!(a["id"], "url:https://files.northwind.test/a.jpg");
+    let ids = vec![a["id"].as_str().unwrap().to_string()];
+    let first = t
+        .call(
+            "instagram",
+            "publish",
+            on(post_in("Morning light", None, &[("a.jpg", "image/jpeg", 6)], &ids), "post", json!({"collaborators": ["ana"]})),
+            Some(&key),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first["url"], format!("https://www.instagram.com/p/{}/", first["id"].as_str().unwrap()));
+    {
+        let n = t.net();
+        let c = n.get("ig:containers")["C".to_string() + &n.get("ig:media")[0]["container"].as_str().unwrap()[1..]].clone();
+        assert_eq!(
+            (c["image_url"].as_str(), c["caption"].as_str(), c["collaborators"].clone()),
+            (Some("https://files.northwind.test/a.jpg"), Some("Morning light"), json!(["ana"]))
+        );
+    }
+    // A carousel of a picture and a video: children made, the video's bytes sent to the upload host, all waited for,
+    // then the carousel, waited for, published.
+    let video = vec![b'v'; 2048];
+    let p = ig_medium(t, "b.jpg", "image/jpeg", b"JPEG-B", "post", Some("IG1")).await;
+    let v = ig_medium(t, "c.mp4", "video/mp4", &video, "post", Some("IG1")).await;
+    let pi = t.call("instagram", "publish_media", p, Some(&format!("media:{key}:1:0"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let vi = t.call("instagram", "publish_media", v, Some(&format!("media:{key}:1:1"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    assert!(vi.starts_with("file:"), "a video goes as bytes, not by address");
+    let car = t
+        .call(
+            "instagram",
+            "publish",
+            on(post_in("Two views", None, &[("b.jpg", "image/jpeg", 6), ("c.mp4", "video/mp4", 2048)], &[pi, vi]), "post", json!({})),
+            Some(&format!("{key}:1")),
+        )
+        .await
+        .unwrap();
+    {
+        let n = t.net();
+        let cs = n.get("ig:containers");
+        let carousel = cs.as_object().unwrap().values().find(|c| c["media_type"] == "CAROUSEL").unwrap();
+        assert_eq!(carousel["children"].as_array().unwrap().len(), 2);
+        let kids: Vec<&Value> = carousel["children"].as_array().unwrap().iter().map(|k| &cs[k.as_str().unwrap()]).collect();
+        assert!(kids.iter().all(|k| k["carousel_item"] == true) && kids[1]["bytes"] == 2048, "{kids:?}");
+        assert!(n.asked("igf").iter().any(|a| a == "GET /v25.0/"), "the children waited for together");
+    }
+    assert!(car["id"].is_string());
+    // A reel as a trial, and a story.
+    let r = ig_medium(t, "r.mp4", "video/mp4", &video, "reel", Some("IG1")).await;
+    let ri = t.call("instagram", "publish_media", r, Some(&format!("media:{key}:2:0"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    t.call(
+        "instagram",
+        "publish",
+        on(post_in("Reel time", None, &[("r.mp4", "video/mp4", 2048)], &[ri]), "reel", json!({"trial_reel": true})),
+        Some(&format!("{key}:2")),
+    )
+    .await
+    .unwrap();
+    let s = ig_medium(t, "s.jpg", "image/jpeg", b"JPEG-S", "story", Some("IG1")).await;
+    let si = t.call("instagram", "publish_media", s, Some(&format!("media:{key}:3:0"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    t.call("instagram", "publish", on(post_in("", None, &[("s.jpg", "image/jpeg", 6)], &[si]), "story", json!({})), Some(&format!("{key}:3"))).await.unwrap();
+    {
+        let n = t.net();
+        let cs = n.get("ig:containers");
+        let all: Vec<&Value> = cs.as_object().unwrap().values().collect();
+        assert!(all.iter().any(|c| c["media_type"] == "REELS" && c["trial"]["graduation_strategy"] == "MANUAL"));
+        assert!(all.iter().any(|c| c["media_type"] == "STORIES" && c["caption"].is_null()));
+    }
+    // The first comment.
+    let mut c = json!({"text": "Tag a friend", "in_reply_to": first["id"], "root": first["id"]});
+    c["account_id"] = json!("IG1");
+    t.call("instagram", "reply", c, Some(&format!("first_comment:{key}"))).await.unwrap();
+    assert_eq!(t.net().list("ig:comments")[0]["on"], first["id"]);
+    // A lost answer on publishing: read back among the account's media by its caption, not published twice.
+    t.net().lose.insert("POST /igf/v25.0/IG1/media_publish".into());
+    let lost = format!("publish:{}", Uuid::now_v7());
+    let m = ig_medium(t, "d.jpg", "image/jpeg", b"JPEG-D", "post", Some("IG1")).await;
+    let di = t.call("instagram", "publish_media", m, Some(&format!("media:{lost}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let once = on(post_in("Only one of these", None, &[("d.jpg", "image/jpeg", 6)], std::slice::from_ref(&di)), "post", json!({}));
+    let before = t.net().list("ig:media").len();
+    assert!(t.call("instagram", "publish", once.clone(), Some(&lost)).await.is_err());
+    let got = t.call("instagram", "publish", once, Some(&lost)).await.unwrap();
+    assert_eq!(t.net().list("ig:media").len(), before + 1);
+    assert_eq!(got["id"], t.net().list("ig:media")[0]["id"]);
+    // A refusal in Instagram's words: a picture with no public address.
+    let mut bare = t.medium("e.jpg", "image/jpeg", b"JPEG-E", Some("post"), json!({}), Some("IG1")).await;
+    bare["url"] = Value::Null;
+    let ei = t.call("instagram", "publish_media", bare, Some("media:bare")).await.unwrap()["id"].as_str().unwrap().to_string();
+    let e = t
+        .call("instagram", "publish", on(post_in("No address", None, &[("e.jpg", "image/jpeg", 6)], &[ei]), "post", json!({})), Some("publish:bare"))
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("image_url is required"), "{e}");
+    // Numbers, the account, and the long-lived token renewed.
+    let m = t.call("instagram", "metrics", json!({"id": first["id"], "account_id": "IG1", "handle": null}), None).await.unwrap();
+    assert_eq!((m["impressions"].as_i64(), m["reach"].as_i64(), m["engagements"].as_i64()), (Some(120), Some(70), Some(15)));
+    t.expire(conn).await;
+    let a = t.call("instagram", "account", json!({"account_id": "IG1", "handle": null}), None).await.unwrap();
+    assert_eq!((a["followers"].as_i64(), a["handle"].as_str()), (Some(999), Some("northwind.ig")));
+    assert!(t.net().last("igf", "GET", "/v25.0/oauth/access_token").query.get("fb_exchange_token").is_some_and(|t| t.starts_with("IGL-")));
+}
+
+async fn instagram_standalone(t: &T) {
+    let conn = t
+        .connect("instagram_standalone", "igs", &["graph.instagram.com", "rupload.facebook.com"], json!({"client_secret": "ig-secret"}), |d| {
+            let text = d
+                .to_string()
+                .replace("https://api.instagram.com", &format!("{}/igt", t.base))
+                .replace(&format!("{}/igs/ig-api-upload", t.base), &format!("{}/igr/ig-api-upload", t.base));
+            *d = serde_json::from_str(&text).unwrap();
+        })
+        .await;
+    t.sign_in(conn, "CODE-igs").await;
+    assert!(t.net().last("igs", "GET", "/access_token").query.get("access_token").is_some_and(|a| a.starts_with("IGS-")), "the short token exchanged");
+    let key = format!("publish:{}", Uuid::now_v7());
+    let m = ig_medium(t, "z.jpg", "image/jpeg", b"JPEG-Z", "post", None).await;
+    let zi = t.call("instagram_standalone", "publish_media", m, Some(&format!("media:{key}"))).await.unwrap()["id"].as_str().unwrap().to_string();
+    let mut v = post_in("From Instagram's own sign-in", None, &[("z.jpg", "image/jpeg", 6)], &[zi]);
+    v["kind"] = json!("post");
+    t.call("instagram_standalone", "publish", v, Some(&key)).await.unwrap();
+    assert!(t.net().asked("igs").iter().any(|a| a == "POST /v25.0/me/media_publish"), "as the signed-in account: /me");
+    // Renewed by ig_refresh_token with the long-lived token itself.
+    t.expire(conn).await;
+    let a = t.call("instagram_standalone", "account", json!({"account_id": null, "handle": null}), None).await.unwrap();
+    assert_eq!(a["followers"], 999);
+    assert_eq!(t.net().last("igs", "GET", "/refresh_access_token").query.get("grant_type").map(String::as_str), Some("ig_refresh_token"));
 }
