@@ -1,0 +1,426 @@
+{
+  "base": "https://api.telegram.org",
+  "auth": {
+    "type": "none"
+  },
+  "apps": [
+    "social"
+  ],
+  "allowed_hosts": [
+    "api.telegram.org"
+  ],
+  "timeout_ms": 60000,
+  "limit": {
+    "per": 30,
+    "every": 1,
+    "concurrent": 2
+  },
+  "meta": {
+    "carries": {
+      "network": "Telegram",
+      "provider": "telegram"
+    },
+    "social": {
+      "name": "Telegram",
+      "text": {
+        "max": 4096,
+        "count": "characters",
+        "format": "html"
+      },
+      "media": {
+        "kinds": [
+          "image",
+          "video",
+          "document",
+          "file"
+        ],
+        "max": 10,
+        "mixes": [
+          {
+            "image": 10
+          },
+          {
+            "video": 10
+          },
+          {
+            "document": 10
+          },
+          {
+            "file": 10
+          }
+        ],
+        "image": {
+          "max_bytes": 10485760
+        },
+        "video": {
+          "max_bytes": 26214400
+        },
+        "document": {
+          "max_bytes": 26214400
+        },
+        "other": {
+          "file": {
+            "max_bytes": 26214400
+          }
+        }
+      },
+      "kinds": [
+        {
+          "name": "message",
+          "label": "Message",
+          "media": {
+            "kinds": []
+          }
+        },
+        {
+          "name": "media",
+          "label": "Photos, video or files",
+          "text": {
+            "max": 1024,
+            "count": "characters",
+            "format": "html"
+          },
+          "media": {
+            "kinds": [
+              "image",
+              "video",
+              "document",
+              "file"
+            ],
+            "required": true,
+            "min": 1,
+            "max": 10,
+            "mixes": [
+              {
+                "image": 10
+              },
+              {
+                "video": 10
+              },
+              {
+                "document": 10
+              },
+              {
+                "file": 10
+              }
+            ],
+            "image": {
+              "max_bytes": 10485760
+            },
+            "video": {
+              "max_bytes": 26214400
+            },
+            "document": {
+              "max_bytes": 26214400
+            },
+            "other": {
+              "file": {
+                "max_bytes": 26214400
+              }
+            }
+          }
+        }
+      ],
+      "follow_ups": {
+        "as": "thread",
+        "media": false,
+        "max": 20
+      },
+      "link_preview": true,
+      "accounts": {
+        "operation": "accounts",
+        "items_at": "/result",
+        "value_at": "/my_chat_member/chat/id",
+        "label_at": "/my_chat_member/chat/title",
+        "handle_at": "/my_chat_member/chat/username",
+        "kind_at": "/my_chat_member/chat/type"
+      }
+    }
+  },
+  "operations": {
+    "get_me": {
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/getMe",
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ]
+    },
+    "accounts": {
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/getUpdates",
+      "query": {
+        "allowed_updates": "[\"my_chat_member\"]"
+      },
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ]
+    },
+    "get_chat": {
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/getChat",
+      "query": {
+        "chat_id": "{{ inputs.chat_id }}"
+      },
+      "result": {
+        "title": "/result/title",
+        "username": "/result/username"
+      },
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ],
+      "inputs": [
+        "chat_id"
+      ]
+    },
+    "get_count": {
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/getChatMemberCount",
+      "query": {
+        "chat_id": "{{ inputs.chat_id }}"
+      },
+      "result": {
+        "count": "/result"
+      },
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ],
+      "inputs": [
+        "chat_id"
+      ]
+    },
+    "account": {
+      "inputs": [
+        "account_id"
+      ],
+      "steps": [
+        {
+          "name": "chat",
+          "operation": "get_chat",
+          "inputs": {
+            "chat_id": "inputs.account_id"
+          }
+        },
+        {
+          "name": "members",
+          "operation": "get_count",
+          "inputs": {
+            "chat_id": "inputs.account_id"
+          }
+        }
+      ],
+      "result": {
+        "name": "/chat/title",
+        "handle": "/chat/username",
+        "followers": "/members/count"
+      },
+      "changes": false
+    },
+    "send_message": {
+      "method": "POST",
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/sendMessage",
+      "body": "{\"chat_id\": {{ inputs.chat_id | json }}, \"text\": {{ inputs.text | json }}, \"parse_mode\": \"HTML\"{% if inputs.reply_to %}, \"reply_parameters\": {\"message_id\": {{ inputs.reply_to | int | json }}, \"allow_sending_without_reply\": true}{% endif %}}",
+      "result": {
+        "message_id": "/result/message_id"
+      },
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ],
+      "inputs": [
+        "chat_id",
+        "text",
+        "reply_to"
+      ]
+    },
+    "send_photo": {
+      "method": "POST",
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/sendPhoto",
+      "form": {
+        "chat_id": "{{ inputs.chat_id }}",
+        "caption": "{{ inputs.caption }}",
+        "parse_mode": "HTML",
+        "photo": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 10485760
+        }
+      },
+      "result": {
+        "message_id": "/result/message_id"
+      },
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ],
+      "inputs": [
+        "chat_id",
+        "caption",
+        "file"
+      ]
+    },
+    "send_video": {
+      "method": "POST",
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/sendVideo",
+      "form": {
+        "chat_id": "{{ inputs.chat_id }}",
+        "caption": "{{ inputs.caption }}",
+        "parse_mode": "HTML",
+        "video": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 26214400
+        },
+        "supports_streaming": "true"
+      },
+      "result": {
+        "message_id": "/result/message_id"
+      },
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ],
+      "inputs": [
+        "chat_id",
+        "caption",
+        "file"
+      ]
+    },
+    "send_document": {
+      "method": "POST",
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/sendDocument",
+      "form": {
+        "chat_id": "{{ inputs.chat_id }}",
+        "caption": "{{ inputs.caption }}",
+        "parse_mode": "HTML",
+        "document": {
+          "file": "{{ inputs.file }}",
+          "max_bytes": 26214400
+        }
+      },
+      "result": {
+        "message_id": "/result/message_id"
+      },
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ],
+      "inputs": [
+        "chat_id",
+        "caption",
+        "file"
+      ]
+    },
+    "publish_media": {
+      "inputs": [
+        "file"
+      ],
+      "steps": [
+        {
+          "name": "token",
+          "operation": "get_me"
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "inputs.file"
+        }
+      }
+    },
+    "publish": {
+      "inputs": [
+        "account_id",
+        "text_with_link",
+        "media",
+        "media_items",
+        "reply_to"
+      ],
+      "steps": [
+        {
+          "name": "text",
+          "operation": "send_message",
+          "when": "not inputs.media",
+          "inputs": {
+            "chat_id": "inputs.account_id",
+            "text": "inputs.text_with_link",
+            "reply_to": "(inputs.reply_to | split(':') | last | split(',') | first) if inputs.reply_to else none"
+          }
+        },
+        {
+          "name": "photos",
+          "operation": "send_photo",
+          "when": "inputs.media_items and inputs.media_items[0].kind == 'image'",
+          "for_each": "inputs.media_items",
+          "inputs": {
+            "chat_id": "inputs.account_id",
+            "file": "item.id",
+            "caption": "inputs.text_with_link if index == 0 else ''"
+          }
+        },
+        {
+          "name": "videos",
+          "operation": "send_video",
+          "when": "inputs.media_items and inputs.media_items[0].kind == 'video'",
+          "for_each": "inputs.media_items",
+          "inputs": {
+            "chat_id": "inputs.account_id",
+            "file": "item.id",
+            "caption": "inputs.text_with_link if index == 0 else ''"
+          }
+        },
+        {
+          "name": "documents",
+          "operation": "send_document",
+          "when": "inputs.media_items and inputs.media_items[0].kind in ['document', 'file']",
+          "for_each": "inputs.media_items",
+          "inputs": {
+            "chat_id": "inputs.account_id",
+            "file": "item.id",
+            "caption": "inputs.text_with_link if index == 0 else ''"
+          }
+        }
+      ],
+      "result": {
+        "id": {
+          "expr": "concat(inputs.account_id, ':', answer.text != null ? string(answer.text.message_id) : (answer.photos != null ? answer.photos : (answer.videos != null ? answer.videos : answer.documents)).map(m, string(m.message_id)).join(','))"
+        }
+      }
+    },
+    "delete": {
+      "method": "POST",
+      "url": "https://api.telegram.org/bot{{ secret.bot_token }}/deleteMessages",
+      "body": "{\"chat_id\": {{ inputs.id | split(':') | first | json }}, \"message_ids\": {{ inputs.id | split(':') | last | split(',') | map('int') | list | json }}}",
+      "error_at": "/description",
+      "temporary": [
+        429,
+        500,
+        502,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
+    }
+  }
+}
