@@ -98,3 +98,25 @@ platform's `params` may not set `scope`); that an image block's `slack_file` may
 **Setup**: a Slack app (api.slack.com/apps) with the redirect `{PUBLIC_URL}/api/connections/callback`, the client id in
 the description and the client secret under `client_secret`; the bot scopes the description lists; add the bot to
 the channels it posts to (or leave `chat:write.public`, losing the read-back there).
+
+## WordPress (`wordpress.json`)
+
+**Does**: the site's REST API with an application password (basic auth; the user name is in the description, the
+password under `application_password`, the site address is the placeholder in `base`, `accounts` and `account`: four
+places); the site is the account; html text; settings: title (required), kind of content (`/types`, so pages and custom
+types with `show_in_rest`), status (publish, draft, pending, private), categories and tags (choices, searchable), address
+name; a cover picture (upload, then its description, then `featured_media`); the post's permalink; delete to the trash
+(no `force`), the id is `<rest_base>:<id>`.
+**Never twice**: WordPress has no idempotency header. The post step reads back after a lost answer: posts of that kind
+with that exact title (`context=edit`, `status=any`) created after the publication's `created_at`. A medium's upload is a
+one-step operation: a lost answer fails the call rather than uploading twice.
+**Cannot**: new tags or categories (only existing ones are chosen); inline pictures (only the cover; Social has no
+`html` of a medium); scheduled posts (`future` needs a date setting: add when Social passes the post's time); the
+title as a first-class input (it is a setting); excerpt, comment status, sticky, formats; a different author;
+follow-ups (none); numbers (WordPress core has none). The read-back would match a different post with the same
+title made in the same moments by someone else.
+**Unverified**: that `after` accepts the RFC 3339 `created_at` with a `Z` (WordPress compares in the site's time zone);
+the `Content-Disposition` form with a quoted file name for names with quotes; no rate limit is described (hosts differ).
+**Setup**: a user with the right to publish, an application password (Users, Profile), HTTPS and the REST API
+reachable at `/wp-json` (pretty permalinks or `?rest_route=` not supported here); put the site address where the
+placeholder is (four places) and the user name in `auth.username`.

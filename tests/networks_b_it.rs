@@ -411,6 +411,23 @@ impl T {
     }
 }
 
+/// Standard base64, for checking a basic-auth header.
+fn b64(bytes: &[u8]) -> String {
+    const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= c.len() {
+                out.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 fn target(account: Uuid) -> Value {
     json!({"account": account.to_string()})
 }
@@ -487,6 +504,9 @@ async fn scenario() {
     }
     if wanted("slack") {
         slack(&t).await;
+    }
+    if wanted("wordpress") {
+        wordpress(&t).await;
     }
 }
 
@@ -985,4 +1005,157 @@ async fn slack(t: &T) {
     assert!(!messages.lock().unwrap().iter().any(|m| m["text"] == "Two views"));
     let checked = t.act(&t.manager, "SocialAccount", ws, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
+}
+
+// ───────────── WordPress ─────────────
+
+async fn wordpress(t: &T) {
+    // REST API (developer.wordpress.org/rest-api): basic auth with an application password, /types, /categories, /tags,
+    // /media (the bytes as the body, the name in Content-Disposition), /posts (title, html content, status, term ids,
+    // featured_media), `context=edit` for the raw title.
+    let posts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let media: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let lose: Arc<Mutex<Option<String>>> = Arc::default();
+    let base: Arc<Mutex<String>> = Arc::default();
+    let (p2, m2, l2, b2) = (posts.clone(), media.clone(), lose.clone(), base.clone());
+    let net = fake(move |r| {
+        let want = format!("Basic {}", b64(b"editor:abcd efgh ijkl mnop"));
+        let err = |code: u16, c: &str, m: &str| status(code, json!({"code": c, "message": m, "data": {"status": code}}));
+        if r.header("authorization") != want {
+            return err(401, "rest_not_logged_in", "You are not currently logged in.");
+        }
+        let site = b2.lock().unwrap().clone();
+        let mut posts = p2.lock().unwrap();
+        let mut media = m2.lock().unwrap();
+        let q = r.query();
+        let path = r.path().trim_start_matches("/wp-json").to_string();
+        match (r.method.as_str(), path.as_str()) {
+            ("GET", "/") => ok(json!({"name": "Northwind Blog", "url": site, "home": site})),
+            ("GET", "/wp/v2/types") => ok(json!({
+                "post": {"name": "Posts", "rest_base": "posts"}, "page": {"name": "Pages", "rest_base": "pages"},
+                "attachment": {"name": "Media", "rest_base": "media"}, "wp_block": {"name": "Patterns", "rest_base": "blocks"}})),
+            ("GET", "/wp/v2/categories") => ok(json!([{"id": 3, "name": "News"}, {"id": 4, "name": "Launches"}])),
+            ("GET", "/wp/v2/tags") => {
+                assert_eq!(q.get("search").map(String::as_str), Some("sp"));
+                ok(json!([{"id": 7, "name": "spring"}]))
+            }
+            ("POST", "/wp/v2/media") => {
+                let name = r.header("content-disposition").to_string();
+                assert!(name.starts_with("attachment; filename=\"cat.png\""), "{name}");
+                assert_eq!((r.header("content-type"), r.body.as_slice()), ("image/png", PNG));
+                let id = 50 + media.len() as i64;
+                media.push(json!({"id": id, "alt": null}));
+                Resp::Answer(201, vec![], json!({"id": id, "source_url": format!("{site}/wp-content/cat.png")}).to_string())
+            }
+            ("POST", m) if m.starts_with("/wp/v2/media/") => {
+                let id: i64 = m.rsplit('/').next().unwrap().parse().unwrap();
+                media.iter_mut().find(|x| x["id"] == id).expect("a medium")["alt"] = r.json()["alt_text"].clone();
+                ok(json!({"id": id}))
+            }
+            ("POST", p @ ("/wp/v2/posts" | "/wp/v2/pages")) => {
+                let b = r.json();
+                if b["title"] == "Forbidden" {
+                    return err(401, "rest_cannot_create", "Sorry, you are not allowed to create posts as this user.");
+                }
+                let id = 100 + posts.len() as i64;
+                let post = json!({"id": id, "type": p, "title": {"raw": b["title"]}, "content": b["content"], "status": b["status"], "categories": b["categories"], "tags": b["tags"],
+                                  "featured_media": b["featured_media"], "slug": b["slug"], "link": format!("{site}/?p={id}"), "date": Utc::now().to_rfc3339()});
+                posts.push(post);
+                if l2.lock().unwrap().as_deref() == b["title"].as_str() {
+                    *l2.lock().unwrap() = None;
+                    return Resp::Lost;
+                }
+                Resp::Answer(201, vec![], json!({"id": id, "link": format!("{site}/?p={id}")}).to_string())
+            }
+            ("GET", "/wp/v2/posts") => {
+                assert_eq!((q.get("status").map(String::as_str), q.get("context").map(String::as_str)), (Some("any"), Some("edit")));
+                assert!(q.contains_key("after"));
+                let found: Vec<Value> = posts.iter().filter(|x| x["title"]["raw"] == q["search"].as_str()).cloned().collect();
+                ok(Value::Array(found))
+            }
+            ("DELETE", d) if d.starts_with("/wp/v2/posts/") => {
+                let id: i64 = d.rsplit('/').next().unwrap().parse().unwrap();
+                posts.retain(|x| x["id"] != id);
+                ok(json!({"id": id, "deleted": false}))
+            }
+            _ => err(404, "rest_no_route", "No route was found matching the URL and request method."),
+        }
+    })
+    .await;
+    *base.lock().unwrap() = net.base.clone();
+    let conn = t
+        .connect("wordpress_north", "wordpress", &[("https://wordpress.example", &net.base)], json!({"application_password": "abcd efgh ijkl mnop"}), |d| {
+            d["auth"]["username"] = json!("editor");
+        })
+        .await;
+    let blog = t.account("Northwind Blog", "blog", conn, &net.base).await;
+    let rules = t.rules(blog).await;
+    assert_eq!((rules["name"].as_str(), rules["text"]["format"].as_str()), (Some("WordPress"), Some("html")));
+    let types = t.act(&t.author, "SocialAccount", blog, "choices", json!({"setting": "post_type"})).await.unwrap();
+    assert_eq!(types["choices"], json!([{"value": "pages", "label": "Pages"}, {"value": "posts", "label": "Posts"}]), "no media, no patterns");
+    let cats = t.act(&t.author, "SocialAccount", blog, "choices", json!({"setting": "categories"})).await.unwrap();
+    assert_eq!(cats["choices"], json!([{"value": "3", "label": "News"}, {"value": "4", "label": "Launches"}]));
+    let tags = t.act(&t.author, "SocialAccount", blog, "choices", json!({"setting": "tags", "query": "sp"})).await.unwrap();
+    assert_eq!(tags["choices"], json!([{"value": "7", "label": "spring"}]));
+    let article = |settings: Value| target_with(blog, "article", settings);
+    let e = t.refused("<p>No title</p>", vec![article(json!({}))], json!({})).await;
+    assert!(e.contains("Title is needed"), "{e}");
+
+    // An article with a cover picture: the picture first (its bytes as the body, then its description), then the post.
+    net.clear();
+    let p = t
+        .post(
+            "<p>Spring is here</p>",
+            vec![article(json!({"title": "Spring", "status": "draft", "categories": ["3"], "tags": ["7"], "slug": "spring-2027"}))],
+            json!({"media": [t.media(&t.png, "A cat in bloom")]}),
+        )
+        .await;
+    let out = t.out(p, blog).await;
+    assert_eq!(out["external_id"], "posts:100");
+    assert_eq!(out["permalink"], format!("{}/?p=100", net.base));
+    assert_eq!(
+        net.order().into_iter().filter(|o| o != "GET /wp-json/").collect::<Vec<_>>(),
+        ["POST /wp-json/wp/v2/media", "POST /wp-json/wp/v2/media/50", "POST /wp-json/wp/v2/posts"]
+    );
+    {
+        let m = media.lock().unwrap();
+        assert_eq!(m[0]["alt"], "A cat in bloom");
+        let post = posts.lock().unwrap()[0].clone();
+        assert_eq!(
+            (post["title"]["raw"].as_str(), post["content"].as_str(), post["status"].as_str(), post["featured_media"].as_i64(), post["slug"].as_str()),
+            (Some("Spring"), Some("<p>Spring is here</p>"), Some("draft"), Some(50), Some("spring-2027"))
+        );
+        assert_eq!((post["categories"].clone(), post["tags"].clone()), (json!([3]), json!([7])), "term ids as numbers");
+    }
+
+    // A page, by the kind of content the site has.
+    let p = t.post("<p>About us</p>", vec![article(json!({"title": "About", "post_type": "pages"}))], json!({})).await;
+    let page = t.out(p, blog).await;
+    assert_eq!(page["external_id"], "pages:101");
+    assert_eq!(posts.lock().unwrap()[1]["type"], "/wp/v2/pages");
+
+    // A lost answer: the post was made; the call finds it by its title since the publication began and does not send again.
+    *lose.lock().unwrap() = Some("Lost one".into());
+    net.clear();
+    let p = t.post("<p>Lost</p>", vec![article(json!({"title": "Lost one"}))], json!({})).await;
+    let kept = t.out(p, blog).await;
+    assert!(kept["sent_at"].is_string(), "{kept:?}");
+    assert_eq!(net.to("POST", "/wp/v2/posts").len(), 1, "sent once");
+    assert_eq!(net.to("GET", "/wp/v2/posts").len(), 1, "read back once");
+    assert_eq!(posts.lock().unwrap().iter().filter(|x| x["title"]["raw"] == "Lost one").count(), 1);
+    assert_eq!(kept["external_id"], "posts:102");
+
+    // A refusal, in WordPress's words.
+    let p = t.post("<p>No</p>", vec![article(json!({"title": "Forbidden"}))], json!({})).await;
+    t.upkeep().await;
+    let post = t.get("SocialPost", p).await;
+    assert!(post["failure"].as_str().unwrap().contains("not allowed to create posts as this user"), "{post:?}");
+
+    // Delete: to the trash, by the kind of content and the id.
+    net.clear();
+    t.delete_remote(&out).await;
+    assert_eq!(net.order(), ["DELETE /wp-json/wp/v2/posts/100"]);
+    assert!(net.to("DELETE", "posts")[0].target.find("force").is_none(), "the trash, not for good");
+    let checked = t.act(&t.manager, "SocialAccount", blog, "check", Value::Null).await.unwrap();
+    assert_eq!(checked["read"]["display_name"], "Northwind Blog", "{checked}");
 }
