@@ -359,3 +359,24 @@ Period Before, Social Followers by Day, Social Top Posts; role Social Writing He
   and another person's is refused (`403`); administrators set anyone's.
 - **Composer (round three):** an account whose description's `publish` uploads in its own steps takes media without
   a `publish_media`; nothing changes on screen.
+
+## 11. Round four (additions; nothing above changes but where a line below says so)
+
+- **Title (round four):** `SocialPost.title` (data) and `targets[].title` ("Its Own Title"): the public title a network
+  takes (an article, a video, a pin, an e-mail's subject). Ask it in the composer when an account's `rules.title` is set
+  (`{required, max}`); it is no longer a setting of any network. `copies` gives each copy's `title` and `title_max`.
+  `SocialTemplate.title` too.
+- **Kind from the media (round four):** an account's `rules.kind_by_media` (`{"none": kind, "image": kind, ...}`) picks
+  the kind by the first medium when the person picks none; `copies` and `_calc`'s `checks` give the kind chosen. Show
+  it, and let the person override it.
+- **Media by address (round four):** `rules.media.by_address` (a list of medium kinds) marks media a network fetches
+  from a public address; until the platform gives stored files one, a copy with such media has a problem ("takes
+  pictures only by a public address…") and cannot leave Draft. Say it beside the medium.
+- **Networks (round four):** every description is offered to the workspace (Administration, Connections), so the
+  Accounts screen may list the networks that can be added (`GET /api/admin/connections` for administrators); none is on
+  until an administrator turns it on.
+- **Network Profiles (round four):** the eight seeded profiles carry their description's rules (`social`); a profile
+  matters only for a workspace's own description without `meta.social`.
+- **Publication (round four):** hidden `first_comment_id` (deleted with the post).
+- Names for ar/hi: Title, Its Own Title.
+

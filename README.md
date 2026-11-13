@@ -17,6 +17,18 @@ connections:
 
 ## Highlights
 
+- **Networks (round four).** Thirty-three networks are described and shipped with the package, each offered to a
+  workspace turned off: X, LinkedIn (member and page), Facebook Page, Instagram (through a page, and its own sign-in),
+  Threads, YouTube, TikTok, TikTok Business, Pinterest, Reddit, Mastodon (any server), Bluesky, Google Business Profile,
+  Telegram, Discord, Slack, WordPress, Medium, DEV, Hashnode, Tumblr, Lemmy, VK, Twitch, Kick, Dribbble, Whop, MeWe,
+  Listmonk, Moltbook, Farcaster. **Each is tested against a fake of the network's documented API and has never run
+  against the real network**: the first connection to each is the first time its real answers are read.
+  docs/connectors/README.md says, per network, what it can, what it cannot yet and why, what to set up at the network,
+  and what is unverified. Some cannot work yet: TikTok and VK cannot sign in, MeWe's sign-in is by hand, and pictures
+  Instagram, Threads, Pinterest, Google Business and TikTok take only by a public address wait on the platform giving
+  stored files one. To add a network: Administration, Connections, take the offered one; set up the app at the network;
+  give the connection its client id and secrets; turn it on; in Social add the account, Connect it and, where offered,
+  choose the pages or channels it reaches.
 - **A network is a description, not code.** Social names no network. Each account is a connection
   (Administration, Connections): the workspace's sign-in at a provider, a person's own, or a key an
   administrator holds. Its description names operations by what Social needs: `publish`,
@@ -83,9 +95,8 @@ this release: connections made from the shipped descriptions, administrators tol
 
 ## Not yet
 
-- The platform's connections part three (steps, waits, chunks, the clock, `tid`, `entities`, XML, `as: system`,
-  `Retry-After`) can now express what the four examples could not (docs/connectors/README.md, "What they still cannot
-  do"); rewriting them on it is the network descriptions' work, not done here.
+- What each network cannot do yet, and what the platform would need for it: docs/connectors/README.md ("Each network",
+  "Needed from the platform").
 - A short-lived public address for a stored file, for a network that pulls media by address (Instagram, Threads):
   the platform gives an app none (`public_url` is null).
 - Reading platform tables by SQL where the platform has no call an app can use in its transaction (checked again
