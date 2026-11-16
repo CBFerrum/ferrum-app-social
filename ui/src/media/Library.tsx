@@ -170,7 +170,7 @@ function Stock({ brand, onDone }: { brand: string; onDone: (assets: Row[]) => vo
   if (settings.isSuccess && sources.length === 0)
     return (
       <StatePanel kind="empty" title={t("No picture source is set")}>
-        {t("An administrator names the sources of stock pictures and GIFs in Social Settings.")} {manager && <Link to="/apps/social/settings">{t("Open the settings")}</Link>}
+        {t("An administrator names the sources of stock pictures and GIFs in Social Settings.")} {manager && <Link to="/e/SocialSettings">{t("Open the settings")}</Link>}
       </StatePanel>
     );
   return (

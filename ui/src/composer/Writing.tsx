@@ -105,7 +105,7 @@ export function Writing({ postId, brandId, draft, accounts, dirty, onSave, take 
       <h2 id="writing-h" className="section-title">{t("Writing help")}</h2>
       {refused && (
         <Alert tone="error">
-          {isolate(refused)} {gone && manager && <Link to="/apps/social/settings">{t("Open the settings")}</Link>}
+          {isolate(refused)} {gone && manager && <Link to="/e/SocialSettings">{t("Open the settings")}</Link>}
         </Alert>
       )}
       <Field label={t("Write from a prompt")} htmlFor="wh-prompt">

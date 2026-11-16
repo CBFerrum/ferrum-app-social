@@ -3,7 +3,7 @@
 
 import type { RouteObject } from "react-router";
 
-const page = (name: "FormView" | "ListView" | "ReportView" | "AppSettingsPage" | "ScreenPage") => () => import("./records").then((m) => ({ Component: m[name] }));
+const page = (name: "FormView" | "ListView" | "ReportView") => () => import("./records").then((m) => ({ Component: m[name] }));
 
 export const routes: RouteObject[] = [
   { index: true, lazy: () => import("./Home").then((m) => ({ Component: m.Home })) },
@@ -24,6 +24,4 @@ export const routes: RouteObject[] = [
   { path: "e/:entity", lazy: page("ListView") },
   { path: "e/:entity/:id", lazy: page("FormView") },
   { path: "r/:name", lazy: page("ReportView") },
-  { path: "apps/:app/settings", lazy: page("AppSettingsPage") },
-  { path: "x/:app/:page", lazy: page("ScreenPage") },
 ];
