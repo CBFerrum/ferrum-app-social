@@ -34,7 +34,7 @@ fn bare(handle: &str) -> &str {
 }
 
 /// A network's HTML as plain text: paragraphs and line breaks kept, tags dropped, entities read. For a network whose
-/// description says it sends words as HTML (`meta.capabilities.html_text`).
+/// description says it sends words as HTML (`meta.social.inbox_format`).
 pub(crate) fn plain(html: &str) -> String {
     let spaced = html.replace("</p><p>", "\n\n").replace("<br />", "\n").replace("<br/>", "\n").replace("<br>", "\n");
     let mut out = String::with_capacity(spaced.len());
@@ -65,7 +65,7 @@ impl DocHook for MessageHook {
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
         // Words a network sends as HTML are kept as the words they hold.
         if let Some(conn) = reach(hc.tx, hc.ctx.tenant, s(doc, "via_connection")).await?
-            && (conn.meta()["capabilities"]["html_text"] == true || conn.meta()["social"]["inbox_format"] == "html")
+            && conn.meta()["social"]["inbox_format"] == "html"
             && let Some(text) = s(doc, "text")
         {
             doc.insert("text".into(), json!(plain(text)));

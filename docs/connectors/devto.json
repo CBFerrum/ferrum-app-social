@@ -14,10 +14,6 @@
   "timeout_ms": 30000,
   "meta": {
     "label": "DEV Community",
-    "carries": {
-      "network": "DEV Community",
-      "provider": "devto"
-    },
     "social": {
       "name": "DEV Community",
       "text": {

@@ -40,10 +40,6 @@
   },
   "meta": {
     "label": "Slack (a bot in a workspace)",
-    "carries": {
-      "network": "Slack",
-      "provider": "slack"
-    },
     "social": {
       "name": "Slack",
       "text": {

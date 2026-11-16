@@ -35,14 +35,6 @@
   },
   "meta": {
     "label": "YouTube",
-    "capabilities": {
-      "name": "YouTube",
-      "max_text": 5000,
-      "images": false,
-      "videos": true,
-      "media_required": true,
-      "first_comment": true
-    },
     "social": {
       "name": "YouTube",
       "text": {

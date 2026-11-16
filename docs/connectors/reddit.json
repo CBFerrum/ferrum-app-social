@@ -45,12 +45,6 @@
   },
   "meta": {
     "label": "Reddit",
-    "capabilities": {
-      "name": "Reddit",
-      "max_text": 40000,
-      "images": true,
-      "max_media": 20
-    },
     "social": {
       "name": "Reddit",
       "text": {

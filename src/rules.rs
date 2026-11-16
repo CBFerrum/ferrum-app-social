@@ -1,5 +1,4 @@
-//! What a network takes and asks, as one declarative shape: `meta.social` on a connection's description, else the same
-//! shape in a network profile's `social` field, else the profile's own fields (the 0.6 and 0.7 records). One generic
+//! What a network takes and asks, as one declarative shape: `meta.social` on a connection's description. One generic
 //! check of a post's content for one account against it; no network is named here. The shape is documented in
 //! docs/connectors/README.md ("meta.social"), and docs/connectors/examples/ holds nine networks written in it.
 
@@ -12,7 +11,7 @@ use unicode_segmentation::UnicodeSegmentation;
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Count {
-    /// Unicode scalar values (what 0.7.0 counted).
+    /// Unicode scalar values.
     #[default]
     Characters,
     /// What a reader sees as one character: an emoji with its modifiers, a flag, a letter with its accents.
@@ -260,40 +259,6 @@ impl Rules {
             }
         }
         Ok(r)
-    }
-
-    /// The fields of a network profile record, or of 0.7.0's `meta.capabilities` (named as those fields are).
-    pub fn of_fields(doc: &Map<String, Value>, fallback: &str) -> Rules {
-        let number = |f: &str| doc.get(f).and_then(Value::as_i64);
-        let flag = |f: &str, default: bool| doc.get(f).and_then(Value::as_bool).unwrap_or(default);
-        let size = |f: &str| number(f).and_then(|n| usize::try_from(n).ok());
-        let mut kinds = vec![];
-        // 0.7.0: a post carried one picture, and `max_media` under one meant no pictures.
-        if flag("images", true) && number("max_media").is_none_or(|m| m >= 1) {
-            kinds.push("image".to_string());
-        }
-        if flag("videos", false) {
-            kinds.push("video".to_string());
-        }
-        let medium = |f: &str| number(f).map(|b| Medium { max_bytes: Some(b), ..Default::default() });
-        Rules {
-            name: Some(doc.get("profile_name").or(doc.get("name")).and_then(Value::as_str).unwrap_or(fallback).to_string()),
-            text: Text { max: size("max_text"), link_counts: size("link_length"), ..Default::default() },
-            media: Media {
-                kinds,
-                required: flag("media_required", false),
-                max: size("max_media"),
-                image: medium("max_image_bytes"),
-                video: medium("max_video_bytes"),
-                alt: flag("alt_text", true),
-                ..Default::default()
-            },
-            follow_ups: FollowUps { as_: if flag("threads", false) { FollowAs::Thread } else { FollowAs::None }, media: true, ..Default::default() },
-            first_comment: flag("first_comment", false),
-            link_preview: flag("link_preview", false),
-            scheduling: flag("scheduling", false),
-            ..Default::default()
-        }
     }
 
     pub fn name(&self) -> &str {
@@ -734,31 +699,33 @@ mod tests {
         assert_eq!(length(&g, "a\r\nb"), 3, "CR LF is one");
     }
 
+    /// The one check, in plain words: a length with a link as the network counts it, the media taken, their sizes and
+    /// counts, a first comment, follow-ups.
     #[test]
-    fn a_profile_record_is_the_same_shape() {
-        let fields = |v: Value| Rules::of_fields(v.as_object().unwrap(), "x");
-        let short = fields(json!({"profile_name": "Short", "max_text": 280, "link_length": 23}));
+    fn what_is_wrong_in_plain_words() {
+        let fields = |v: Value| Rules::parse(&v, "x").unwrap();
+        let short = fields(json!({"name": "Short", "text": {"max": 280, "link_counts": 23}}));
         let link = |text: &str, l: &str| Copy { items: vec![Item { text: text.into(), link: Some(l.into()), media: vec![] }], ..Default::default() };
         assert!(says(&problems(&short, &post(&"a".repeat(281), vec![])), "Short takes 280 characters, and this post is 281"));
         assert!(problems(&short, &link(&"a".repeat(256), "https://example.org/a-very-long-path-that-is-shortened")).is_empty(), "a link is 23 and a space");
         assert!(!problems(&short, &link(&"a".repeat(257), "https://e.org")).is_empty());
-        let plain = fields(json!({"profile_name": "Plain", "max_text": 500}));
+        let plain = fields(json!({"name": "Plain", "text": {"max": 500}}));
         assert!(!problems(&plain, &link(&"a".repeat(490), "https://example.org/0123456789")).is_empty(), "a link counts as written");
-        let pictured = fields(json!({"profile_name": "Pictures", "max_text": 2200, "media_required": true}));
+        let pictured = fields(json!({"name": "Pictures", "text": {"max": 2200}, "media": {"kinds": ["image"], "required": true}}));
         assert!(says(&problems(&pictured, &post("Hello", vec![])), "image or a video"));
         assert!(problems(&pictured, &post("Hello", vec![pic("image", "image/png", 10)])).is_empty());
-        let video = fields(json!({"profile_name": "Video", "max_text": 2200, "images": false, "videos": true, "media_required": true}));
+        let video = fields(json!({"name": "Video", "text": {"max": 2200}, "media": {"kinds": ["video"], "required": true}}));
         assert!(says(&problems(&video, &post("Hello", vec![pic("image", "image/png", 10)])), "no pictures, only video"));
         assert!(problems(&video, &post("Hello", vec![pic("video", "video/mp4", 10)])).is_empty(), "posts carry video now");
-        let small = fields(json!({"profile_name": "Small", "max_text": 300, "max_image_bytes": 1_000_000}));
+        let small = fields(json!({"name": "Small", "text": {"max": 300}, "media": {"kinds": ["image"], "image": {"max_bytes": 1_000_000}}}));
         assert!(says(&problems(&small, &post("Hi", vec![pic("image", "image/png", 2_000_000)])), "at most 977 KB, and this one is 1.9 MB"));
-        let none = fields(json!({"profile_name": "None", "max_text": 300}));
+        let none = fields(json!({"name": "None", "text": {"max": 300}}));
         assert!(says(&problems(&none, &Copy { first_comment: Some("first!".into()), ..post("Hi", vec![]) }), "takes no first comment"));
-        let words = fields(json!({"profile_name": "Words", "max_text": 300, "images": false}));
+        let words = fields(json!({"name": "Words", "text": {"max": 300}}));
         assert!(says(&problems(&words, &post("Hi", vec![pic("image", "image/png", 1)])), "Words takes no pictures"));
-        let four = fields(json!({"profile_name": "Four", "max_text": 300, "max_media": 4}));
+        let four = fields(json!({"name": "Four", "text": {"max": 300}, "media": {"kinds": ["image"], "max": 4}}));
         assert!(says(&problems(&four, &post("Hi", vec![pic("image", "image/png", 1); 5])), "at most 4 media in a post, and this one has 5"));
-        let threads = fields(json!({"profile_name": "T", "max_text": 10, "threads": true}));
+        let threads = fields(json!({"name": "T", "text": {"max": 10}, "follow_ups": {"as": "thread"}}));
         let thread =
             Copy { items: vec![Item { text: "one".into(), ..Default::default() }, Item { text: "a".repeat(11), ..Default::default() }], ..Default::default() };
         assert!(says(&problems(&threads, &thread), "T takes 10 characters, and item 2 is 11"));

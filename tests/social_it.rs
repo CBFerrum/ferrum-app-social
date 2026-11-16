@@ -5,7 +5,8 @@
 //!
 //! Accounts on connections (a key an administrator holds, the workspace's sign-in, a person's own, a reader that
 //! cannot publish), their state (not connected, connected, the provider refusing a sign-in, disconnected with
-//! revoke), and posts checked against network profiles in plain words; review by someone other than the author;
+//! revoke), and posts checked in plain words against what each connection's description says its network takes (a
+//! post for an account whose connection is off waits); review by someone other than the author;
 //! a post to several accounts as one queued call each, picture first, once under a lost answer, a service that says
 //! "later", and two workers; a refusal shown in the service's words and retried by a person; a first comment; delete;
 //! the inbox by inbound address and by pull, each message once, routed to its account, answered through the right
@@ -544,38 +545,49 @@ async fn scenario() {
         let t = &t;
         async move { t.k.save_connection_def(&t.admin, None, &input(name, d, Some(secrets))).await.expect(name) }
     };
-    let on_key = save("chirp_key", description(&base, key_auth.clone(), &everything, true), json!({"key": KEY, "hook": HOOK})).await;
-    let on_words = save("chirp_words", description(&base, key_auth, &["publish"], false), json!({"key": KEY})).await;
+    // What a network takes is its description's (meta.social): here 100 characters, a link counting 10, pictures of at
+    // most 5 KB each with what they show, a first comment.
+    let chirp = |name: &str, mut d: Value, change: Value| {
+        let mut social = json!({"name": name, "text": {"max": 100, "link_counts": 10}, "first_comment": true,
+                                "media": {"kinds": ["image"], "alt_required": true, "image": {"max_bytes": 5000}}});
+        for (k, v) in change.as_object().unwrap() {
+            social[k] = v.clone();
+        }
+        d["meta"] = json!({"social": social});
+        d
+    };
+    let on_key = save("chirp_key", chirp("Chirp", description(&base, key_auth.clone(), &everything, true), json!({})), json!({"key": KEY, "hook": HOOK})).await;
+    let words_only = json!({"media": {"kinds": []}, "first_comment": false});
+    let on_words = save("chirp_words", chirp("Chirp Words", description(&base, key_auth.clone(), &["publish"], false), words_only), json!({"key": KEY})).await;
+    let required = json!({"media": {"kinds": ["image"], "required": true, "alt_required": true, "image": {"max_bytes": 5000}}});
+    let on_pictures =
+        save("chirp_pictures", chirp("Chirp Pictures", description(&base, key_auth.clone(), &everything, false), required), json!({"key": KEY})).await;
     let page = json!({"type": "oauth", "owner": "workspace", "provider": provider("page")});
-    let on_page = save("chirp_page", description(&base, page, &["publish", "publish_media", "metrics"], false), json!({"client": "page-secret"})).await;
+    let on_page = save(
+        "chirp_page",
+        chirp("Chirp", description(&base, page, &["publish", "publish_media", "metrics"], false), json!({})),
+        json!({"client": "page-secret"}),
+    )
+    .await;
     let mine = json!({"type": "oauth", "owner": "person", "provider": provider("pia")});
-    let on_mine = save("chirp_mine", description(&base, mine, &["publish"], false), json!({"client": "pia-secret"})).await;
+    let on_mine = save("chirp_mine", chirp("Chirp", description(&base, mine, &["publish"], false), json!({})), json!({"client": "pia-secret"})).await;
+    // One that says nothing of what its network takes.
+    let on_plain = save("chirp_plain", description(&base, key_auth, &["publish"], false), json!({"key": KEY})).await;
     // What a description with a wrong operation says, in the platform's words.
     let bad = description(&base, json!({"type": "none"}), &["publish"], false);
     let mut bad = bad;
     bad["operations"]["publish"]["method"] = json!("TRACE");
     assert!(t.k.save_connection_def(&t.admin, None, &input("bad", bad, None)).await.unwrap_err().to_string().contains("method is GET"));
 
-    // ───────────── network profiles: what a network takes is a record ─────────────
-    let seeded = t.rows("SocialProfile", json!({})).await;
-    assert!(seeded.iter().any(|p| p["profile_name"] == "X" && p["max_text"] == 280 && p["link_length"] == 23), "the profiles the app knew, now records");
-    let profile = |name: &str, extra: Value| {
-        let mut p = json!({"profile_name": name, "max_text": 100, "link_length": 10, "images": true, "max_image_bytes": 5000, "first_comment": true});
-        for (k, v) in extra.as_object().unwrap() {
-            p[k] = v.clone();
-        }
-        p
-    };
-    let chirp = uid(&t.insert(&manager, "SocialProfile", profile("Chirp", json!({}))).await["id"]);
-    let words = uid(&t.insert(&manager, "SocialProfile", profile("Chirp Words", json!({"images": false, "first_comment": false}))).await["id"]);
-    let pictured = uid(&t.insert(&manager, "SocialProfile", profile("Chirp Pictures", json!({"media_required": true}))).await["id"]);
-    refused(t.k.insert(&author, "SocialProfile", obj(profile("Mine", json!({})))).await, "forbidden", "");
-
     // ───────────── brands and their accounts ─────────────
     let northwind = uid(&t.insert(&manager, "SocialBrand", json!({"brand_name": "Northwind"})).await["id"]);
     let contoso = uid(&t.insert(&manager, "SocialBrand", json!({"brand_name": "Contoso"})).await["id"]);
-    let account = |name: &str, brand: Uuid, profile: Uuid, handle: &str, conn: Uuid| json!({"account_name": name, "brand": brand.to_string(), "profile": profile.to_string(), "handle": handle, "connection": conn.to_string()});
-    refused(t.k.insert(&manager, "SocialAccount", obj(account("Lost", northwind, chirp, "lost", Uuid::new_v4()))).await, "invalid", "no connection by that id");
+    let account = |name: &str, brand: Uuid, network: &str, handle: &str, conn: Uuid| json!({"account_name": name, "brand": brand.to_string(), "network": network, "handle": handle, "connection": conn.to_string()});
+    refused(
+        t.k.insert(&manager, "SocialAccount", obj(account("Lost", northwind, "Chirp", "lost", Uuid::new_v4()))).await,
+        "invalid",
+        "no connection by that id",
+    );
     refused(
         t.k.insert(
             &manager,
@@ -587,16 +599,11 @@ async fn scenario() {
         "no connection is named",
     );
     refused(
-        t.k.insert(
-            &manager,
-            "SocialAccount",
-            obj(json!({"account_name": "Unprofiled", "brand": northwind.to_string(), "handle": "n", "connection": on_key.to_string()})),
-        )
-        .await,
+        t.k.insert(&manager, "SocialAccount", obj(account("Unruled", northwind, "Chirp", "n", on_plain))).await,
         "invalid",
-        "pick one of the network profiles",
+        "chirp_plain's description does not say what its network takes (meta.social)",
     );
-    let nw_key = uid(&t.insert(&manager, "SocialAccount", account("Northwind Chirp", northwind, chirp, "@northwind", on_key)).await["id"]);
+    let nw_key = uid(&t.insert(&manager, "SocialAccount", account("Northwind Chirp", northwind, "Chirp", "@northwind", on_key)).await["id"]);
     let row = t.get("SocialAccount", nw_key).await;
     assert_eq!(
         (row["handle"].as_str(), row["network"].as_str(), row["state"].as_str()),
@@ -604,17 +611,18 @@ async fn scenario() {
         "a key an administrator holds is connected"
     );
     // The connection by its name, as Administration shows it.
-    let mut by_name = account("Northwind Words", northwind, words, "northwind_words", on_words);
+    let mut by_name = account("Northwind Words", northwind, "Chirp Words", "northwind_words", on_words);
     by_name["connection"] = json!("CHIRP_WORDS");
     let nw_words = uid(&t.insert(&manager, "SocialAccount", by_name).await["id"]);
     assert_eq!(t.get("SocialAccount", nw_words).await["connection"], json!(on_words.to_string()));
-    let nw_page = uid(&t.insert(&manager, "SocialAccount", account("Northwind Page", northwind, chirp, "northwind_page", on_page)).await["id"]);
-    let mut own = account("Pia's Chirp", northwind, chirp, "pia", on_mine);
+    let nw_page = uid(&t.insert(&manager, "SocialAccount", account("Northwind Page", northwind, "Chirp", "northwind_page", on_page)).await["id"]);
+    let mut own = account("Pia's Chirp", northwind, "Chirp", "pia", on_mine);
     own["connected_by"] = json!("pia@brands.test");
     let nw_pia = uid(&t.insert(&manager, "SocialAccount", own).await["id"]);
-    let nw_pictured = uid(&t.insert(&manager, "SocialAccount", account("Northwind Pictures", northwind, pictured, "northwind_pics", on_key)).await["id"]);
-    let co_key = uid(&t.insert(&manager, "SocialAccount", account("Contoso Chirp", contoso, chirp, "contoso", on_key)).await["id"]);
-    refused(t.k.insert(&author, "SocialAccount", obj(account("Mine", northwind, chirp, "mine", on_key))).await, "forbidden", "");
+    let nw_pictured =
+        uid(&t.insert(&manager, "SocialAccount", account("Northwind Pictures", northwind, "Chirp Pictures", "northwind_pics", on_pictures)).await["id"]);
+    let co_key = uid(&t.insert(&manager, "SocialAccount", account("Contoso Chirp", contoso, "Chirp", "contoso", on_key)).await["id"]);
+    refused(t.k.insert(&author, "SocialAccount", obj(account("Mine", northwind, "Chirp", "mine", on_key))).await, "forbidden", "");
 
     // ───────────── sign-in: not connected, connected, the provider refusing it, reconnected, disconnected ─────────────
     let state = |id: Uuid| {
@@ -687,11 +695,10 @@ async fn scenario() {
     let big = t.k.store_file(&author, None, "big.png", "image/png", &vec![7u8; 6000]).await.unwrap();
     let pictured_post = |targets: &[Uuid], file: &Value, alt: Option<&str>| {
         let mut p = post("Spring in bloom", targets);
-        p["image"] = file["url"].clone();
-        p["image_alt"] = json!(alt);
+        p["media"] = json!([{"item": 1, "file": file["url"], "alt": alt}]);
         p
     };
-    refused(t.ready(&author, pictured_post(&[nw_key], &png, None)).await, "invalid", "says what the picture shows");
+    refused(t.ready(&author, pictured_post(&[nw_key], &png, None)).await, "invalid", "Chirp needs a description of each of its media");
     refused(t.ready(&author, pictured_post(&[nw_key], &big, Some("Big"))).await, "invalid", "takes pictures of at most 5 KB, and this one is 6 KB");
     refused(t.ready(&author, pictured_post(&[nw_words], &png, Some("Sage"))).await, "invalid", "Chirp Words takes no pictures");
     refused(t.ready(&author, pictured_post(&[nw_pia], &png, Some("Sage"))).await, "invalid", "Pia's Chirp's connection cannot publish pictures");
@@ -702,9 +709,9 @@ async fn scenario() {
     bad_link["link"] = json!("northwind dot example");
     refused(t.ready(&author, bad_link).await, "invalid", "is a web address");
     let mut elsewhere = pictured_post(&[nw_key], &png, Some("Sage"));
-    elsewhere["image"] = json!("https://elsewhere.example/sage.png");
-    refused(t.ready(&author, elsewhere).await, "invalid", "is a picture stored here");
-    // A network's profile edited: the post is looked at again where it is sent (below).
+    elsewhere["media"][0]["file"] = json!("https://elsewhere.example/sage.png");
+    refused(t.ready(&author, elsewhere).await, "invalid", "each medium is a file stored here");
+    // What a network takes, changed: the post is looked at again where it is sent (below).
 
     // ───────────── review: someone other than the author approves ─────────────
     let tagged = |text: &str, targets: &[Uuid], head: &str| {
@@ -715,7 +722,7 @@ async fn scenario() {
     let spring = t.insert(&author, "SocialPost", tagged("Spring is here", &[nw_key, nw_page, nw_pia], "Spring launch")).await;
     let spring_id = uid(&spring["id"]);
     assert_eq!((spring["author"].as_str(), spring["status"].as_str()), (Some("author@brands.test"), Some("Draft")));
-    // The package's approval policy reproduces 0.7.0's rule: one step, a Social Approver, never the author (who asks).
+    // The package's approval policy: one step, a Social Approver, never the author (who asks).
     let go = |id: Uuid| {
         let (t, author, approver) = (&t, &author, &approver);
         async move {
@@ -728,7 +735,6 @@ async fn scenario() {
     };
     t.act(&author, "SocialPost", spring_id, "send_for_review", Value::Null).await.unwrap();
     assert_eq!(t.get("SocialPost", spring_id).await["status"], "In Review");
-    refused(t.act(&approver, "SocialPost", spring_id, "approve", Value::Null).await, "invalid", "decided in its approval");
     assert!(t.k.decide_approval(&approver, "SocialPost", spring_id, false, Some(" ")).await.unwrap_err().to_string().contains("reason"));
     t.k.decide_approval(&approver, "SocialPost", spring_id, false, Some("Say which colours")).await.unwrap();
     // (round five) Shown at once, by the platform's word to the post's hook: no upkeep in between.
@@ -896,11 +902,32 @@ async fn scenario() {
     // What a network takes, changed after approval, is looked at again where the post is sent.
     let strict = t.insert(&author, "SocialPost", tagged("A longer text than will fit soon", &[nw_key], "Strict")).await;
     go(uid(&strict["id"])).await;
-    t.k.update(&manager, "SocialProfile", chirp, obj(json!({"max_text": 20})), None).await.unwrap();
+    let chirp_key = |max: u64| {
+        let mut d = chirp("Chirp", description(&base, json!({"type": "header", "header": "x-api-key", "secret": "key"}), &everything, true), json!({}));
+        d["meta"]["social"]["text"]["max"] = json!(max);
+        input("chirp_key", d, None)
+    };
+    t.k.save_connection_def(&t.admin, Some(on_key), &chirp_key(20)).await.unwrap();
     t.upkeep(due + Duration::hours(9)).await;
     let ended = t.get("SocialPost", uid(&strict["id"])).await;
     assert!(ended["status"] == "Failed" && ended["failure"].as_str().unwrap().contains("Chirp takes 20 characters"), "{ended:?}");
-    t.k.update(&manager, "SocialProfile", chirp, obj(json!({"max_text": 100})), None).await.unwrap();
+    t.k.save_connection_def(&t.admin, Some(on_key), &chirp_key(100)).await.unwrap();
+    // A connection turned off: a post due for its account waits, saying which and why, and goes once it is on.
+    let off = |enabled: bool| {
+        let d = chirp("Chirp", description(&base, json!({"type": "header", "header": "x-api-key", "secret": "key"}), &["publish"], false), json!({}));
+        ConnectionInput { enabled, ..input("chirp_off", d, Some(json!({"key": KEY}))) }
+    };
+    let on_off = t.k.save_connection_def(&t.admin, None, &off(false)).await.unwrap();
+    let nw_off = uid(&t.insert(&manager, "SocialAccount", account("Northwind Off", northwind, "Chirp", "northwind_off", on_off)).await["id"]);
+    let parked = t.insert(&author, "SocialPost", tagged("Waiting for its account", &[nw_off], "Parked")).await;
+    go(uid(&parked["id"])).await;
+    t.upkeep(due + Duration::hours(9)).await;
+    let row = t.get("SocialPost", uid(&parked["id"])).await;
+    assert!(row["status"] == "Approved" && row["waiting_for"].as_str().is_some_and(|w| w.contains("Northwind Off: Connection Off")), "{row:?}");
+    t.k.save_connection_def(&t.admin, Some(on_off), &off(true)).await.unwrap();
+    t.upkeep(due + Duration::hours(9)).await;
+    let row = t.get("SocialPost", uid(&parked["id"])).await;
+    assert!(row["status"] == "Published" && row["waiting_for"].is_null(), "{row:?}");
 
     // A first comment follows the post where the network takes one; delete where the connection offers it.
     let mut first = tagged("With a comment", &[nw_key], "First comment");
@@ -1047,7 +1074,7 @@ async fn scenario() {
         let (first, second) = (&n.posts[posts_before], &n.posts[posts_before + 1]);
         assert_eq!(first.1["media_ids"].as_array().unwrap().len(), 2, "two pictures on the first item");
         assert_eq!(second.1["reply_to"], json!(first.0), "the second answers the first");
-        assert!(first.3.starts_with("publish:") && second.3.ends_with(":1"), "keys by item: {} {}", first.3, second.3);
+        assert!(first.3.starts_with("publish:") && first.3.ends_with(":0") && second.3.ends_with(":1"), "keys by item: {} {}", first.3, second.3);
     }
     t.net.lock().unwrap().refuse_text = None;
     t.act(&author, "SocialPost", thread_id, "retry", Value::Null).await.unwrap();
@@ -1720,19 +1747,6 @@ async fn scenario() {
     t.upkeep(due + Duration::hours(32)).await;
     let said = t.get("SocialFeed", uid(&elsewhere["id"])).await["last_error"].as_str().unwrap_or_default().to_string();
     assert!(!said.contains("allowed hosts"), "{said}");
-    // (round five) A workspace's feeds connection of the earlier shape (its sites listed by hand) takes the shipped one.
-    let shipped: Value =
-        serde_json::from_str(&std::fs::read_to_string(format!("{}/docs/connectors/services/feeds.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
-    let mut earlier = shipped.clone();
-    earlier.as_object_mut().unwrap().remove("any_host");
-    earlier["allowed_hosts"] = json!(["blog.example", "news.example"]);
-    let feeds = t.k.save_connection_def(&t.admin, None, &input("feeds", earlier, None)).await.unwrap();
-    t.upkeep(due + Duration::hours(33)).await;
-    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
-    let now: Value =
-        sqlx::query_scalar("select description from conn where tenant_id = $1 and id = $2").bind(t.tenant).bind(feeds).fetch_one(&mut *tx).await.unwrap();
-    tx.commit().await.unwrap();
-    assert_eq!((now["any_host"].clone(), now.get("allowed_hosts")), (json!(true), None), "{now}");
 
     // ───────────── (round three) the account's own posts read back, each with its numbers; a mention of ours is a comment ─────────────
     let mut native_desc = description(&base, key_auth2.clone(), &["publish", "metrics"], false);

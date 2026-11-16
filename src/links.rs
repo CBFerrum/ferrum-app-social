@@ -91,7 +91,7 @@ async fn template(k: &Kernel, ctx: &Ctx, tx: &mut Tx, brand: Option<Uuid>, accou
 /// The copy's links tagged as its account's link template says.
 pub(crate) async fn track(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, account: &Doc, v: &mut Version) -> Result<()> {
     let Some(t) = template(k, ctx, tx, id(doc, "brand"), id(account, "id")).await? else { return Ok(()) };
-    let r = crate::posts::rules_of(k, ctx, tx, account).await?.unwrap_or_default();
+    let r = crate::posts::rules_of(tx, ctx.tenant, account).await?.unwrap_or_default();
     let brand = match id(doc, "brand") {
         Some(b) => s(&k.get_tx(&elevated(ctx), tx, "SocialBrand", b, false).await?, "brand_name").unwrap_or_default().to_string(),
         None => String::new(),

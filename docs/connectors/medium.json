@@ -14,10 +14,6 @@
   "timeout_ms": 60000,
   "meta": {
     "label": "Medium",
-    "carries": {
-      "network": "Medium",
-      "provider": "medium"
-    },
     "social": {
       "name": "Medium",
       "text": {

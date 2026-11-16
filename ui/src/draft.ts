@@ -125,8 +125,6 @@ function mediaOf(r: Row): MediaState {
 function contentOf(row: Row, account: string, words: { text: string; link: string; title?: string }): Content {
   const items: ItemState[] = [{ key: keyed(), text: words.text, link: words.link, delay: 0, media: [] }];
   for (const r of lines(row.items).filter((l) => accountOf(l) === account)) items.push({ key: keyed(), text: str(r.text), link: str(r.link), delay: num(r.delay_minutes) ?? 0, media: [] });
-  // 0.7.0's one picture is the original's first medium.
-  if (!account && str(row.image)) items[0].media.push(mediaOf({ id: "", file: row.image, alt: row.image_alt } as Row));
   for (const r of lines(row.media).filter((l) => accountOf(l) === account)) {
     const n = Math.max(1, num(r.item) ?? 1);
     while (items.length < n) items.push(blankItem());
@@ -171,7 +169,7 @@ const mediaRow = (m: MediaState, item: number, account: string) => ({
   ...(m.seconds != null ? { seconds: m.seconds } : {}),
 });
 
-/** The record's fields for a save: a version's rows name its account; the original's name none. 0.7.0's one picture is now media. */
+/** The record's fields for a save: a version's rows name its account; the original's name none. */
 export function toRecord(d: Draft, brand: string | null, rules: Record<string, Rules> = {}): Record<string, unknown> {
   const items: unknown[] = [];
   const media: unknown[] = [];
@@ -202,8 +200,6 @@ export function toRecord(d: Draft, brand: string | null, rules: Record<string, R
     brand,
     text: d.original.items[0].text,
     link: d.original.items[0].link.trim() || null,
-    image: null,
-    image_alt: null,
     first_comment: d.firstComment.trim() ? d.firstComment : null,
     add_signature: d.addSignature,
     signature: d.addSignature && d.signature ? d.signature : null,

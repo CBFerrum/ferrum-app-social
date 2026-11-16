@@ -1,8 +1,8 @@
 //! Accounts. An account is a connection: the workspace's sign-in at a provider, or a person's own,
 //! through the platform's broker, or a key an administrator holds. Social keeps which connection
-//! reaches the account, what its network takes in a post (a network profile), and what state the
-//! connection is in: connected, needing to be connected again because the provider refused its
-//! sign-in (the platform tells the owner; the account shows it), not connected, or turned off.
+//! reaches the account and what state the connection is in: connected, needing to be connected
+//! again because the provider refused its sign-in (the platform tells the owner; the account shows
+//! it), not connected, or turned off.
 //!
 //! What a connection offers is read from its description's operations, by what Social needs of
 //! them (`publish`, `publish_media`, `delete`, `reply`, `send_message`, `metrics`, `account`):
@@ -12,15 +12,9 @@ use crate::obj;
 use crate::rules::Rules;
 use async_trait::async_trait;
 use ferrum_domain::util::{elevated, id, s};
-use ferrum_kernel::{Ctx, Doc, DocHook, Error, Filter, HookCtx, Kernel, Result, Tx};
+use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
 use serde_json::{Value, json};
 use uuid::Uuid;
-
-/// Whether the workspace has any network profile: seeded when an administrator updates the app, so a workspace not
-/// yet updated has none and is not asked for one.
-pub(crate) async fn any_profile(hc: &mut HookCtx<'_>) -> Result<bool> {
-    Ok(!hc.kernel.find_tx(&elevated(hc.ctx), hc.tx, "SocialProfile", &[], None, 1).await?.is_empty())
-}
 
 /// A connection as Social needs to see it.
 pub(crate) struct Reach {
@@ -75,16 +69,11 @@ impl Reach {
         &self.desc["meta"]
     }
 
-    /// What this network takes and asks, when the description says: `meta.social` (docs/connectors/README.md), else
-    /// 0.7.0's `meta.capabilities` (named as a network profile's fields are). The connection is where a network's facts
-    /// are kept, a server's own limit among them.
+    /// What this network takes and asks: `meta.social` (docs/connectors/README.md), `None` when the description says
+    /// nothing. The connection is where a network's facts are kept, a server's own limit among them.
     pub fn social(&self, network: Option<&str>) -> Result<Option<Rules>> {
-        let fallback = network.unwrap_or(&self.name);
-        if let Some(v) = self.meta().get("social").filter(|v| v.is_object()) {
-            return Rules::parse(v, fallback).map(Some).map_err(|e| Error::invalid(format!("the connection {}: {e}", self.name)));
-        }
-        let Some(caps) = self.meta()["capabilities"].as_object() else { return Ok(None) };
-        Ok(Some(Rules::of_fields(caps, fallback)))
+        let Some(v) = self.meta().get("social").filter(|v| v.is_object()) else { return Ok(None) };
+        Rules::parse(v, network.unwrap_or(&self.name)).map(Some).map_err(|e| Error::invalid(format!("the connection {}: {e}", self.name)))
     }
 
     /// Whether it proves who calls by a sign-in (the authorisation-code flow, or a session) rather than a key.
@@ -185,8 +174,8 @@ pub(crate) async fn refresh(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) -
                 Some(u) => vec![ferrum_kernel::messages::Recipient::user(u)],
                 None => crate::notices::holders(k, ctx, tx, account, "Social Manager").await?,
             };
-            let accounts = json!([{"account": s(account, "account_name"), "label": s(account, "network")}]);
-            crate::notices::send(k, ctx, tx, "reconnect", to, None, json!({"count": 1, "accounts": accounts, "reason": "refused"})).await?;
+            let accounts = json!([{"account": s(account, "account_name")}]);
+            crate::notices::send(k, ctx, tx, "reconnect", to, None, json!({"count": 1, "accounts": accounts})).await?;
         }
     }
     Ok((state, note))
@@ -200,30 +189,6 @@ pub(crate) async fn refresh_all(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<()
     Ok(())
 }
 
-/// What an account's network takes, found by name for an account that names none: the profile
-/// called what the account's network is called.
-async fn named(hc: &mut HookCtx<'_>, network: &str) -> Result<Option<Uuid>> {
-    let found = hc.kernel.find_tx(&elevated(hc.ctx), hc.tx, "SocialProfile", &[Filter::eq("profile_name", network.trim())], None, 2).await?;
-    Ok(match found.as_slice() {
-        [one] => id(one, "id"),
-        _ => None,
-    })
-}
-
-/// Accounts that name no profile, linked to the one called what their network is (the upkeep, for
-/// accounts made before profiles were records).
-pub(crate) async fn carry_over(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<()> {
-    let system = elevated(ctx);
-    for a in k.find_tx(&system, tx, "SocialAccount", &[], None, 1000).await? {
-        let (Some(account), None, Some(network)) = (id(&a, "id"), id(&a, "profile"), s(&a, "network")) else { continue };
-        let found = k.find_tx(&system, tx, "SocialProfile", &[Filter::eq("profile_name", network.trim())], None, 2).await?;
-        if let [one] = found.as_slice() {
-            k.set_values_tx(&system, tx, "SocialAccount", account, obj(json!({"profile": s(one, "id")}))).await?;
-        }
-    }
-    Ok(())
-}
-
 pub struct AccountHook;
 
 #[async_trait]
@@ -233,7 +198,7 @@ impl DocHook for AccountHook {
     }
 
     fn fills(&self) -> &'static [&'static str] {
-        &["network", "profile", "connected_by", "state", "state_note", "provider_account"]
+        &["connected_by", "state", "state_note", "provider_account"]
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
@@ -255,18 +220,6 @@ impl DocHook for AccountHook {
                 _ => return Err(Error::field("connection", format!("more than one connection is named {given}: give its id"))),
             }
         }
-        if id(doc, "profile").is_none()
-            && let Some(network) = s(doc, "network").filter(|n| !n.trim().is_empty())
-            && let Some(profile) = named(hc, network).await?
-        {
-            doc.insert("profile".into(), json!(profile.to_string()));
-        }
-        if s(doc, "network").is_none_or(|n| n.trim().is_empty())
-            && let Some(profile) = id(doc, "profile")
-        {
-            let p = hc.kernel.get_tx(&elevated(hc.ctx), hc.tx, "SocialProfile", profile, false).await?;
-            doc.insert("network".into(), json!(s(&p, "profile_name")));
-        }
         // A person's own sign-in is the one saving the account's, unless it says whose.
         if s(doc, "connected_by").is_none_or(|c| c.trim().is_empty()) && !hc.ctx.email.is_empty() {
             let own = reach(hc.tx, hc.ctx.tenant, s(doc, "connection")).await?.is_some_and(|r| r.personal());
@@ -286,9 +239,9 @@ impl DocHook for AccountHook {
         let Some(found) = reach(hc.tx, hc.ctx.tenant, Some(&conn.to_string())).await? else {
             return Err(Error::field("connection", "no connection by that id in this workspace"));
         };
-        // A description that says what its network takes needs no profile; the profile is the default for one that does not.
-        if id(doc, "profile").is_none() && found.social(None)?.is_none() && any_profile(hc).await? {
-            return Err(Error::field("profile", "says what the network takes in a post: pick one of the network profiles"));
+        // What its network takes in a post is what its connection's description says, nowhere else.
+        if found.social(None)?.is_none() {
+            return Err(Error::field("connection", format!("{}'s description does not say what its network takes (meta.social)", found.name)));
         }
         Ok(())
     }

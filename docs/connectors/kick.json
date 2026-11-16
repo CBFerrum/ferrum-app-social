@@ -27,10 +27,6 @@
   "timeout_ms": 30000,
   "meta": {
     "label": "Kick",
-    "carries": {
-      "network": "Kick",
-      "provider": "kick"
-    },
     "social": {
       "name": "Kick",
       "text": {

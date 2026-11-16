@@ -11,10 +11,10 @@
 //! upkeep's read-back stays only as the safety net for a hook that failed: the platform then rolls its writes back and
 //! commits the decision anyway (audited as `approval:hook_failed`), and the next upkeep settles the post.
 //!
-//! What approval fixes is kept as before (`approved_hash`): an approved post that changes is a draft again, which the
-//! platform's approval does not do (it ends with the decision). Without the policy (a workspace switched it off), or
-//! when it cannot open (nobody holds the role), 0.7.0's rule holds: Approve It by a Social Approver or an administrator
-//! who is not the author.
+//! What approval fixes is kept (`approved_hash`): an approved post that changes is a draft again, which the platform's
+//! approval does not do (it ends with the decision). The policy is the only way a post is approved: a workspace that
+//! removed it has a post approved as it is sent for review, and one where nobody may decide a step is refused in the
+//! platform's words.
 //!
 //! A review link (`review_link`) gives someone outside a signed action link (the platform's: expiry, uses) to the post
 //! as each account will get it (`preview`): they comment, and, when the link says so, approve it or ask for changes
@@ -29,21 +29,11 @@ use ferrum_domain::util::{elevated, id, s};
 use ferrum_kernel::action_link::LinkSpec;
 use ferrum_kernel::messages::{self, Message, Recipient};
 use ferrum_kernel::{ApprovalDecided, Ctx, Doc, Error, Filter, HookCtx, Kernel, Result, Tx};
-use ferrum_meta::DocumentAction;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// The post's action the review policy is on.
 pub(crate) const REVIEW: &str = "review";
-
-fn approver(hc: &HookCtx<'_>) -> bool {
-    hc.ctx.is_admin || hc.ctx.roles.iter().any(|r| r == "Social Approver")
-}
-
-/// Whether the workspace reviews posts by an approval policy.
-fn by_policy(hc: &HookCtx<'_>) -> bool {
-    hc.entity.document_approvals.contains_key(&DocumentAction::Action(REVIEW.into()))
-}
 
 /// The post's latest approval request on `review`, when it is the one the post asked for last.
 async fn request(k: &Kernel, ctx: &Ctx, post: Uuid, doc: &Doc) -> Result<Option<Value>> {
@@ -52,17 +42,13 @@ async fn request(k: &Kernel, ctx: &Ctx, post: Uuid, doc: &Doc) -> Result<Option<
     Ok((r["action"] == REVIEW && r["id"] == asked).then_some(r))
 }
 
-/// Sends post `post` for review: In Review, and, under the policy, an approval asked in its author's name.
+/// Sends post `post` for review: In Review, and an approval asked under the policy in its author's name.
 pub(crate) async fn send_for_review(hc: &mut HookCtx<'_>, post: Uuid) -> Result<Value> {
     let system = elevated(hc.ctx);
     // A draft kept with problems may not leave Draft with them.
     let stored = hc.kernel.get_tx(&system, hc.tx, "SocialPost", post, false).await?;
     crate::posts::ready(hc, &stored).await?;
     hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "In Review", "review_note": null}))).await?;
-    if !by_policy(hc) {
-        tell_approvers(hc, post).await?;
-        return Ok(json!({"status": "In Review"}));
-    }
     let doc = hc.kernel.get_tx(&system, hc.tx, "SocialPost", post, false).await?;
     // Asked as the author, so the policy's "never whoever asked" is "never the author".
     let who = match accounts::person(hc.tx, hc.ctx.tenant, s(&doc, "author")).await? {
@@ -74,7 +60,7 @@ pub(crate) async fn send_for_review(hc: &mut HookCtx<'_>, post: Uuid) -> Result<
         Ok(out) => {
             sqlx::query("release savepoint social_review").execute(&mut **hc.tx).await?;
             let Some(asked) = out.get("_approval") else {
-                // Every step of the policy was skipped: approved at once.
+                // Every step of the policy was skipped, or the workspace has none: approved at once.
                 return Ok(out);
             };
             hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"approval_request": asked["id"]}))).await?;
@@ -85,76 +71,29 @@ pub(crate) async fn send_for_review(hc: &mut HookCtx<'_>, post: Uuid) -> Result<
             sqlx::query("rollback to savepoint social_review").execute(&mut **hc.tx).await?;
             Ok(json!({"status": "In Review"}))
         }
-        Err(e) if e.is_retryable() => Err(e),
-        // The policy cannot open (nobody holds the role, say): Approve It decides, as before.
-        Err(e) => {
-            sqlx::query("rollback to savepoint social_review").execute(&mut **hc.tx).await?;
-            hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"approval_request": null}))).await?;
-            tell_approvers(hc, post).await?;
-            Ok(json!({"status": "In Review", "approval": null, "approval_refused": e.to_string()}))
-        }
+        // The policy cannot open (nobody may decide a step, say): refused, in the platform's words.
+        Err(e) => Err(e),
     }
-}
-
-/// Without a platform request (which tells its approvers itself), the Social Approvers are told.
-async fn tell_approvers(hc: &mut HookCtx<'_>, post: Uuid) -> Result<()> {
-    let doc = hc.kernel.get_tx(&elevated(hc.ctx), hc.tx, "SocialPost", post, false).await?;
-    let to = crate::notices::holders(hc.kernel, hc.ctx, hc.tx, &doc, "Social Approver").await?;
-    crate::notices::send(hc.kernel, hc.ctx, hc.tx, "review", to, Some(post), json!({"notice": "waiting", "title": s(&doc, "headline")})).await?;
-    Ok(())
-}
-
-/// The author told how the review went (0.7.0's Approve It and Send It Back; the policy's own notices tell them otherwise).
-async fn tell_author(hc: &mut HookCtx<'_>, post: Uuid, doc: &Doc, notice: &str) -> Result<()> {
-    let to = crate::notices::author(hc.tx, hc.ctx, doc).await?;
-    crate::notices::send(hc.kernel, hc.ctx, hc.tx, "review", to, Some(post), json!({"notice": notice, "title": s(doc, "headline")})).await?;
-    Ok(())
 }
 
 /// The review's actions; `None` for another.
 pub(crate) async fn action(hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
     let post = id(doc, "id").ok_or_else(|| Error::internal("a post without an id"))?;
-    let system = elevated(hc.ctx);
     match name {
         "send_for_review" => send_for_review(hc, post).await.map(Some),
-        REVIEW => {
-            // Run when the policy's last step approved (or the policy skipped every step): as the author, by the policy.
-            if !by_policy(hc) {
-                return Err(Error::invalid("no approval policy reviews posts here: Approve It"));
-            }
-            approved(hc, post, doc, None).await.map(Some)
-        }
-        "approve" | "reject" => {
-            if by_policy(hc) && request(hc.kernel, hc.ctx, post, doc).await?.is_some_and(|r| r["status"] == "pending") {
-                return Err(Error::invalid("this post's review is decided in its approval: approve it or send it back there"));
-            }
-            if !approver(hc) {
-                return Err(Error::Forbidden(if name == "approve" { "a Social Approver approves posts" } else { "a Social Approver sends posts back" }.into()));
-            }
-            if name == "approve" {
-                if s(doc, "author").is_some_and(|a| a.eq_ignore_ascii_case(&hc.ctx.email)) {
-                    return Err(Error::Forbidden("a post is approved by someone other than its author".into()));
-                }
-                let out = approved(hc, post, doc, Some(hc.ctx.email.clone())).await?;
-                tell_author(hc, post, doc, "approved").await?;
-                return Ok(Some(out));
-            }
-            let note = params.get("note").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
-            let note = note.ok_or_else(|| Error::field("note", "sending a post back says why"))?;
-            hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(json!({"status": "Rejected", "review_note": note}))).await?;
-            tell_author(hc, post, doc, "rejected").await?;
-            Ok(Some(json!({"status": "Rejected"})))
-        }
+        // Run when the policy's last step approved (or the policy skipped every step): as the author, by the policy.
+        REVIEW => approved(hc, post, doc).await.map(Some),
         "review_link" => link(hc, post, doc, params).await.map(Some),
         "review_comment" | "review_approve" | "review_changes" => outside(hc, post, doc, name, params).await.map(Some),
         _ => Ok(None),
     }
 }
 
-/// Post `post` approved: what was approved fixed, and sent at once when its time has come.
-async fn approved(hc: &mut HookCtx<'_>, post: Uuid, doc: &Doc, by: Option<String>) -> Result<Value> {
+/// Post `post` approved: what was approved fixed, and sent at once when its time has come. Who approved it is the
+/// deciding step's approver (`decided`).
+async fn approved(hc: &mut HookCtx<'_>, post: Uuid, doc: &Doc) -> Result<Value> {
     let system = elevated(hc.ctx);
-    let values = json!({"status": "Approved", "approved_by": by, "approved_hash": fingerprint(doc)});
+    let values = json!({"status": "Approved", "approved_by": null, "approved_hash": fingerprint(doc)});
     hc.kernel.set_values_tx(&system, hc.tx, "SocialPost", post, obj(values)).await?;
     if at(doc, "scheduled_at").is_some_and(|t| t <= Utc::now()) {
         let now = hc.kernel.get_tx(&system, hc.tx, "SocialPost", post, true).await?;

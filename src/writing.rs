@@ -112,7 +112,7 @@ pub(crate) async fn action(hc: &mut HookCtx<'_>, entity: &str, name: &str, doc: 
             let mut versions = vec![];
             for account in content::accounts(doc) {
                 let a = hc.kernel.get_tx(&elevated(hc.ctx), hc.tx, "SocialAccount", account, false).await?;
-                let r = rules_of(hc.kernel, hc.ctx, hc.tx, &a).await?.unwrap_or_default();
+                let r = rules_of(hc.tx, hc.ctx.tenant, &a).await?.unwrap_or_default();
                 let target = rows(doc, "targets").into_iter().find(|t| id(t, "account") == Some(account)).unwrap_or_default();
                 let kind = r.kind(r.chosen(s(&target, "kind"), None).as_deref()).ok().flatten();
                 let (t, _, _, _): (Text, _, _, _) = r.effective(kind);
@@ -144,7 +144,7 @@ pub(crate) async fn action(hc: &mut HookCtx<'_>, entity: &str, name: &str, doc: 
         "describe" => {
             let index = params.get("medium").and_then(Value::as_u64).unwrap_or(0) as usize;
             let line = rows(doc, "media").into_iter().nth(index);
-            let file = line.as_ref().and_then(|l| s(l, "file")).or(s(doc, "image").filter(|_| index == 0));
+            let file = line.as_ref().and_then(|l| s(l, "file"));
             let file: Uuid =
                 file.and_then(|f| f.strip_prefix("/files/")).and_then(|f| f.parse().ok()).ok_or_else(|| Error::field("medium", "no picture there"))?;
             let (_, kind, bytes) = hc.kernel.read_file(&elevated(hc.ctx), file).await?;

@@ -17,7 +17,7 @@ generic records API, so a screen never needs a route of Social's own.
 | Review links | action `review_link`; links of a post `GET /api/v1/SocialPost/{id}/links`; revoke `DELETE /api/links/{link id}`; the outside page is the platform's (`/api/public/{workspace}/links/{token}`) |
 | Comments between members | `GET/POST /api/v1/SocialPost/{id}/comments` (platform) |
 | Tags | `GET/PUT /api/v1/SocialPost/{id}/tags`, `GET /api/tags/SocialPost` (platform) |
-| Media upload | `POST /api/files` → `{url: "/files/<id>", ...}`; put the `url` in `media[].file` (or `image`) |
+| Media upload | `POST /api/files` → `{url: "/files/<id>", ...}`; put the `url` in `media[].file` |
 | Connect an account | action `connect` → `{connect: {method, path}}`: POST that path from the browser (OAuth), or `{signed_in, state, note}` for a session |
 | Bulk create | `POST /api/v1/SocialPost/_import` (JSON array, each row with its `targets`; Social Author has import) |
 | Settings | `/apps/social/settings` (SocialSettings, generic) |
@@ -27,8 +27,7 @@ generic records API, so a screen never needs a route of Social's own.
 
 Types are the platform's. R/O = read-only (written by Social).
 
-**SocialPost** (changed). The original's content: `text` (required), `link`, `image` + `image_alt` (0.7.0's one
-picture; still works), `first_comment`. New:
+**SocialPost** (changed). The original's content: `text` (required), `link`, `first_comment`. New:
 - `targets` (table SocialTarget, required): `account` (link, required), `kind` (data: a kind name of the network's
   rules; empty = the account's `default_kind`, else the network's first), `text` (the account's own words: when
   non-empty the account has a **version**), `link` (the version's link), `settings` (json: answers keyed by the
@@ -50,11 +49,11 @@ picture; still works), `first_comment`. New:
 
 A **version** is the whole post for its account: its `targets[].text` and `link`, the `media` rows naming the
 account, the `items` rows naming it; nothing of the original is mixed in. Without `targets[].text` the account gets the
-original (`text`, `link`, `image`, the `media` and `items` rows with no account). The composer copies the original
+original (`text`, `link`, the `media` and `items` rows with no account). The composer copies the original
 into a version when the person customises an account, and deletes the account's rows to drop the version.
 
-Minimal post (the generic form still works): `{"headline", "brand", "text", "image", "image_alt", "scheduled_at",
-"targets": [{"account": id}]}`. A full one:
+Minimal post (the generic form still works): `{"headline", "brand", "text", "scheduled_at", "targets": [{"account":
+id}]}`. A full one:
 
 ```json
 {"headline": "Spring", "brand": "<brand>", "text": "Spring is here", "add_signature": true,
@@ -65,21 +64,19 @@ Minimal post (the generic form still works): `{"headline", "brand", "text", "ima
 ```
 
 **SocialPublication** (changed): new R/O `sent_items` (json: `[{item, id, url, media: [ids], sent_at, answer}]`, item
-from 0), `next_at` (datetime: a thread waiting its delay), `follow_ups` (hidden: thread | comment). `external_id`,
-`permalink`, `media_ref` are the first item's, as before.
+from 0), `next_at` (datetime: a thread waiting its delay), `follow_ups` (hidden: thread | comment). `external_id`
+and `permalink` are the first item's (a publication read back from the network has only these).
 
 **SocialAccount** (changed): new R/O `network_id` (its id on the network, picked after sign-in; sent as `account_id`),
 `display_name`, `picture` (an address). New editable `default_kind` (data), `default_settings` (json), `sort_order`
 (int, default 0: the order the composer lists accounts in, lowest first; the generic list still sorts by name).
-
-**SocialProfile** (changed): new `social` (json, label Rules): the `meta.social` shape below; overrides the fields.
 
 New entities (all `master`, in the Social module):
 
 | Entity | Fields | Notes |
 |---|---|---|
 | SocialPostingTime "Posting Time" | `brand` (link; filled from the account), `account` (link; empty = the brand's), `weekday` (select Every Day, Monday … Sunday; default Every Day), `time` (data `HH:MM`, required), `active` (check, default yes) | On the workspace's clock. An account with times of its own uses only those |
-| SocialTemplate "Post Template" | `template_name` (unique), `brand`, `headline`, `text`, `link`, `image`, `image_alt`, `first_comment`, `targets`, `items`, `media`, `add_signature`, `signature` | Same child tables as a post |
+| SocialTemplate "Post Template" | `template_name` (unique), `brand`, `headline`, `text`, `link`, `first_comment`, `targets`, `items`, `media`, `add_signature`, `signature` | Same child tables as a post |
 | SocialSet "Set" | `set_name` (unique), `brand` (required), `targets` (required), `text`, `link`, `first_comment`, `items`, `media` | |
 | SocialSnippet "Snippet" | `snippet_name` (unique), `kind` (select Hashtags, Caption, Other), `brand`, `text` | The composer inserts `text` |
 | SocialSignature "Signature" | `signature_name` (unique), `text`, `brand`, `account`, `is_default` | Saving a default clears the other default of the same account, brand, or workspace (no brand, no account) |
@@ -95,8 +92,7 @@ Author and Approver on posts; Manager has read only on posts).
 
 | Action | When (condition) | Params | Result |
 |---|---|---|---|
-| `send_for_review` | Draft, Rejected | — | `{status: "In Review", approval: <request>}`; `approval` absent when a request was pending already (it goes on); `approval: null, approval_refused: "<why>"` when the policy cannot open (then Approve It decides); `{status: "Approved"\|"Sending"}` when the policy skipped every step |
-| `approve` / `reject` | In Review | reject: `note` (required) | `{status}`. Refused "decided in its approval" while a platform request is pending: the screen uses `approval/decide` instead and shows these buttons only when `GET …/approval` is not pending |
+| `send_for_review` | Draft, Rejected | — | `{status: "In Review", approval: <request>}`; `approval` absent when a request was pending already (it goes on); refused in the platform's words when the policy cannot open (nobody may decide a step); `{status: "Approved"\|"Sending"}` when the policy skipped every step, or the workspace has none |
 | `review` | hidden | — | run by the platform when the policy is satisfied; not for screens |
 | `publish_now` | Draft, Rejected, Approved | — | `{status: "Sending"\|"Approved"\|"In Review", scheduled_at}`: an approved post starts at once (Approved = it waits for an account, see `waiting_for`); a draft is sent for review with the time now |
 | `add_to_queue` | Draft, Rejected, In Review, Approved | — | `{scheduled_at, status}`; refused "no posting times are set …" or "every posting time … taken" |
@@ -119,7 +115,7 @@ Author and Approver on posts; Manager has read only on posts).
 | `rules` (read only) | — | `{rules: Rules}`: what its network takes and asks (section 5), defaults filled; `{}`-like defaults when nothing says |
 | `connect`, `disconnect` | — | as 0.7.0 |
 | `reachable` (read only) | — | `{accounts: [{id, name, handle, picture, kind, account}]}`; `account` = the Social account that has it, or null |
-| `choose` (Manager) | `picked`: list of ids (or text, comma or line separated) | `{accounts: [{id, account_name, network_id, created}]}`; the first pick fills this account when it has none, the rest become accounts of their own (same brand, connection, profile) or update the one that has it |
+| `choose` (Manager) | `picked`: list of ids (or text, comma or line separated) | `{accounts: [{id, account_name, network_id, created}]}`; the first pick fills this account when it has none, the rest become accounts of their own (same brand, connection) or update the one that has it |
 | `mentions` (read only) | `query` | `{mentions: [{value, label, picture, text}]}`; `text` is what to insert |
 | `choices` (read only) | `setting` (key), `query`, `settings` (current answers, for choices that depend on them) | `{choices: [{value, label}]}` |
 
@@ -138,16 +134,16 @@ Outside (through a review link only, hidden): `review_comment` (`comment` requir
 - A platform rejection reaches the post at the next upkeep (status Rejected, `review_note` = the comment), and who
   approved fills `approved_by` then too: show the request's own status meanwhile.
 - The shipped policy: one step "Social Approver" (role), never the requester (Social asks as the author),
-  `reset_on` [text, link, image, image_alt, first_comment, targets, items, media, scheduled_at, add_signature,
-  signature]. Workspaces change it in Customize (`SocialPost`, approvals, `action:review`).
+  `reset_on` [text, link, first_comment, targets, items, media, scheduled_at, add_signature, signature]. Workspaces
+  change it in Customize (`SocialPost`, approvals, `action:review`).
 - Reviews (SocialReview) list under the post (`GET /api/v1/SocialReview?filters=[["post","=",id]]`).
 
 ## 5. `meta.social` (exact)
 
 The shape is defined in `docs/connectors/README.md` ("meta.social") and `src/rules.rs` (`Rules`); examples in
 `docs/connectors/examples/`. Where the screens find it: the account's connection's description `meta.social` (an
-administrator's `GET /api/admin/connections`, not open to Authors), else its profile's `social`, else the profile's
-fields. Every role that reads accounts gets it, defaults filled, from the account's `rules` action.
+administrator's `GET /api/admin/connections`, not open to Authors). Every role that reads accounts gets it, defaults
+filled, from the account's `rules` action.
 
 ```text
 Rules     { name?, text: Text, media: Media, kinds: [Kind], follow_ups: FollowUps, settings: [Setting],
@@ -220,13 +216,13 @@ Accounts, Headline).
 
 - **A draft may hold problems (round two).** While a post is Draft or Rejected, a save is refused only for structure:
   an unknown or another brand's account, a kind or a setting key the network does not have, a medium for an item there
-  is not, a bad address, a picture without its description (`image_alt`), a file not stored here. Everything else
+  is not, a bad address, a file not stored here. Everything else
   (lengths, media rules, required answers, variables with no value, what a connection cannot send) is kept and listed
   by `copies` (`problems`), and refused when the post leaves Draft: `send_for_review`, `publish_now`, `add_to_queue`,
   and again when sent. A post In Review or Approved is held to every rule on save, as in 0.8.0. This replaces the first
   bullet of section 8.
 - **Check without saving (round two).** `POST /api/v1/SocialPost/_calc` with the post's body as the API takes it
-  (`brand`, `text`, `link`, `image`, `image_alt`, `first_comment`, `targets` with `kind`/`text`/`link`/`settings`,
+  (`brand`, `text`, `link`, `first_comment`, `targets` with `kind`/`text`/`link`/`settings`,
   `items`, `media`, `add_signature`, `signature`, and `"want_checks": true`) answers the computed post with `checks` =
   exactly what the `copies` action answers (`{copies: [...]}`). Nothing is written (the platform's preview runs the
   post's hooks and rolls back); it needs read on posts, reads the accounts with the caller's rights, calls no network,
@@ -274,7 +270,7 @@ impressions, engagements, clicks, before: {…}, top: {headline, engagements, pe
 | SocialPost `rewrite` | `instruction`, or `preset` (a Rewrite Preset's id) | `{text}` |
 | SocialPost `adapt` | — | `{versions: [{account, account_name, text, length, max, fits}]}`: fill each `targets[].text` only when the person accepts |
 | SocialPost `hashtags` | `count` (5) | `{hashtags: ["#…"]}` |
-| SocialPost `describe` | `medium` (index into `media`, 0 = `image` when no lines) | `{alt, medium}` |
+| SocialPost `describe` | `medium` (index into `media`) | `{alt, medium}` |
 | SocialPost `thread` | `parts` (3) | `{items: [text]}` |
 | SocialPost `picture` | `prompt` | `{entity: "SocialMediaAsset", id, file}` |
 
@@ -295,8 +291,8 @@ document `GET /api/v1/SocialBrand/{id}/print?template=social.brand_report`.
 ### 9.6 Notices (round two)
 
 Templates `social.went_out`, `social.failed` (`values.failures`), `social.review` (`values.notice`: waiting, reminder,
-escalated, approved, rejected, not_done; also the approval policy's `message`), `social.reconnect` (`values.reason`:
-refused, or none for the upgrade's), `social.repeat_stopped`, `social.digest`, `social.brand_report_mail`, and the
+escalated, approved, rejected, not_done; also the approval policy's `message`), `social.reconnect` (an account whose
+network no longer takes its sign-in), `social.repeat_stopped`, `social.digest`, `social.brand_report_mail`, and the
 writing prompts `social.prompt_system`, `_write`, `_rewrite`, `_adapt`, `_hashtags`, `_alt`, `_thread`, `_picture`
 (read for the person asking, never sent). A person's notice settings page lists SocialNoticeOptOut rows with
 `person` = their address.
@@ -375,8 +371,6 @@ Period Before, Social Followers by Day, Social Top Posts; role Social Writing He
 - **Networks (round four):** every description is offered to the workspace (Administration, Connections), so the
   Accounts screen may list the networks that can be added (`GET /api/admin/connections` for administrators); none is on
   until an administrator turns it on.
-- **Network Profiles (round four):** the eight seeded profiles carry their description's rules (`social`); a profile
-  matters only for a workspace's own description without `meta.social`.
 - **Publication (round four):** hidden `first_comment_id` (deleted with the post).
 - Names for ar/hi: Title, Its Own Title.
 
@@ -387,7 +381,7 @@ Period Before, Social Followers by Day, Social Top Posts; role Social Writing He
   as `ui/src/routes.tsx` routes it: Compose (`square-pen`, Social Author), Calendar (`calendar`), Posting times
   (`clock`), Accounts (`at-sign`), Media (`image`), Inbox (`inbox`), Numbers (`chart-column`), Library (`library`),
   Automation (`workflow`), Notices (`bell`), the last nine for every Social role. The module's generic rows for what
-  these pages show are gone; it keeps Brands, Network Profiles, Reviews, Publications, Insights, Metrics, Replies,
+  these pages show are gone; it keeps Brands, Reviews, Publications, Insights, Metrics, Replies,
   Digest Runs, Writing Presets, Writing Uses and Settings. Pages need no links of their own to each other any more.
 - **Public addresses (round five; changes round four's "Media by address"):** a copy with media a network takes only
   by address no longer has a problem on a server with a public address; on one without (`PUBLIC_URL` unset) the

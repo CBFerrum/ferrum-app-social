@@ -28,13 +28,6 @@
   },
   "meta": {
     "label": "Pinterest",
-    "capabilities": {
-      "name": "Pinterest",
-      "max_text": 500,
-      "images": true,
-      "max_media": 5,
-      "media_required": true
-    },
     "social": {
       "name": "Pinterest",
       "text": {

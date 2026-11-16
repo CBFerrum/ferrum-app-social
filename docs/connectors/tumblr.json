@@ -31,10 +31,6 @@
   },
   "meta": {
     "label": "Tumblr",
-    "carries": {
-      "network": "Tumblr",
-      "provider": "tumblr"
-    },
     "social": {
       "name": "Tumblr",
       "text": {

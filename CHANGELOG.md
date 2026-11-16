@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.9.0
+
+What 0.8.0 kept so that a 0.6 or 0.7 workspace went on working is gone: no installation ever ran either, so each thing
+is now said one way.
+
+- **What a network takes is its connection's description.** `meta.social` is the one place a network's rules live:
+  Network Profiles (the records, their seed, an account's Profile) and 0.7.0's `meta.capabilities` are gone. An account
+  whose connection's description says nothing of what its network takes is refused when it is saved. A network sending
+  its inbox as HTML says so with `meta.social.inbox_format`.
+- **No upgrade from 0.6 or 0.7.** The upkeep no longer makes connections for accounts of the connectors 0.6 had, nor
+  carries an earlier shape of the feeds description, nor links accounts to profiles by name; the descriptions lose
+  `meta.carries`. `social.reconnect` speaks only of a sign-in a network no longer takes (its `reason` value is gone).
+- **A post's pictures are its media lines.** `image` and `image_alt` are gone from posts and post templates, and
+  `image`, `image_alt` and `media_ref` from publications. Every item's calls are keyed by its number, the first too:
+  `publish:<publication>:<n>`, `media:<publication>:<item>:<n>`, `delete:<publication>:<n>`.
+- **Review is the platform's approval policy alone.** Approve It and Send It Back are gone. A workspace that removed
+  the policy has a post approved as it is sent for review; where nobody may decide a step, Send for Review is refused
+  in the platform's words.
+- **Lengths in graphemes as Unicode segments text** (the `unicode-segmentation` the platform already builds): Hangul
+  written as its letters, Devanagari and Thai vowel signs and Arabic harakat count as a reader sees them.
+- The interface no longer offers a network profile when an account is added nor sends `image`, and decides a review
+  only through the platform's approval; rebuilt with Ferrum-Frontend 9cc64fb, as 0.8.0 was.
+
 ## 0.8.0
 
 The composer's server. Everything a network takes and asks is one declarative shape, `meta.social` on its connection's

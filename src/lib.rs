@@ -1,15 +1,14 @@
 //! Social media management (FERRUM-ECOSYSTEM-005) on the platform's connections (docs/api.md, "Connections"):
 //! brands and their accounts, each an account on a connection (the workspace's sign-in at a provider, or a person's
 //! own, through the platform's broker); posts approved by someone other than their author and sent at their time
-//! to each account, within what its network profile says it takes; the inbox read and answered; and what each post
-//! and account did.
+//! to each account, within what its network takes; the inbox read and answered; and what each post and account did.
 //!
 //! No network is named here. A network is a connection's description, whose operations are named by what Social
 //! needs of them (`publish`, `publish_media`, `delete`, `comments`, `reply`, `messages`, `send_message`, `metrics`,
-//! `account`), and a network profile record saying what a post may carry (examples: docs/connectors/).
+//! `account`), and whose `meta.social` says what a post may carry (examples: docs/connectors/).
 //!
-//! * `accounts`: accounts, their state on the connection, and the profile each names.
-//! * `rules`: what a network takes and asks (`meta.social`, or a network profile), and the one check of a copy against it.
+//! * `accounts`: accounts and their state on the connection.
+//! * `rules`: what a network takes and asks (`meta.social`), and the one check of a copy against it.
 //! * `content`: a post's original and per-account versions, items and media, as one account's copy.
 //! * `posts`: posts, their validation, and each account's publication, sent item by item by a queued job, once.
 //! * `review`: review by the platform's approval policy, and review links for people outside.
@@ -17,8 +16,6 @@
 //! * `library`: templates, sets, snippets, signatures, variables.
 //! * `picker`: what a sign-in reaches, picked as accounts; an account's rules, mentions and a setting's choices.
 //! * `inbox`: messages arriving through a connection's inbound address or pulls, and replies sent back.
-//! * `upgrade`: accounts of the networks the earlier releases had connectors for, given a connection from the shipped
-//!   description (turned off), and the administrators told.
 //! * `metrics`: numbers read for each account and post, by day.
 //! * `insights`: each publication's numbers kept day by day, and the reports of them.
 //!
@@ -41,7 +38,6 @@ mod plugs;
 mod posts;
 mod review;
 mod rules;
-mod upgrade;
 mod when;
 mod writing;
 
@@ -93,9 +89,7 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
     vec![Arc::new(insights::SocialReports), Arc::new(metrics::MetricReports)]
 }
 
-/// Upkeep: accounts carried over and their states, approved posts queued when their time comes, posts settled, and
-/// the numbers read. It asks for nothing an administrator's update of the app brings (network profiles are seeded
-/// then): a workspace not yet updated keeps working as far as it can, and what cannot be sent says why.
+/// Upkeep: accounts' states, approved posts queued when their time comes, posts settled, and the numbers read.
 pub async fn maintenance(k: &Kernel) -> Result<()> {
     maintenance_at(k, Utc::now()).await
 }
@@ -114,9 +108,6 @@ pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
             }
             let ctx = Ctx::system(tenant, schema);
             let mut tx = k.db.tenant_tx(tenant).await?;
-            upgrade::carry_connections(k, &ctx, &mut tx).await?;
-            upgrade::carry_any_host(k, &ctx, &mut tx).await?;
-            accounts::carry_over(k, &ctx, &mut tx).await?;
             accounts::refresh_all(k, &ctx, &mut tx).await?;
             review::settle(k, &ctx, &mut tx).await?;
             posts::send_due(k, &ctx, &mut tx, now).await?;
@@ -229,6 +220,6 @@ mod tests {
         assert!(icons.values().all(|n| *n <= 3), "{icons:?}");
         // After the pages, only what a person opens by hand and has no page for.
         let module = packages().unwrap().into_iter().flat_map(|p| p.manifest.modules).find(|m| m.name == "social").unwrap();
-        assert_eq!(module.items, ["SocialBrand", "SocialProfile", "SocialWritingPreset", "SocialSettings"]);
+        assert_eq!(module.items, ["SocialBrand", "SocialWritingPreset", "SocialSettings"]);
     }
 }

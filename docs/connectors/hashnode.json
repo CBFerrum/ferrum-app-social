@@ -16,10 +16,6 @@
   },
   "meta": {
     "label": "Hashnode",
-    "carries": {
-      "network": "Hashnode",
-      "provider": "hashnode"
-    },
     "social": {
       "name": "Hashnode",
       "text": {
