@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// How a network counts the length of a text.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -385,38 +386,6 @@ fn plural(kind: &str) -> String {
     }
 }
 
-/// Whether `c` joins the character before it into what a reader sees as one.
-fn extends(c: char) -> bool {
-    matches!(c as u32,
-        0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F // combining marks
-        | 0xFE00..=0xFE0F | 0xE0100..=0xE01EF // variation selectors
-        | 0x200D // zero-width joiner
-        | 0x1F3FB..=0x1F3FF // skin tones
-        | 0xE0020..=0xE007F) // tags (subdivision flags)
-}
-
-/// The text split into what a reader sees as characters.
-// ponytail: an approximation of Unicode grapheme clusters (combining marks, variation selectors, joined emoji, skin
-// tones, flags, tags); Hangul jamo and Indic conjuncts count apart. A segmentation crate if a network proves it matters.
-pub fn clusters(text: &str) -> Vec<&str> {
-    let mut out: Vec<&str> = vec![];
-    let (mut start, mut prev, mut regional) = (0usize, None::<char>, false);
-    for (i, c) in text.char_indices() {
-        let ri = (0x1F1E6..=0x1F1FF).contains(&(c as u32));
-        let joins = prev.is_some() && (extends(c) || prev == Some('\u{200D}') || (ri && regional));
-        if !joins && i > 0 {
-            out.push(&text[start..i]);
-            start = i;
-        }
-        regional = ri && !(joins && regional);
-        prev = Some(c);
-    }
-    if start < text.len() {
-        out.push(&text[start..]);
-    }
-    out
-}
-
 fn light(c: char) -> bool {
     matches!(c as u32, 0..=4351 | 8192..=8205 | 8208..=8223 | 8242..=8247)
 }
@@ -444,10 +413,10 @@ pub fn length(t: &Text, text: &str) -> usize {
     let mut at = 0;
     let unit = |s: &str| match t.count {
         Count::Characters => s.chars().count(),
-        Count::Graphemes => clusters(s).len(),
+        Count::Graphemes => s.graphemes(true).count(),
         Count::Utf16 => s.encode_utf16().count(),
         Count::Bytes => s.len(),
-        Count::Weighted => clusters(s).iter().map(|c| if c.chars().count() == 1 && c.chars().all(light) { 1 } else { 2 }).sum(),
+        Count::Weighted => s.graphemes(true).map(|c| if c.chars().count() == 1 && c.chars().all(light) { 1 } else { 2 }).sum(),
     };
     if let Some(each) = t.link_counts {
         for (s, e) in links(text) {
@@ -746,11 +715,23 @@ mod tests {
         assert_eq!(length(&t(Count::Characters, None), "a😀"), 2);
         // A family (joined), a flag (two regional letters), a thumb with its tone, an e with its accent: one each.
         assert_eq!(length(&t(Count::Graphemes, None), "👨\u{200D}👩\u{200D}👧🇮🇳👍🏽e\u{301}"), 4);
-        assert_eq!(clusters("🇮🇳🇫🇷").len(), 2, "two flags, not one");
+        assert_eq!(length(&t(Count::Graphemes, None), "🇮🇳🇫🇷"), 2, "two flags, not one");
         // X: Latin 1, CJK and emoji 2, a link 23 whatever its length.
         assert_eq!(length(&t(Count::Weighted, Some(23)), "hi 日本 😀"), 3 + 4 + 1 + 2);
         assert_eq!(length(&t(Count::Weighted, Some(23)), "see https://example.org/a/very/long/path ok"), 4 + 23 + 3);
         assert_eq!(length(&t(Count::Characters, None), "see https://e.org"), 17, "as written without link_counts");
+    }
+
+    /// One character to a reader, as Unicode segments text: a Hangul syllable written as its letters, a consonant with
+    /// its vowel sign (Devanagari, Thai), a letter with its harakat (Arabic), a line break as CR LF.
+    #[test]
+    fn graphemes_as_unicode_segments_them() {
+        let g = Text { count: Count::Graphemes, ..Default::default() };
+        assert_eq!(length(&g, "\u{1100}\u{1161}\u{11A8}"), 1, "각 as its three jamo");
+        assert_eq!(length(&g, "\u{0915}\u{093F}"), 1, "कि");
+        assert_eq!(length(&g, "\u{0E01}\u{0E34}"), 1, "กิ");
+        assert_eq!(length(&g, "\u{0628}\u{064E}"), 1, "بَ");
+        assert_eq!(length(&g, "a\r\nb"), 3, "CR LF is one");
     }
 
     #[test]
