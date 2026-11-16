@@ -2147,4 +2147,12 @@ async fn scenario() {
     t.k.recall_approval(&ann, "SocialPost", own).await.expect("taken back");
     refused(t.act(&pia, "SocialPost", own, "review", Value::Null).await, "invalid", "in its author's name");
     assert_eq!(t.get("SocialPost", own).await["status"], "In Review", "nothing asked, nothing approved");
+
+    // ───────────── an outside reviewer's verdict comes only by their review link ─────────────
+    // Called directly (POST …/actions/review_approve), a member would record a verdict under any name of their choosing.
+    let theirs = uid(&t.insert(&author, "SocialPost", post("For a client", &[nw_key])).await["id"]);
+    let forged = json!({"reviewer": "ceo@client.example", "reviewer_name": "The client's CEO", "comment": "Ship it"});
+    refused(t.act(&pia, "SocialPost", theirs, "review_approve", forged.clone()).await, "forbidden", "by their review link");
+    refused(t.act(&pia, "SocialPost", theirs, "review_changes", forged).await, "forbidden", "by their review link");
+    assert!(t.rows("SocialReview", json!({"post": theirs.to_string()})).await.is_empty(), "nothing said in anyone's name");
 }

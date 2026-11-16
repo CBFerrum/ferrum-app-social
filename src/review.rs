@@ -238,15 +238,20 @@ async fn link(hc: &mut HookCtx<'_>, post: Uuid, doc: &Doc, params: &Value) -> Re
     Ok(json!({"id": issued.id, "url": issued.url, "expires_at": issued.expires_at.to_rfc3339(), "sent_to": email}))
 }
 
-/// What a reviewer outside said, kept on the post; asking for changes sends it back.
+/// What a reviewer outside said, kept on the post; asking for changes sends it back. Only by their review link: its guest
+/// is someone outside, given these actions alone, and the reviewer and their name are the link's, fixed when it was
+/// issued (a guest cannot give them). A member calling them directly would say anything under any name: refused.
 async fn outside(hc: &mut HookCtx<'_>, post: Uuid, doc: &Doc, name: &str, params: &Value) -> Result<Value> {
+    if !hc.ctx.outside {
+        return Err(Error::Forbidden("an outside reviewer says this by their review link".into()));
+    }
     let system = elevated(hc.ctx);
     let comment = params.get("comment").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty());
     if name != "review_approve" && comment.is_none() {
         return Err(Error::field("comment", "say what you think of it"));
     }
     let given = |k: &str| params.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
-    let email = given("reviewer").or_else(|| (!hc.ctx.email.is_empty()).then(|| hc.ctx.email.clone()));
+    let email = given("reviewer");
     let who = given("reviewer_name").or_else(|| (!hc.ctx.full_name.is_empty()).then(|| hc.ctx.full_name.clone()));
     let reviewer = who.clone().or(email.clone()).unwrap_or_default();
     let outcome = match name {
