@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.2
+
+Needs the same platform as 0.9.0. No database change.
+
+- **An author who also approves cannot approve her own post.** Approve Under the Policy, the hidden action Send for
+  Review asks in the author's name, is asked only by its author. A review taken back leaves the post In Review, and
+  until now anyone who may change posts could ask that action again directly, in their own name: the author, if a
+  Social Approver, could then decide it, and the post went out approved by her. Asked by anyone else it is refused.
+  A post whose author is no longer a member is no longer sent for review (a feed's is kept as a draft): duplicate it
+  and send the copy.
+
 ## 0.9.1
 
 Needs the same platform as 0.9.0. No database change. Interface only, `ui/dist` rebuilt with Ferrum-Frontend `06bd1a2`.
