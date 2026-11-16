@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1
+
+Needs the same platform as 0.9.0. No database change. Interface only, `ui/dist` rebuilt with Ferrum-Frontend `06bd1a2`.
+
+- The queue's next places start from the workspace's today, as posting times are the workspace's own: they started from
+  today's date in UTC, so in a zone behind UTC this evening's places were missing, and ahead of it the last day was.
+- "Open the settings" (under accounts, the media library and writing help) opens Social Settings; it led to a page that
+  only said the app's settings were not available.
+- The two routes to the screens apps no longer have (`apps/:app/settings`, `x/:app/:page`) are gone. The page starts
+  through the frontend's `mountApp`, which keeps lists fresh for 30 seconds (Social said 5); the interface lint has no
+  baseline file any more.
+
 ## 0.9.0
 
 What 0.8.0 kept so that a 0.6 or 0.7 workspace went on working is gone: no installation ever ran either, so each thing
