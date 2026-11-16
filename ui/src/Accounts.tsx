@@ -220,7 +220,7 @@ function AddAccount({ brands, onClose }: { brands: Row[]; onClose: () => void })
               ))}
             </ul>
           )}
-          <p className="muted">{t("Stock pictures, GIFs, link shorteners, writing help and feeds are chosen in Social Settings, not added as accounts.")} <Link to="/apps/social/settings">{t("Open the settings")}</Link></p>
+          <p className="muted">{t("Stock pictures, GIFs, link shorteners, writing help and feeds are chosen in Social Settings, not added as accounts.")} <Link to="/e/SocialSettings">{t("Open the settings")}</Link></p>
           {!admin && !known.isPending && <div><Button onClick={() => setStep("details")}>{t("I know the connection's name")}</Button></div>}
         </div>
       ) : (

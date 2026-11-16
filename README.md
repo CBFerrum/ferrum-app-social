@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.8.0-db2777?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.1-db2777?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -343,6 +343,7 @@ Notes. 🟡 for a leader means a higher plan, a paid edition, or partial or unco
 
 ### ✅ Recently shipped
 
+- [x] **0.9.1** — The queue's places start from the workspace's today; "Open the settings" opens Social Settings.
 - [x] **0.9.0** — One shape for each thing: what a network takes is its connection's description, a post's pictures are its media lines, review is the platform's approval policy; network profiles and the upgrade from 0.6 and 0.7 are gone. Lengths in graphemes as Unicode segments text.
 - [x] **0.8.0** — The composer's server and screens: network descriptions with `meta.social` rules, versions per account, threads, several media, queue, repeats, templates, sets, snippets, signatures, variables, review policy and review links; media library with stock pictures and GIFs, links with tracking and short links, writing help, plugs, reports, notices and feeds; 33 networks described; the app's own pages in the left menu.
 - [x] **0.7.0** — Accounts on connections with their state, network profiles as records, one queued call per account, the inbox through inbound addresses and pulls, numbers by day and reports.
@@ -446,7 +447,7 @@ scripts/               ship_connections.py
 
 ## 📜 Changelog
 
-Every version is in [CHANGELOG.md](CHANGELOG.md). The latest is **0.8.0**.
+Every version is in [CHANGELOG.md](CHANGELOG.md). The latest is **0.9.1**.
 
 ## 🤝 Contributing
 

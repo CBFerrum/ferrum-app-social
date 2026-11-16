@@ -6,9 +6,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { bootstrap, formatMoment, isolate, refusal, t } from "@ferrum/client";
+import { bootstrap, formatMoment, isolate, refusal, t, todayIso } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, confirmDialog, Field, ListSkeleton, PageHead, PageStack, StatePanel, StatusBadge, toast } from "@ferrum/kit";
-import { type PostingTime, slotsOn, type Slot } from "./days";
+import { addDays, type PostingTime, slotsOn, type Slot } from "./days";
 import { change, make, POST_TONES, remove, type Row, rows, run, statusWord, text } from "./data";
 import { Await, Face, firstOf, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
 
@@ -145,7 +145,9 @@ export function QueueRoute() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const mine = (accounts.data ?? []).filter((a) => a.brand === brand);
-  const days = Array.from({ length: DAYS_AHEAD }, (_, i) => new Date(now.getTime() + i * 86_400_000).toISOString().slice(0, 10));
+  // The workspace's days from its today, as posting times are its own: a UTC day began a day early or late.
+  const today = todayIso();
+  const days = Array.from({ length: DAYS_AHEAD }, (_, i) => addDays(today, i));
   const zone = bootstrap()?.locale.timezone;
   const scope = timesFor(times.data ?? [], brand, account);
   const live = [...scope.own, ...scope.shared].map((r) => ({ brand: text(r.brand), account: text(r.account), weekday: text(r.weekday) || "Every Day", time: text(r.time), active: r.active !== false })) as PostingTime[];

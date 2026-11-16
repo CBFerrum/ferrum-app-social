@@ -33,6 +33,26 @@ const press = async (el: HTMLElement | null | undefined) => {
 };
 
 describe("posting times", () => {
+  it("starts the places at the workspace's today, so this evening's time is there in a zone behind UTC", async () => {
+    // 03:00 UTC on 6 Nov is 19:00 on 5 Nov in Los Angeles: 21:00 there is still to come today.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T03:00:00Z"));
+    setTimeZone("America/Los_Angeles");
+    try {
+      fakeServer([
+        ["GET", "/api/v1/SocialPostingTime", { rows: [{ id: "t1", version: 1, brand: "b1", weekday: "Every Day", time: "21:00", active: true }] }],
+        ["GET", "/api/v1/SocialPost", { rows: [] }],
+        ["GET", "/api/v1/SocialBrand", { rows: [{ id: "b1", brand_name: "Northwind" }] }],
+        ["GET", "/api/v1/SocialAccount", { rows: [{ id: "x", account_name: "North Short", brand: "b1", state: "Connected", active: true }] }],
+      ]);
+      const host = await draw(<QueueRoute />, "/queue", "/queue");
+      await until(() => host.querySelectorAll("[data-at]").length > 0);
+      expect(host.querySelector('[data-at="2026-11-06T05:00:00.000Z"]')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lists a brand's weekly times and the places they make with what is in them", async () => {
     server();
     const host = await draw(<QueueRoute />, "/queue", "/queue");
