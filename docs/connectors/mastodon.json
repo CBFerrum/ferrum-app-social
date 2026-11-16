@@ -33,21 +33,6 @@
   },
   "meta": {
     "label": "Mastodon (any server)",
-    "carries": {
-      "network": "Mastodon",
-      "provider": "mastodon",
-      "server": "instance",
-      "placeholder": "https://mastodon.example"
-    },
-    "capabilities": {
-      "name": "Mastodon",
-      "max_text": 500,
-      "images": true,
-      "max_media": 4,
-      "alt_text": true,
-      "first_comment": true,
-      "html_text": true
-    },
     "social": {
       "name": "Mastodon",
       "text": {

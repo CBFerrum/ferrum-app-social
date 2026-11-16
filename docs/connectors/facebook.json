@@ -75,13 +75,6 @@
   },
   "meta": {
     "label": "Facebook Page",
-    "capabilities": {
-      "name": "Facebook",
-      "max_text": 63206,
-      "images": true,
-      "max_media": 10,
-      "first_comment": true
-    },
     "social": {
       "name": "Facebook",
       "text": {

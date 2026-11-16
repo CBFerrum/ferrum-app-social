@@ -31,12 +31,6 @@
   },
   "meta": {
     "label": "Google Business Profile",
-    "capabilities": {
-      "name": "Google Business Profile",
-      "max_text": 1500,
-      "images": true,
-      "max_media": 1
-    },
     "social": {
       "name": "Google Business Profile",
       "text": {

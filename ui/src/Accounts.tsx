@@ -156,11 +156,10 @@ export function needsWords(c: Offered): string {
 
 function AddAccount({ brands, onClose }: { brands: Row[]; onClose: () => void }) {
   const client = useQueryClient();
-  const profiles = useQuery({ queryKey: ["social", "profiles"], queryFn: () => rows("SocialProfile", [], { sort: "profile_name asc" }) });
   // The connections are an administrator's to list (the platform's own screens set them up); anyone else types a name.
   const known = useQuery({ queryKey: ["social", "connections"], queryFn: () => api.get<{ connections: Offered[] }>("/api/admin/connections").then((r) => r.connections ?? []), retry: false });
   const networks = networksOf(known.data ?? []);
-  const [v, setV] = useState({ account_name: "", brand: "", handle: "", connection: "", profile: "" });
+  const [v, setV] = useState({ account_name: "", brand: "", handle: "", connection: "" });
   const [step, setStep] = useState<"network" | "details">("network");
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState("");
@@ -169,7 +168,7 @@ function AddAccount({ brands, onClose }: { brands: Row[]; onClose: () => void })
     setBusy(true);
     setRefused("");
     try {
-      await make("SocialAccount", { ...v, profile: v.profile || null });
+      await make("SocialAccount", v);
       await client.invalidateQueries({ queryKey: ["social"] });
       toast(t("Account added. Connect it next."));
       onClose();
@@ -244,16 +243,6 @@ function AddAccount({ brands, onClose }: { brands: Row[]; onClose: () => void })
           </Field>
           <Field label={t("Its name on the network")} required htmlFor="acc-handle">
             <input id="acc-handle" className="input" value={v.handle} onChange={set("handle")} />
-          </Field>
-          <Field label={t("What its network takes")} htmlFor="acc-profile" hint={t("Needed only when the connection does not say.")}>
-            <select id="acc-profile" className="select" value={v.profile} onChange={set("profile")}>
-              <option value="">{t("The connection says")}</option>
-              {(profiles.data ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {isolate(text(p.profile_name))}
-                </option>
-              ))}
-            </select>
           </Field>
         </div>
       )}

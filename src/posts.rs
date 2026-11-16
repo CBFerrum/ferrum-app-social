@@ -10,18 +10,16 @@
 //! * the job is deduplicated by the publication while queued or running, and a job is claimed by one worker at a time;
 //! * each item is sent holding a lock on the publication's row, and `sent_items` is read after taking it, so a second
 //!   job for the same publication waits, then finds the item out;
-//! * each call carries its key: `publish:<publication>` for the first item (0.7.0's key, so a publication under way
-//!   across the upgrade is not sent twice) and `publish:<publication>:<n>` for item n after it, `media:<publication>`
-//!   for the first item's first medium and `media:<publication>:<item>:<n>` for the others. The platform hands a key
-//!   that went through its stored answer without calling the network, and gives the network the same key on every
-//!   attempt in the description's idempotency header.
+//! * each call carries its key: `publish:<publication>:<n>` for item n, `media:<publication>:<item>:<n>` for each of
+//!   its media. The platform hands a key that went through its stored answer without calling the network, and gives
+//!   the network the same key on every attempt in the description's idempotency header.
 //!
 //! A refusal ends the attempt at once and the service's own words are shown on the publication; "later" (a timeout, a
 //! limit, a 5xx) is tried again by the job with backoff. A thread that failed half way resumes where it stopped: the
 //! items out are in `sent_items` and are not sent again. An item with a delay waits it after the one before, the job
 //! put back for then. The post is published when every publication is out, failed when any one ended without being.
 
-use crate::accounts::{self, Reach, any_profile, caller, reach};
+use crate::accounts::{self, Reach, caller, reach};
 use crate::content::{self, Med, Version, fingerprint};
 use crate::rules::{self, FollowAs, Rules};
 use crate::{at, base64, obj};
@@ -44,21 +42,12 @@ const ATTEMPTS: i32 = 8;
 
 pub(crate) const PUBLISH: &str = "social.publish";
 
-/// What an account's network takes and asks: what its connection's description says (`meta.social`, or 0.7.0's
-/// `meta.capabilities`, which is where a server's own limit lives), else the network profile the account names (its
-/// `social` shape, else its fields; the seeded ones are the defaults).
-pub(crate) async fn rules_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, account: &Doc) -> Result<Option<Rules>> {
-    if let Some(found) = reach(tx, ctx.tenant, s(account, "connection")).await?
-        && let Some(r) = found.social(s(account, "network"))?
-    {
-        return Ok(Some(r));
-    }
-    let Some(profile) = id(account, "profile") else { return Ok(None) };
-    let p = k.get_tx(&elevated(ctx), tx, "SocialProfile", profile, false).await?;
-    let name = s(&p, "profile_name").unwrap_or("This network");
-    match p.get("social").filter(|v| v.is_object()) {
-        Some(v) => Rules::parse(v, name).map(Some).map_err(|e| Error::invalid(format!("the network profile {name}: {e}"))),
-        None => Ok(Some(Rules::of_fields(&p, name))),
+/// What an account's network takes and asks: what its connection's description says (`meta.social`, where a server's
+/// own limit lives too); `None` when the connection is gone or says nothing.
+pub(crate) async fn rules_of(tx: &mut Tx, tenant: Uuid, account: &Doc) -> Result<Option<Rules>> {
+    match reach(tx, tenant, s(account, "connection")).await? {
+        Some(found) => found.social(s(account, "network")),
+        None => Ok(None),
     }
 }
 
@@ -72,7 +61,7 @@ fn follow(r: &Rules, v: &Version) -> FollowAs {
 /// connection must offer for it.
 /// `strict`: everything a post must be to leave Draft; else what even a draft may not hold (structure: a kind or a
 /// setting the network does not have, a medium for an item there is not).
-pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc, any_profiles: bool, strict: bool) -> Result<Option<(String, String)>> {
+pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc, strict: bool) -> Result<Option<(String, String)>> {
     let name = s(a, "account_name").unwrap_or_default().to_string();
     let v = content::version(k, ctx, tx, doc, a).await.map_err(|e| match e {
         Error::Validation(f) => Error::Validation(
@@ -85,17 +74,8 @@ pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc
         ),
         other => other,
     })?;
-    let r = match rules_of(k, ctx, tx, a).await? {
-        Some(r) => r,
-        // A workspace not yet updated has no profiles: nothing says what its networks take.
-        None if any_profiles && strict => {
-            return Ok(Some(("targets".into(), format!("{name} has no network profile, so it is not known what its network takes"))));
-        }
-        None if !strict => return Ok(None),
-        None => {
-            let open = Rules::default();
-            return Ok(conn_misses(tx, ctx, a, &open, &v, &name).await?.map(|why| ("targets".into(), why)));
-        }
+    let Some(r) = rules_of(tx, ctx.tenant, a).await? else {
+        return Ok(strict.then(|| ("targets".into(), format!("{name}'s connection does not say what its network takes (meta.social)"))));
     };
     if !strict {
         return Ok(rules::structural(&r, &v.copy()).into_iter().next().map(|why| ("targets".into(), format!("for {name}: {why}"))));
@@ -103,7 +83,7 @@ pub(crate) async fn unfit(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, a: &Doc
     if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy_on(k))).next() {
         return Ok(Some(("text".into(), format!("for {name}: {why}"))));
     }
-    Ok(conn_misses(tx, ctx, a, &r, &v, &name).await?.map(|why| (if why.contains("pictures") { "image" } else { "targets" }.into(), why)))
+    Ok(conn_misses(tx, ctx, a, &r, &v, &name).await?.map(|why| (if why.contains("pictures") { "media" } else { "targets" }.into(), why)))
 }
 
 /// What account `a`'s connection lacks for copy `v`.
@@ -126,10 +106,9 @@ async fn conn_misses(tx: &mut Tx, ctx: &Ctx, a: &Doc, r: &Rules, v: &Version, na
 /// Refused, in the words `unfit` gives, unless every account's copy of `doc` may leave Draft.
 pub(crate) async fn ready(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
     let system = elevated(hc.ctx);
-    let profiles = any_profile(hc).await?;
     for account in content::accounts(doc) {
         let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
-        if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles, true).await? {
+        if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, true).await? {
             return Err(Error::field(&field, why));
         }
     }
@@ -180,13 +159,6 @@ impl DocHook for PostHook {
         if s(doc, "link").map(str::trim).is_some_and(|l| !l.is_empty() && !web(l)) {
             return Err(Error::field("link", "is a web address"));
         }
-        let image = s(doc, "image").filter(|i| !i.trim().is_empty());
-        if image.is_some_and(|i| !i.starts_with("/files/")) {
-            return Err(Error::field("image", "is a picture stored here"));
-        }
-        if image.is_some() && s(doc, "image_alt").is_none_or(|a| a.trim().is_empty()) {
-            return Err(Error::field("image_alt", "says what the picture shows, for people who cannot see it"));
-        }
         for line in rows(doc, "media") {
             if s(&line, "file").is_none_or(|f| !f.starts_with("/files/")) || s(&line, "thumbnail").is_some_and(|f| !f.is_empty() && !f.starts_with("/files/")) {
                 return Err(Error::field("media", "each medium is a file stored here"));
@@ -205,7 +177,6 @@ impl DocHook for PostHook {
                 ));
             }
         }
-        let profiles = any_profile(hc).await?;
         for account in targets {
             let a = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", account, false).await?;
             let name = s(&a, "account_name").unwrap_or_default();
@@ -217,7 +188,7 @@ impl DocHook for PostHook {
             }
             // A draft keeps what is wrong with its content (`copies` says it); it is refused when it leaves Draft.
             let strict = !matches!(s(doc, "status").unwrap_or("Draft"), "Draft" | "Rejected");
-            if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, profiles, strict).await? {
+            if let Some((field, why)) = unfit(hc.kernel, hc.ctx, hc.tx, doc, &a, strict).await? {
                 return Err(Error::field(&field, why));
             }
         }
@@ -275,7 +246,7 @@ pub(crate) async fn copies_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> 
     let mut out = vec![];
     for account in content::accounts(doc) {
         let a = k.get_tx(ctx, tx, "SocialAccount", account, false).await?;
-        let r = rules_of(k, ctx, tx, &a).await?.unwrap_or_default();
+        let r = rules_of(tx, ctx.tenant, &a).await?.unwrap_or_default();
         let (v, mut problems) = match content::version(k, ctx, tx, doc, &a).await {
             Ok(v) => (v, vec![]),
             Err(e) => (Version::default(), vec![e.to_string()]),
@@ -313,25 +284,22 @@ pub(crate) async fn queue(tx: &mut Tx, tenant: Uuid, publication: Uuid) -> Resul
     Ok(())
 }
 
-/// The items a publication has out: `{item, id, url, media, sent_at}` each, 0.7.0's single one read from its fields.
+/// The items a publication has out: `{item, id, url, media, sent_at}` each. One read back from the network (`native`)
+/// has only its network id and address: its one item.
 fn sent_items(p: &Doc) -> Vec<Value> {
     match p.get("sent_items").and_then(Value::as_array) {
         Some(list) => list.clone(),
-        None => match s(p, "external_id") {
-            Some(id) => vec![
-                json!({"item": 0, "id": id, "url": s(p, "permalink"), "media": s(p, "media_ref").into_iter().collect::<Vec<_>>(), "sent_at": s(p, "sent_at")}),
-            ],
-            None => vec![],
-        },
+        None => s(p, "external_id")
+            .map(|id| vec![json!({"item": 0, "id": id, "url": s(p, "permalink"), "media": [], "sent_at": s(p, "sent_at")})])
+            .unwrap_or_default(),
     }
 }
 
 /// The key of item `n`'s call, and of its medium `m`.
 fn key(publication: Uuid, what: &str, item: usize, medium: Option<usize>) -> String {
-    match (item, medium) {
-        (0, None) | (0, Some(0)) => format!("{what}:{publication}"),
-        (n, None) => format!("{what}:{publication}:{n}"),
-        (n, Some(m)) => format!("{what}:{publication}:{n}:{m}"),
+    match medium {
+        None => format!("{what}:{publication}:{item}"),
+        Some(m) => format!("{what}:{publication}:{item}:{m}"),
     }
 }
 
@@ -380,7 +348,7 @@ impl DocHook for PublicationHook {
         let system = elevated(hc.ctx);
         let account = hc.kernel.get_tx(&system, hc.tx, "SocialAccount", id(doc, "account").unwrap_or_default(), false).await?;
         let conn = reach(hc.tx, hc.ctx.tenant, s(&account, "connection")).await?.ok_or_else(|| Error::invalid("the account's connection is gone"))?;
-        let r = rules_of(hc.kernel, hc.ctx, hc.tx, &account).await?.unwrap_or_default();
+        let r = rules_of(hc.tx, hc.ctx.tenant, &account).await?.unwrap_or_default();
         let op = r.op("delete").to_string();
         if !conn.has(&op) {
             return Err(Error::invalid(format!("{} does not offer to delete a post", conn.name)));
@@ -460,8 +428,7 @@ pub(crate) async fn start(k: &Kernel, ctx: &Ctx, tx: &mut Tx, post: Uuid, doc: &
                 ctx,
                 tx,
                 "SocialPublication",
-                obj(json!({"post": post.to_string(), "account": account.to_string(), "text": s(doc, "text"), "link": s(doc, "link"),
-                           "image": s(doc, "image"), "image_alt": s(doc, "image_alt")})),
+                obj(json!({"post": post.to_string(), "account": account.to_string(), "text": s(doc, "text"), "link": s(doc, "link")})),
             )
             .await?;
         queue(tx, ctx.tenant, id(&made, "id").unwrap_or_default()).await?;
@@ -606,7 +573,9 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
         return Err(Error::invalid(format!("the connection {} is turned off", conn.name)));
     }
     // What its network takes may have been changed since the post was approved: looked at again.
-    let r = rules_of(k, &ctx, &mut tx, &account).await?.ok_or_else(|| Error::invalid(format!("{name} has no network profile")))?;
+    let r = rules_of(&mut tx, tenant, &account)
+        .await?
+        .ok_or_else(|| Error::invalid(format!("{name}'s connection does not say what its network takes (meta.social)")))?;
     let v = content::version(k, &ctx, &mut tx, &post, &account).await?;
     if let Some(why) = v.problems.iter().cloned().chain(rules::problems(&r, &v.copy_on(k))).next() {
         return Err(Error::invalid(format!("for {name}: {why}")));
@@ -654,19 +623,12 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
         entity: Some("SocialPublication".into()),
         record: Some(publication),
     };
-    // Each medium first, under a key of its own; 0.7.0 kept the first item's picture in `media_ref`.
+    // Each medium first, under a key of its own.
     let mut media: Vec<String> = vec![];
     // A description whose `publish` uploads its media in its own steps has no `publish_media`: it gets the stored files
     // in `media_items` instead (BD-53 to BD-55).
     let uploads = conn.has(r.op("publish_media"));
     for (i, m) in item.media.iter().enumerate().filter(|_| uploads) {
-        if n == 0
-            && i == 0
-            && let Some(kept) = s(&p, "media_ref")
-        {
-            media.push(kept.to_string());
-            continue;
-        }
         let inputs = media_inputs(k, &ctx, &conn, r.op("publish_media"), &r, m, n, i, &common).await?;
         let up = connections::call(k, &calling, Some(crate::APP), &call("publish_media", inputs, key(publication, "media", n, Some(i))))
             .await
@@ -706,7 +668,6 @@ async fn step(k: &Kernel, tenant: Uuid, publication: Uuid) -> Result<Step> {
     if n == 0 {
         values["external_id"] = json!(external);
         values["permalink"] = json!(text_of(&out["url"]));
-        values["media_ref"] = json!(media.first());
     }
     k.set_values_tx(&ctx, &mut tx, "SocialPublication", publication, obj(values)).await?;
     tx.commit().await?;

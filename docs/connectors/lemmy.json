@@ -13,12 +13,6 @@
   "timeout_ms": 30000,
   "meta": {
     "label": "Lemmy (any server)",
-    "carries": {
-      "network": "Lemmy",
-      "provider": "lemmy",
-      "server": "instance",
-      "placeholder": "https://lemmy.example"
-    },
     "social": {
       "name": "Lemmy",
       "text": {

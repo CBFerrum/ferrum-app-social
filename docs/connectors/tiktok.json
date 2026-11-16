@@ -33,13 +33,6 @@
   },
   "meta": {
     "label": "TikTok creator account",
-    "capabilities": {
-      "name": "TikTok",
-      "max_text": 2200,
-      "images": false,
-      "videos": true,
-      "media_required": true
-    },
     "social": {
       "name": "TikTok",
       "text": {

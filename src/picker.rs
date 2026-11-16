@@ -130,11 +130,11 @@ pub(crate) async fn action(hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: 
     if !matches!(name, "reachable" | "choose" | "mentions" | "choices" | "check" | "rules") {
         return Ok(None);
     }
-    let r = rules_of(hc.kernel, hc.ctx, hc.tx, doc).await?.unwrap_or_default();
+    let r = rules_of(hc.tx, hc.ctx.tenant, doc).await?.unwrap_or_default();
     let account = id(doc, "id").ok_or_else(|| Error::internal("an account without an id"))?;
     let system = elevated(hc.ctx);
     match name {
-        // What its network takes and asks, as the composer reads it: the description's, else the profile's.
+        // What its network takes and asks, as the composer reads it: the description's.
         "rules" => Ok(Some(json!({"rules": r}))),
         "reachable" => Ok(Some(json!({"accounts": reachable(hc, doc, &r).await?}))),
         "choose" => {
@@ -159,7 +159,7 @@ pub(crate) async fn action(hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: 
                     }
                     None => {
                         let name = free_name(hc, &display, handle.as_deref()).await?;
-                        let mut fresh = json!({"account_name": name, "brand": s(doc, "brand"), "network": s(doc, "network"), "profile": s(doc, "profile"),
+                        let mut fresh = json!({"account_name": name, "brand": s(doc, "brand"), "network": s(doc, "network"),
                                                "handle": handle.clone().unwrap_or_else(|| p.clone()), "connection": s(doc, "connection"),
                                                "connected_by": s(doc, "connected_by"), "default_kind": s(doc, "default_kind")});
                         if let Some(d) = doc.get("default_settings").filter(|d| !d.is_null()) {

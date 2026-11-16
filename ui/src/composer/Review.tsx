@@ -1,7 +1,7 @@
 // A post's review: the request the platform's approval policy asked (its steps and decisions), the buttons for whoever may
 // decide, the comments and decisions people outside gave through a review link, and the links themselves (given once,
-// listed, revoked). Calls: GET .../approval, POST .../approval/decide, GET /api/approvals, SocialPost actions approve /
-// reject / review_link, GET .../links, DELETE /api/links/{id}, SocialReview list.
+// listed, revoked). Calls: GET .../approval, POST .../approval/decide, GET /api/approvals, SocialPost action review_link,
+// GET .../links, DELETE /api/links/{id}, SocialReview list.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -141,11 +141,7 @@ export function ReviewPanel({ post, onChanged }: { post: Row; onChanged: () => v
   const [making, setMaking] = useState(false);
   const request = approval.data && approval.data.status === "pending" ? approval.data : null;
   const decide = useMutation({
-    mutationFn: async (outcome: "approve" | "reject") => {
-      if (request) return api.post(docPath("SocialPost", id, "approval", "decide"), { outcome, comment: comment.trim() || undefined });
-      // No platform request is pending: the post's own approve / send back decides.
-      return outcome === "approve" ? run("SocialPost", id, "approve") : run("SocialPost", id, "reject", { note: comment.trim() });
-    },
+    mutationFn: (outcome: "approve" | "reject") => api.post(docPath("SocialPost", id, "approval", "decide"), { outcome, comment: comment.trim() || undefined }),
     onSuccess: async () => {
       setComment("");
       await client.invalidateQueries({ queryKey: ["social"] });
@@ -207,7 +203,7 @@ export function ReviewPanel({ post, onChanged }: { post: Row; onChanged: () => v
         </ul>
       )}
       {text(post.review_note) && <Alert tone="warning">{isolate(text(post.review_note))}</Alert>}
-      {inReview && (request ? toDecide(mine.data, id) : true) && (
+      {inReview && request && toDecide(mine.data, id) && (
         <div className="stack">
           {refused && <Alert tone="error">{refused}</Alert>}
           <Field label={t("Your comment")} htmlFor="rv-comment" error={need ? t("Say why when you send it back") : undefined}>
@@ -215,7 +211,7 @@ export function ReviewPanel({ post, onChanged }: { post: Row; onChanged: () => v
           </Field>
           <div className="row">
             <Button variant="primary" loading={decide.isPending && decide.variables === "approve"} disabled={decide.isPending} onClick={() => go("approve")}>
-              {request ? t("Approve") : t("Approve it")}
+              {t("Approve")}
             </Button>
             <Button variant="danger" loading={decide.isPending && decide.variables === "reject"} disabled={decide.isPending} onClick={() => go("reject")}>
               {t("Send it back")}

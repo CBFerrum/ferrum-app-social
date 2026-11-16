@@ -17,10 +17,6 @@
   "timeout_ms": 60000,
   "meta": {
     "label": "MeWe",
-    "carries": {
-      "network": "MeWe",
-      "provider": "mewe"
-    },
     "social": {
       "name": "MeWe",
       "text": {

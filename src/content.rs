@@ -1,8 +1,8 @@
 //! A post's content for one account. A post has an original and, for any account, a version of its own:
 //!
-//! * the original is the post's `text`, `link`, `image` (with `image_alt`; 0.7.0's one picture, first) and the `media`
-//!   lines naming no account for item 1; then its follow-ups, the `items` lines naming no account, in order, each with
-//!   the `media` lines numbered for it (item 2, 3, ...);
+//! * the original is the post's `text`, `link` and the `media` lines naming no account for item 1; then its
+//!   follow-ups, the `items` lines naming no account, in order, each with the `media` lines numbered for it (item 2,
+//!   3, ...);
 //! * an account has a version when its `targets` line has words of its own (`text`): the version is that line's `text`
 //!   and `link`, the `media` lines naming the account, and the `items` lines naming it. A version is the whole post for
 //!   that account; nothing of the original is mixed into it;
@@ -139,11 +139,6 @@ pub(crate) async fn version(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, accou
             media: vec![],
         });
     }
-    if !own && let Some(file) = file_id(s(doc, "image")) {
-        let mut legacy = Doc::new();
-        legacy.insert("alt".into(), json!(s(doc, "image_alt")));
-        items[0].media.push(medium(k, ctx, &legacy, file).await?);
-    }
     for line in rows(doc, "media").into_iter().filter(|l| for_account(l) == whose) {
         let n: usize = number(&line, "item").unwrap_or(1).max(1);
         let Some(file) = file_id(s(&line, "file")) else { continue };
@@ -171,20 +166,11 @@ fn copy_name(account: &Doc) -> String {
 }
 
 /// What approval fixes: the words, the link, the media and what they say of them, the follow-ups, where and when it
-/// goes and what each account is asked, and how it repeats. For a post with nothing but 0.7.0's content this is 0.7.0's
-/// fingerprint, so an approval given before the upgrade still holds.
+/// goes and what each account is asked, and how it repeats.
 pub(crate) fn fingerprint(doc: &Doc) -> String {
     let mut targets: Vec<String> = rows(doc, "targets").iter().filter_map(|t| s(t, "account").map(str::to_string)).collect();
     targets.sort();
-    let mut what = json!([
-        s(doc, "text"),
-        s(doc, "link"),
-        targets,
-        at(doc, "scheduled_at").map(|t| t.timestamp()),
-        s(doc, "image"),
-        s(doc, "image_alt"),
-        s(doc, "first_comment")
-    ]);
+    let mut what = json!([s(doc, "text"), s(doc, "link"), targets, at(doc, "scheduled_at").map(|t| t.timestamp()), s(doc, "first_comment")]);
     let lines = |table: &str, fields: &[&str]| -> Vec<Value> {
         rows(doc, table).iter().map(|r| Value::Array(fields.iter().map(|f| r.get(*f).cloned().unwrap_or(Value::Null)).collect())).collect()
     };
@@ -213,7 +199,7 @@ pub(crate) fn fingerprint(doc: &Doc) -> String {
 }
 
 /// The fields a copy of a post's content carries: to a template, a set, a duplicate, the next occurrence of a repeat.
-pub(crate) const CONTENT: [&str; 10] = ["headline", "title", "brand", "text", "link", "image", "image_alt", "first_comment", "add_signature", "signature"];
+pub(crate) const CONTENT: [&str; 8] = ["headline", "title", "brand", "text", "link", "first_comment", "add_signature", "signature"];
 
 /// `from`'s content as a new record's values (child lines without their ids), its own fields over them.
 pub(crate) fn content_of(from: &Doc, own: Value) -> Doc {

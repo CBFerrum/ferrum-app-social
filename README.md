@@ -111,7 +111,6 @@ CRM, helpdesk and documents. Networks are descriptions, not code, so a new one n
 - **Accounts on connections.** An account belongs to a brand and a network, and is reached through a platform connection: the workspace's sign-in at a provider, a person's own, or a key an administrator holds.
 - **Account state.** Connected, Needs Reconnecting (the provider refused the sign-in; the owner is told), Not Connected, or Connection Off. Connect, Check (reads the name, handle and picture) and Disconnect (which revokes at the provider) are actions of the account.
 - **Pick what a sign-in reaches.** After signing in, the pages, channels, boards or locations the sign-in reaches are listed and each pick becomes an account of its own.
-- **Network profiles.** What a network takes in a post is a record: characters, how a link counts, pictures and their size, video, whether media is required, first comment, threads, link preview. Profiles are the defaults for an account whose connection's description does not say. They are seeded for X, Bluesky, Mastodon, Threads, LinkedIn, Facebook, Instagram and YouTube.
 - **A brand's voice.** Each brand keeps a voice that writing help uses, and an address for its weekly report.
 
 ### 🌐 Networks (33 described)
@@ -243,7 +242,6 @@ Social asks for operations by what it needs (`publish`, `reply`, `messages`, `me
 |---|---|---|
 | SocialBrand | What the team speaks for | Name, description, voice, report address |
 | SocialAccount | A brand's account on a network | Network, connection, handle, state (Connected, Needs Reconnecting, Not Connected, Connection Off) |
-| SocialProfile | What a network takes in a post | Length, link counting, media, threads |
 | SocialPost (with SocialTarget, SocialItem, SocialMedia) | What a brand says, to one or more accounts | Status (Draft, In Review, Approved, Rejected, Sending, Published, Failed), versions, follow-ups, media, time, repeat |
 | SocialPublication | A post as it went to one account | Network id, sent, failed, permalink, numbers |
 | SocialInsight, SocialMetric | What a publication or account had by a day | Impressions, reach, engagements, clicks, followers |
@@ -345,6 +343,7 @@ Notes. 🟡 for a leader means a higher plan, a paid edition, or partial or unco
 
 ### ✅ Recently shipped
 
+- [x] **0.9.0** — One shape for each thing: what a network takes is its connection's description, a post's pictures are its media lines, review is the platform's approval policy; network profiles and the upgrade from 0.6 and 0.7 are gone. Lengths in graphemes as Unicode segments text.
 - [x] **0.8.0** — The composer's server and screens: network descriptions with `meta.social` rules, versions per account, threads, several media, queue, repeats, templates, sets, snippets, signatures, variables, review policy and review links; media library with stock pictures and GIFs, links with tracking and short links, writing help, plugs, reports, notices and feeds; 33 networks described; the app's own pages in the left menu.
 - [x] **0.7.0** — Accounts on connections with their state, network profiles as records, one queued call per account, the inbox through inbound addresses and pulls, numbers by day and reports.
 - [x] **0.6.12** — The home lists posts that did not go out, with the reason and Retry.
@@ -407,18 +406,16 @@ work/
 
 Point the platform dependencies at your checkout (this file is git-ignored) with a `[patch."https://github.com/CBFerrum/Ferrum"]` section for the platform crates your checkout needs (`ferrum-apps`, `ferrum-domain`, `ferrum-kernel`, `ferrum-meta`).
 
-The tests need PostgreSQL with an ordinary (non-superuser) role, so row-level security applies, and two databases (one for the upgrade test):
+The tests need PostgreSQL with an ordinary (non-superuser) role, so row-level security applies, and a database:
 
 ```bash
 createuser ferrum --pwprompt
 createdb -O ferrum ferrum_social_test
-createdb -O ferrum ferrum_social_upgrade_test
 export FERRUM_SOCIAL_TEST_DATABASE_URL=postgres://ferrum:ferrum@localhost:5432/ferrum_social_test
-export FERRUM_SOCIAL_UPGRADE_TEST_DATABASE_URL=postgres://ferrum:ferrum@localhost:5432/ferrum_social_upgrade_test
 cargo test
 ```
 
-`tests/social_it.rs` runs a fake network on 127.0.0.1 through real connections. `tests/networks_a_it.rs` and `tests/networks_b_it.rs` run each network's description against a fake of its documented API. `tests/connectors_it.rs` fails when a shipped description and its file in `docs/connectors/` differ, and `tests/upgrade_it.rs` serves a workspace still on 0.6.13 with this release.
+`tests/social_it.rs` runs a fake network on 127.0.0.1 through real connections. `tests/networks_a_it.rs` and `tests/networks_b_it.rs` run each network's description against a fake of its documented API. `tests/connectors_it.rs` fails when a shipped description and its file in `docs/connectors/` differ.
 
 The shipped network descriptions are written by `scripts/ship_connections.py` from `docs/connectors/`; run it after you change one.
 

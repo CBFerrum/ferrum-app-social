@@ -74,10 +74,8 @@ answer can still post twice (see each network below).
   part or a body; `name`, `content_type`, `size`, `kind`, `alt` when `media.alt`, `thumbnail` (a stored file's id) when
   `media.thumbnail`, `width`, `height`, `seconds`, `item`, `index` (its place in the item), `account_id`, `handle`,
   `kind`, `settings`; and `data`, base64, only when the description lists it among its `inputs`). Result `id`.
-* Keys: `publish:<publication>` for the first item and `publish:<publication>:<n>` for item n after it (the first keeps
-  0.7.0's key, so a publication under way across the upgrade is not sent twice); `media:<publication>` for the first
-  item's first medium and `media:<publication>:<item>:<index>` for the others; `first_comment:<publication>`;
-  `delete:<publication>` and `delete:<publication>:<n>`.
+* Keys: `publish:<publication>:<n>` for item n (from 0); `media:<publication>:<item>:<index>` for each medium;
+  `first_comment:<publication>`; `delete:<publication>:<n>`.
 * `delete`, for each item out, the last first (`id`, `item`, `follow_up`: `thread` or `comment` for an item after the
   first, `root`). `send_message` (`to`, `author`, `text`, `in_reply_to`, `thread`; result `id`).
 * `metrics` (`id`, `account_id`, `handle`) and `account` (`account_id`, `handle`): results named `impressions`,
@@ -102,17 +100,13 @@ answer can still post twice (see each network below).
   account by the connection when the item names neither a handle nor a post (a person's own connection is read as her, so
   the account she connected). `thread` is what the answer needs from the item: Mastodon's keeps the status's openness (so
   an answer is never more open), Bluesky's the thread's root and the comment's own reference.
-* `meta.capabilities` (0.7.0): `max_text`, `link_length`, `images`, `videos`, `media_required`, `max_media`,
-  `max_image_bytes`, `alt_text`, `first_comment` (as a network profile's fields), `name`, and `html_text` for a server
-  that sends its words as HTML. Still read when a description has no `meta.social`; `meta.social` replaces it.
 
 ## `meta.social`: what a network takes and asks
 
 One declarative shape on a connection's description (`meta.social`), read by Social and by its screens. Nothing about a
-network is written in Rust: adding a network is adding a description. Where a description has none, the account's
-network profile (Social, Network Profiles) is the fallback: its `Rules` field takes the same shape, and without it the
-profile's own fields are read as 0.7.0 read them. Order: `meta.social`, then `meta.capabilities`, then the profile's
-`Rules`, then the profile's fields. Unknown keys are refused, so a typo is said when a post is checked.
+network is written in Rust: adding a network is adding a description. It is the one place a network's rules are
+kept: an account whose connection's description has none is refused. Unknown keys are refused, so a typo is said when
+a post is checked.
 
 ```jsonc
 {

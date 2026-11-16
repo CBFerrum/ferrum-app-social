@@ -23,10 +23,6 @@
   },
   "meta": {
     "label": "Discord (a bot in a server)",
-    "carries": {
-      "network": "Discord",
-      "provider": "discord"
-    },
     "social": {
       "name": "Discord",
       "text": {

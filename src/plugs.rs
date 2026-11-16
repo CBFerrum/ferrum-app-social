@@ -104,7 +104,7 @@ async fn act(k: &Kernel, ctx: &Ctx, plug: &Doc, p: &Doc, account: Uuid, action: 
     }
     let a = k.get_tx(ctx, &mut tx, "SocialAccount", account, false).await?;
     let name = s(&a, "account_name").unwrap_or("the account").to_string();
-    let r = rules_of(k, ctx, &mut tx, &a).await?.unwrap_or_default();
+    let r = rules_of(&mut tx, ctx.tenant, &a).await?.unwrap_or_default();
     let op = r.op(operation(action)).to_string();
     let external = s(p, "external_id").unwrap_or_default().to_string();
     let conn = reach(&mut tx, ctx.tenant, s(&a, "connection")).await?;

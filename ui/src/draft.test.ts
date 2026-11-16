@@ -51,15 +51,6 @@ describe("a record as a draft and back", () => {
     const targets = body.targets as Record<string, unknown>[];
     expect(targets[0]).toMatchObject({ account: "x", text: "" });
     expect(targets[1]).toMatchObject({ account: "pins", kind: "pin", text: "Spring, pinned" });
-    expect(body.image).toBeNull();
-  });
-
-  it("0.7.0's one picture becomes the first medium, and is no longer sent as the image", () => {
-    const d = fromRecord({ id: "q", text: "x", image: "/files/old", image_alt: "Old", targets: [{ account: "x" }] } as unknown as Row);
-    expect(d.original.items[0].media[0]).toMatchObject({ file: "/files/old", alt: "Old" });
-    const body = toRecord(d, "b1");
-    expect(body.image).toBeNull();
-    expect((body.media as unknown[]).length).toBe(1);
   });
 
   it("customising copies the original; going back drops the version and its rows", () => {

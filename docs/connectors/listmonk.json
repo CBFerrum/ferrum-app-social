@@ -11,12 +11,6 @@
   "timeout_ms": 30000,
   "meta": {
     "label": "Listmonk (your server)",
-    "carries": {
-      "network": "Listmonk",
-      "provider": "listmonk",
-      "server": "instance",
-      "placeholder": "https://listmonk.example"
-    },
     "social": {
       "name": "Listmonk",
       "text": {

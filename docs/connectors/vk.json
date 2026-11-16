@@ -39,10 +39,6 @@
   },
   "meta": {
     "label": "VK",
-    "carries": {
-      "network": "VK",
-      "provider": "vk"
-    },
     "social": {
       "name": "VK",
       "text": {
