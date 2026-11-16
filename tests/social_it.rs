@@ -2136,4 +2136,15 @@ async fn scenario() {
         t.k.update(&author, "SocialPost", spring_id, obj(json!({"text": "Changed after it went out"})), None).await.is_err(),
         "a post stays as it went out"
     );
+
+    // ───────────── an author who also approves never approves her own post ─────────────
+    // Her review taken back, the post stays In Review. Its hidden review asked again directly (POST …/actions/review)
+    // by someone else would be theirs, and hers to decide: only its author asks it.
+    let ann = t.user("ann@brands.test", &["Social Author", "Social Approver"]).await;
+    let own = uid(&t.insert(&ann, "SocialPost", post("Ann's own", &[nw_key])).await["id"]);
+    t.act(&ann, "SocialPost", own, "send_for_review", Value::Null).await.expect("asked in her name");
+    refused(t.k.decide_approval(&ann, "SocialPost", own, true, None).await, "forbidden", "");
+    t.k.recall_approval(&ann, "SocialPost", own).await.expect("taken back");
+    refused(t.act(&pia, "SocialPost", own, "review", Value::Null).await, "invalid", "in its author's name");
+    assert_eq!(t.get("SocialPost", own).await["status"], "In Review", "nothing asked, nothing approved");
 }
