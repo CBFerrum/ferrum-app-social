@@ -343,6 +343,7 @@ Notes. 🟡 for a leader means a higher plan, a paid edition, or partial or unco
 
 ### ✅ Recently shipped
 
+- [x] **0.9.3** — An outside reviewer's verdict comes only by their review link: a member can no longer record one in their name.
 - [x] **0.9.2** — An author who also approves cannot approve her own post: the review is asked only in its author's name.
 - [x] **0.9.1** — The queue's places start from the workspace's today; "Open the settings" opens Social Settings.
 - [x] **0.9.0** — One shape for each thing: what a network takes is its connection's description, a post's pictures are its media lines, review is the platform's approval policy; network profiles and the upgrade from 0.6 and 0.7 are gone. Lengths in graphemes as Unicode segments text.

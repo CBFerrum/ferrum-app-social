@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.3
+
+Needs the same platform as 0.9.0. No database change.
+
+- **An outside reviewer's verdict comes only by their review link.** Comment, Approve and Ask for Changes, the hidden
+  actions a review link gives someone outside, took the reviewer's address and name from what the caller sent, so a
+  member calling them directly (`POST /api/v1/SocialPost/{id}/actions/review_approve`) recorded a client's approval, or
+  a request for changes that sent the post back, under any name. Called by anyone but a link's guest they are refused;
+  through the link the reviewer is the one the link names.
+
 ## 0.9.2
 
 Needs the same platform as 0.9.0. No database change.
