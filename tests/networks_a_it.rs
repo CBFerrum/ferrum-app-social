@@ -10,7 +10,6 @@
 //! Social's own account actions. The description is the file's, its hosts put on the fake, its waits made short.
 
 use ferrum_kernel::connections::{self, Call, ConnectionInput, Description};
-use ferrum_kernel::secret::SecretKey;
 use ferrum_kernel::tenant::NewTenant;
 use ferrum_kernel::{Ctx, Db, DbConfig, Doc, Error, HookRegistry, Kernel, KernelSettings};
 use ferrum_meta::Catalog;
@@ -508,19 +507,23 @@ fn the_networks_against_their_fakes() {
 
 async fn scenario() {
     let url = std::env::var("FERRUM_SOCIAL_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_social_test".into());
-    let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
-    sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+    let db = Db::connect(DbConfig { url: url.clone(), max_connections: 16, ..Default::default() }).await.expect("connect");
+    sqlx::raw_sql("drop schema if exists vault cascade; drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+    // The vault, opened as a server opens it (its credential slot, from the address's password), once migrated.
+    let opener = ferrum_kernel::vault::Opener {
+        database_url: url,
+        file: "/nonexistent/root.key".into(),
+        kdf: ferrum_kernel::vault::Kdf { m_kib: 64, t: 1, p: 1 },
+        ..Default::default()
+    };
+    ferrum_kernel::vault::open(&db, opener, false).await.expect("the vault");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_social::packages().expect("app packages"));
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
-    ferrum_app_social::register(&mut hooks);
-    let settings = KernelSettings {
-        secret_key: Some(SecretKey::new([7u8; 32])),
-        connection_hosts: vec!["127.0.0.1".into()],
-        public_url: Some(common::start().await),
-        ..Default::default()
-    };
+    // As the server registers it.
+    hooks.app("social", &[], ferrum_app_social::register);
+    let settings = KernelSettings { connection_hosts: vec!["127.0.0.1".into()], public_url: Some(common::start().await), ..Default::default() };
     let k = Kernel::boot(db, Catalog::from_packages(packages).unwrap(), hooks, settings, None).await.expect("boot");
     let store: Arc<MemFiles> = Arc::default();
     k.set_file_store(store.clone());
