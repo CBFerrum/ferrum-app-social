@@ -1,7 +1,6 @@
-# Social 0.8.0: what the screens are built from
+# Social: what the screens are built from
 
-The contract for the interface release that follows 0.8.0 (the composer, calendar, queue, accounts and library
-screens of GAPS.md section U). Everything here is server behaviour that exists and is tested; the screens add no rule
+The contract for the composer, calendar, queue, accounts and library screens. Everything here is server behaviour that exists and is tested; the screens add no rule
 of their own. Paths are the platform's (`docs/api.md` in Ferrum); `{id}` is a record's id. Every write goes through the
 generic records API, so a screen never needs a route of Social's own.
 
@@ -23,7 +22,7 @@ generic records API, so a screen never needs a route of Social's own.
 | Settings | `/apps/social/settings` (SocialSettings, generic) |
 | Reports | `/r/social_engagement_by_day`, `/r/social_best_times`, `/r/social_by_account`, `/r/social_by_post`, `/r/social_by_tag` |
 
-## 2. Entities and fields (new or changed in 0.8.0)
+## 2. Entities and fields
 
 Types are the platform's. R/O = read-only (written by Social).
 
@@ -113,7 +112,7 @@ Author and Approver on posts; Manager has read only on posts).
 |---|---|---|
 | `check` | — | `{state, note, read: {display_name?, handle?, picture?}}` |
 | `rules` (read only) | — | `{rules: Rules}`: what its network takes and asks (section 5), defaults filled; `{}`-like defaults when nothing says |
-| `connect`, `disconnect` | — | as 0.7.0 |
+| `connect`, `disconnect` | — | see 7.7 |
 | `reachable` (read only) | — | `{accounts: [{id, name, handle, picture, kind, account}]}`; `account` = the Social account that has it, or null |
 | `choose` (Manager) | `picked`: list of ids (or text, comma or line separated) | `{accounts: [{id, account_name, network_id, created}]}`; the first pick fills this account when it has none, the rest become accounts of their own (same brand, connection) or update the one that has it |
 | `mentions` (read only) | `query` | `{mentions: [{value, label, picture, text}]}`; `text` is what to insert |
@@ -189,57 +188,35 @@ their parameters (Goes Out At, Send It To, Their Name, They May Approve or Ask f
 Comment, Anything to Add, What to Change, Ids Picked, Who, Setting, Search, Brand, Accounts of a Set, Or These
 Accounts, Headline).
 
-## 7. Screens that need a change
+## 7. Composer, settings, records, actions, reports and notices
 
-- **Home** (`ui/src/Home.tsx`): Waiting for approval should come from `GET /api/approvals` as well as status In
-  Review; the coming list should show drafts with no time apart; Waiting For and account state (0.7.0's debt).
-- **Composer** (new; replaces the generic post form): accounts by brand (sort by `sort_order`), each account's `rules`,
-  original + one tab per account (version), items editor with delays, media per item with alt/thumbnail/dimensions, settings form drawn from
-  the rules (`choices` for fetched options, `when` for visibility), kind picker, counters and `copies` problems,
-  signature/variables/snippets pickers, when: now / time / queue / repeat, templates and sets, review link.
-- **Calendar**: list of posts by `scheduled_at`; drag = `reschedule`; posting times (SocialPostingTime) as free
-  slots; repeats show their next occurrence as a real post.
-- **Accounts**: connect, then `reachable` + `choose` when the description has an `accounts` operation; Check shows
-  `display_name`/`picture`.
-- **Review**: the request's steps and decisions, decide buttons, Reviews list, review link dialog (url shown once).
+### 7.1 Composer
 
-## 8. What the server does not give the screens yet
-
-- No server check of an unsaved post: a post is checked when saved (`422` with the field and words). The composer
-  counts client-side from the rules for live feedback.
-- The review link page cannot show pictures (the platform's link page shows no files); it shows `preview` text with
-  each medium's description.
-
-## 9. Round two (each line here is an addition; nothing above changes but where a line below says so)
-
-### 9.1 Composer (round two)
-
-- **A draft may hold problems (round two).** While a post is Draft or Rejected, a save is refused only for structure:
+- **A draft may hold problems.** While a post is Draft or Rejected, a save is refused only for structure:
   an unknown or another brand's account, a kind or a setting key the network does not have, a medium for an item there
   is not, a bad address, a file not stored here. Everything else
   (lengths, media rules, required answers, variables with no value, what a connection cannot send) is kept and listed
   by `copies` (`problems`), and refused when the post leaves Draft: `send_for_review`, `publish_now`, `add_to_queue`,
-  and again when sent. A post In Review or Approved is held to every rule on save, as in 0.8.0. This replaces the first
-  bullet of section 8.
-- **Check without saving (round two).** `POST /api/v1/SocialPost/_calc` with the post's body as the API takes it
+  and again when sent. A post In Review or Approved is held to every rule on save.
+- **Check without saving.** `POST /api/v1/SocialPost/_calc` with the post's body as the API takes it
   (`brand`, `text`, `link`, `first_comment`, `targets` with `kind`/`text`/`link`/`settings`,
   `items`, `media`, `add_signature`, `signature`, and `"want_checks": true`) answers the computed post with `checks` =
   exactly what the `copies` action answers (`{copies: [...]}`). Nothing is written (the platform's preview runs the
   post's hooks and rolls back); it needs read on posts, reads the accounts with the caller's rights, calls no network,
   so it may be called on a debounce. Why `_calc`: it is the platform's call for an unsaved body ("live totals"), so no
   record is needed and the generic API's shape is the input. Drop the client-side copy of the counting.
-- **`fold` (round two):** `Text.fold` (in `text` and in a kind's `text`): characters after which the network shows
+- **`fold`:** `Text.fold` (in `text` and in a kind's `text`): characters after which the network shows
   "see more"; the preview's only, never checked. `copies` items carry `fold`.
 - `copies` items also carry `fold`; a media line may name `asset` (link SocialMediaAsset) instead of `file`: its file,
   kind, description, width, height and length fill what the line leaves empty on save.
 
-### 9.2 New settings (SocialSettings, round two)
+### 7.2 Settings (SocialSettings)
 
 `media_sources` (text: connection names, one a line; the first is the default), `fetch_connection`,
 `shorten_connection`, `shorten_text_links` (check), `writing_connection`, `writing_model` (default
 `claude-sonnet-5-5`), `digest_day` (Monday … Sunday, Never; default Monday), `digest_time` (`HH:MM`, default 09:00).
 
-### 9.3 New records (round two)
+### 7.3 Records
 
 | Entity | Fields | Notes |
 |---|---|---|
@@ -254,11 +231,11 @@ Accounts, Headline).
 | SocialNoticeOptOut "Notice Opt-out" | `person` (email), `notice` (went_out, failed, review, reconnect, repeat_stopped, digest) | One per person and notice |
 | SocialDigestRun "Digest Run" | R/O `week`, `sent_at`, `people` | |
 
-Changed (round two): SocialBrand `voice` (text), `report_to` (email), R/O `numbers` (json: `{from, to, publications,
+Changed: SocialBrand `voice` (text), `report_to` (email), R/O `numbers` (json: `{from, to, publications,
 impressions, engagements, clicks, before: {…}, top: {headline, engagements, permalink}}`); SocialPublication R/O `kind`,
 `short_links` (json `{long address: {url, id}}`); SocialMedia `asset`; SocialPost hidden `want_checks`, `checks`.
 
-### 9.4 New actions (round two)
+### 7.4 Actions
 
 | Entity, action | Params | Result |
 |---|---|---|
@@ -278,7 +255,7 @@ Writing actions need the role **Social Writing Help** (refused `403` "writing he
 Help"), and Social Settings' `writing_connection` (refused `422` "no connection is set for writing help"). Nothing is
 saved over the post: show the answer, let the person take it.
 
-### 9.5 Reports (round two)
+### 7.5 Reports
 
 `/r/social_by_network`, `/r/social_by_kind`, `/r/social_period_compare` (rows `{measure, this_period, period_before,
 change, change_pct}`; `meta.before_from`, `before_to`), `/r/social_followers_by_day` (`account` param),
@@ -288,7 +265,7 @@ numbers, `sent_items`, `short_links`, clicks), `GET /api/v1/SocialMetric?filters
 `GET /api/v1/SocialInsight?filters=[["publication","=",pub]]` (by day). A brand's week: `numbers` on SocialBrand; its
 document `GET /api/v1/SocialBrand/{id}/print?template=social.brand_report`.
 
-### 9.6 Notices (round two)
+### 7.6 Notices
 
 Templates `social.went_out`, `social.failed` (`values.failures`), `social.review` (`values.notice`: waiting, reminder,
 escalated, approved, rejected, not_done; also the approval policy's `message`), `social.reconnect` (an account whose
@@ -297,7 +274,7 @@ writing prompts `social.prompt_system`, `_write`, `_rewrite`, `_adapt`, `_hashta
 (read for the person asking, never sent). A person's notice settings page lists SocialNoticeOptOut rows with
 `person` = their address.
 
-### 9.7 Accounts' Connect (round two, read from `server/src/controllers/connections.rs`)
+### 7.7 Accounts' Connect
 
 `connect` on an OAuth account answers `{connect: {method: "POST", path: "/api/connections/{id}/connect"}}`. The
 browser, signed in (cookie session; the call is refused without a browser session), POSTs that path and gets JSON
@@ -307,7 +284,7 @@ close this window.", or why not) and goes nowhere else. The screen then calls `c
 `reachable` / `choose` where the description has an `accounts` operation. A session connection answers `{signed_in,
 state, note}` at once; `disconnect` revokes.
 
-### 9.8 Menu and Create (round two)
+### 7.8 Menu and Create
 
 The bar's Create opens `social/compose` (app.yaml `shell.create`). Rows wanted in the left menu, for the app's own
 pages: Compose `social/compose` (icon `square-pen`, Author), Calendar `social/calendar` (`calendar`, all roles),
@@ -320,7 +297,7 @@ module's items). **The platform has no way for a package or a manifest to declar
 Documents) are written into the frame. Needed: an item `page:<path>` with a label and icon (or a manifest point such as
 `contributes.shell.nav`), shown to the roles given. Until then the app's own pages reach each other from Social's home.
 
-### 9.9 Names for ar/hi (round two)
+### 7.9 Names for ar/hi
 
 Entities: Media Asset, Media Library, Link Template(s), Rewrite Preset(s), Writing Help Use(s), Plug(s), Plug Run(s),
 Feed(s), Feed Item(s), Notice Opt-out(s), Digest Run(s). Fields: Name, From, Its Id There, Credit, Credit Link,
@@ -335,61 +312,59 @@ Media From an Address, Write a Post, Write It, Rewrite It, Adapt for Each Accoun
 Picture, Split Into a Thread, Make a Picture; report titles Social Numbers by Network, by Kind of Post, Against the
 Period Before, Social Followers by Day, Social Top Posts; role Social Writing Help.
 
-## 10. Round three (additions; nothing above changes but where a line below says so)
+## 8. Waiting, the inbox, feeds and read-back
 
-- **Platform (round three):** the app needs Ferrum's App API 0.3.7 (`platform: ">=0.3.7, <0.4"`).
-- **Waiting (round three):** a publication or reply whose network said `Retry-After` shows `failure` "Waiting to try
+- **Waiting:** a publication or reply whose network said `Retry-After` shows `failure` "Waiting to try
   again: …" with `failed_at` empty, and goes when the network said (at most an hour). Show it as waiting, not failed.
-- **Inbox (round three):** `SocialMessage.external_id` is read-only again (written by the connection's mapping as the
+- **Inbox:** `SocialMessage.external_id` is read-only (written by the connection's mapping as the
   system). People no longer create messages (Social Author, Approver and Manager keep read and write: reply, assign,
   close); a "new message" button has no place. A mention that answers one of the brand's posts arrives as `kind:
   Comment`.
-- **Feeds (round three):** `SocialFeed.address` (the RSS or Atom address) is what a person gives; `connection` is
+- **Feeds:** `SocialFeed.address` (the RSS or Atom address) is what a person gives; `connection` is
   optional (Social Settings' new `feed_connection`, else the package's `feeds` connection). A feed whose site the
   connection does not reach shows `last_error` naming the host to add (administrators, Administration, Connections,
   the connection's allowed hosts, once per site).
-- **Publications read back (round three):** `SocialPublication.native` (check, R/O: made on the network, read back;
+- **Publications read back:** `SocialPublication.native` (check, R/O: made on the network, read back;
   it has no `post`), hidden `via_connection`, `account_handle`. Lists of an account's posts show these too; a native
   one has numbers and `permalink`, no post to open.
-- **Notice opt-outs (round three):** a person sees and edits only rows naming them; `person` defaults to their address
+- **Notice opt-outs:** a person sees and edits only rows naming them; `person` defaults to their address
   and another person's is refused (`403`); administrators set anyone's.
-- **Composer (round three):** an account whose description's `publish` uploads in its own steps takes media without
+- **Composer:** an account whose description's `publish` uploads in its own steps takes media without
   a `publish_media`; nothing changes on screen.
 
-## 11. Round four (additions; nothing above changes but where a line below says so)
+## 9. Titles, kinds and media by address
 
-- **Title (round four):** `SocialPost.title` (data) and `targets[].title` ("Its Own Title"): the public title a network
+- **Title:** `SocialPost.title` (data) and `targets[].title` ("Its Own Title"): the public title a network
   takes (an article, a video, a pin, an e-mail's subject). Ask it in the composer when an account's `rules.title` is set
-  (`{required, max}`); it is no longer a setting of any network. `copies` gives each copy's `title` and `title_max`.
+  (`{required, max}`); it is not a setting of any network. `copies` gives each copy's `title` and `title_max`.
   `SocialTemplate.title` too.
-- **Kind from the media (round four):** an account's `rules.kind_by_media` (`{"none": kind, "image": kind, ...}`) picks
+- **Kind from the media:** an account's `rules.kind_by_media` (`{"none": kind, "image": kind, ...}`) picks
   the kind by the first medium when the person picks none; `copies` and `_calc`'s `checks` give the kind chosen. Show
   it, and let the person override it.
-- **Media by address (round four):** `rules.media.by_address` (a list of medium kinds) marks media a network fetches
+- **Media by address:** `rules.media.by_address` (a list of medium kinds) marks media a network fetches
   from a public address; until the platform gives stored files one, a copy with such media has a problem ("takes
   pictures only by a public address…") and cannot leave Draft. Say it beside the medium.
-- **Networks (round four):** every description is offered to the workspace (Administration, Connections), so the
+- **Networks:** every description is offered to the workspace (Administration, Connections), so the
   Accounts screen may list the networks that can be added (`GET /api/admin/connections` for administrators); none is on
   until an administrator turns it on.
-- **Publication (round four):** hidden `first_comment_id` (deleted with the post).
+- **Publication:** hidden `first_comment_id` (deleted with the post).
 - Names for ar/hi: Title, Its Own Title.
 
-## 12. Round five (additions; nothing above changes but where a line below says so)
+## 10. Menu rows, public addresses and the inbox
 
-- **Platform (round five):** the app needs Ferrum's App API 0.3.8 (`platform: ">=0.3.8, <0.4"`).
-- **Menu rows (round five; answers 9.8):** app.yaml `shell.menu` declares the rows 9.8 asked for, each `social/<page>`
+- **Menu rows:** app.yaml `shell.menu` declares the rows, each `social/<page>`
   as `ui/src/routes.tsx` routes it: Compose (`square-pen`, Social Author), Calendar (`calendar`), Posting times
   (`clock`), Accounts (`at-sign`), Media (`image`), Inbox (`inbox`), Numbers (`chart-column`), Library (`library`),
   Automation (`workflow`), Notices (`bell`), the last nine for every Social role. The module's generic rows for what
   these pages show are gone; it keeps Brands, Reviews, Publications, Insights, Metrics, Replies,
   Digest Runs, Writing Presets, Writing Uses and Settings. Pages need no links of their own to each other any more.
-- **Public addresses (round five; changes round four's "Media by address"):** a copy with media a network takes only
+- **Public addresses:** a copy with media a network takes only
   by address no longer has a problem on a server with a public address; on one without (`PUBLIC_URL` unset) the
   problem reads "… takes pictures only by a public address: this server has no public address (PUBLIC_URL), and a
   service cannot pull a file from localhost: an operator sets one". Show it beside the medium, as before. TikTok's
   photo posts take at most ten photos.
-- **Review (round five):** a rejection or approval shows on the post as soon as it is decided: no wait for the upkeep.
-- **Feeds (round five):** a feed is only an address on any public site; no host to ask an administrator for.
-- **Inbox (round five):** Instagram comments and Facebook Messenger messages can arrive by the connection's inbound
+- **Review:** a rejection or approval shows on the post as soon as it is decided: no wait for the upkeep.
+- **Feeds:** a feed is only an address on any public site; no host to ask an administrator for.
+- **Inbox:** Instagram comments and Facebook Messenger messages can arrive by the connection's inbound
   address (Meta's webhook); they are SocialMessages like the others.
 

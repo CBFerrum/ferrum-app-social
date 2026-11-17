@@ -7,13 +7,13 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.9.2-db2777?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.3-db2777?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-data-336791?style=flat-square&logo=postgresql&logoColor=white)
 ![React](https://img.shields.io/badge/React%20%2B%20TypeScript-interface-0ea5e9?style=flat-square&logo=react&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-28%20Rust%20%2B%2027%20UI%20files-16a34a?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-26%20Rust%20%2B%20106%20UI-16a34a?style=flat-square)
 
 ### Plan a post once, approve it, send it to each network within its limits, and answer what comes back.
 
@@ -42,13 +42,13 @@ CRM, helpdesk and documents. Networks are descriptions, not code, so a new one n
 
 | | |
 |---|---|
-| **Version** | 0.8.0 (package `social` 0.1.0) |
+| **Version** | 0.9.3 (package `social` 0.1.0) |
 | **Kind** | Its own interface at `/social/` (compose, calendar, posting times, accounts, media, inbox, numbers, library, automation, notices) plus Ferrum's standard lists and forms |
-| **What it adds** | 31 entities (28 records and 3 line tables), 4 roles, 10 reports, 1 weekly report document and automation, 8 message templates, 33 network descriptions, 10 left-menu pages, 1 create shortcut |
+| **What it adds** | 30 entities (27 records and 3 line tables), 4 roles, 10 reports, 1 weekly report document and automation, 8 message templates, 33 network descriptions, 10 left-menu pages, 1 create shortcut |
 | **Depends on** | Ferrum platform `>=0.3.8, <0.4`; the platform's connections |
 | **Works with** | Platform connections and approvals, CRM (inbox sender matching), any app that holds handles |
 | **Languages** | English, Arabic, Hindi |
-| **Tests** | 28 Rust tests against a real PostgreSQL and a fake network, 27 interface test files |
+| **Tests** | 26 Rust tests against a real PostgreSQL and fakes of each network, 106 interface tests |
 | **Licence** | AGPL-3.0-only |
 
 ## 📸 Screenshots
@@ -162,6 +162,7 @@ What the descriptions can do varies by network and is written per network in the
 
 - **Approval by someone else.** The platform's approval policy ships as one step by a Social Approver who is never the author; a workspace changes it in Customize (steps, approvers by brand, N of M, escalation) without code. A changed post needs approving again.
 - **Decision shows at once** on the post.
+- **The author does not approve her own post.** Social asks for review in the author's name, and a post whose author is no longer a member is not sent for review: duplicate it and send the copy.
 - **Review links.** Someone outside the workspace gets a signed link (with expiry and uses) to read each account's copy, comment, approve or ask for changes. What they say is kept as Reviews and erased with them.
 - **Statuses.** Draft, In Review, Approved, Rejected, Sending, Published, Failed.
 
@@ -343,12 +344,12 @@ Notes. 🟡 for a leader means a higher plan, a paid edition, or partial or unco
 
 ### ✅ Recently shipped
 
-- [x] **0.9.3** — An outside reviewer's verdict comes only by their review link: a member can no longer record one in their name.
+- [x] **0.9.3** — An outside reviewer's verdict comes only by their review link: a member cannot record one in their name.
 - [x] **0.9.2** — An author who also approves cannot approve her own post: the review is asked only in its author's name.
 - [x] **0.9.1** — The queue's places start from the workspace's today; "Open the settings" opens Social Settings.
-- [x] **0.9.0** — One shape for each thing: what a network takes is its connection's description, a post's pictures are its media lines, review is the platform's approval policy; network profiles and the upgrade from 0.6 and 0.7 are gone. Lengths in graphemes as Unicode segments text.
+- [x] **0.9.0** — One shape for each thing: what a network takes is its connection's description, a post's pictures are its media lines, review is the platform's approval policy. Lengths in graphemes as Unicode segments text.
 - [x] **0.8.0** — The composer's server and screens: network descriptions with `meta.social` rules, versions per account, threads, several media, queue, repeats, templates, sets, snippets, signatures, variables, review policy and review links; media library with stock pictures and GIFs, links with tracking and short links, writing help, plugs, reports, notices and feeds; 33 networks described; the app's own pages in the left menu.
-- [x] **0.7.0** — Accounts on connections with their state, network profiles as records, one queued call per account, the inbox through inbound addresses and pulls, numbers by day and reports.
+- [x] **0.7.0** — Accounts on connections with their state, one queued call per account, the inbox through inbound addresses and pulls, numbers by day and reports.
 - [x] **0.6.12** — The home lists posts that did not go out, with the reason and Retry.
 - [x] **0.6.11** — A post that fails says so: a Failed status with the network's reason per account.
 - [x] **0.6.0** — Best times to post.
