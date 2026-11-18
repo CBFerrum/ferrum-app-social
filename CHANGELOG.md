@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0
+
+No database or interface change. Needs Ferrum 0.4.0 (apps' upkeep runs one workspace at a time, on whichever replica is free).
+
+- **Upkeep is one workspace's.** `maintenance(k, tenant)` and `maintenance_at(k, tenant, now)` run the same steps, in the same order, for the one
+  workspace they are given; they no longer list workspaces or check for the package. The per-connection waits of the networks are still kept
+  by workspace and connection, so workspaces running at once do not share them.
+
 ## 0.9.3
 
 Needs the same platform as 0.9.0. No database change.

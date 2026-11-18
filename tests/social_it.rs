@@ -460,9 +460,9 @@ impl T {
     }
     /// One round of the upkeep as of `now`, and the jobs it queued.
     async fn upkeep(&self, now: chrono::DateTime<Utc>) {
-        ferrum_app_social::maintenance_at(&self.k, now).await.expect("upkeep");
+        ferrum_app_social::maintenance_at(&self.k, self.tenant, now).await.expect("upkeep");
         self.work().await;
-        ferrum_app_social::maintenance_at(&self.k, now).await.expect("upkeep settles");
+        ferrum_app_social::maintenance_at(&self.k, self.tenant, now).await.expect("upkeep settles");
     }
     async fn count(&self, sql: &str) -> i64 {
         let mut tx = self.k.db.tenant_tx(self.tenant).await.unwrap();
@@ -661,7 +661,7 @@ async fn scenario() {
     tx.commit().await.unwrap();
     assert_eq!(t.k.sweep_tokens_at(Utc::now()).await.unwrap(), 1);
     t.work().await;
-    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, Utc::now()).await.unwrap();
     let (st, note, _) = state(nw_page).await;
     assert_eq!(st, "Needs Reconnecting", "{note:?}");
     assert!(note.unwrap().contains("connect the account again"));
@@ -825,7 +825,7 @@ async fn scenario() {
     let later = t.insert(&author, "SocialPost", tagged("Busy network", &[nw_key], "Busy")).await;
     go(uid(&later["id"])).await;
     t.net.lock().unwrap().later = 2;
-    ferrum_app_social::maintenance_at(&t.k, due + Duration::hours(4)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, due + Duration::hours(4)).await.unwrap();
     t.k.run_jobs_once(1).await.unwrap();
     let waiting = t.rows("SocialPublication", json!({"post": uid(&later["id"]).to_string()})).await;
     assert!(waiting[0]["failure"].as_str().unwrap().starts_with("Waiting to try again") && waiting[0]["failed_at"].is_null(), "{:?}", waiting[0]);
@@ -837,7 +837,7 @@ async fn scenario() {
     // Two workers at one publication: the network has one post.
     let twice = t.insert(&author, "SocialPost", tagged("Two at once", &[nw_key], "Twice")).await;
     go(uid(&twice["id"])).await;
-    ferrum_app_social::maintenance_at(&t.k, due + Duration::hours(5)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, due + Duration::hours(5)).await.unwrap();
     let twice_pubs = t.rows("SocialPublication", json!({"post": uid(&twice["id"]).to_string()})).await;
     let mut tx = t.k.db.tenant_tx(tenant).await.unwrap();
     let extra = ferrum_kernel::jobs::NewJob::new("social.publish", json!({"publication": twice_pubs[0]["id"]}));
@@ -1142,7 +1142,7 @@ async fn scenario() {
     let now_out = t.act(&author, "SocialPost", uid(&soon["id"]), "publish_now", Value::Null).await.unwrap();
     assert_eq!(now_out["status"], "Sending", "{now_out}");
     t.work().await;
-    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, Utc::now()).await.unwrap();
     assert_eq!(t.get("SocialPost", uid(&soon["id"])).await["status"], "Published");
     let mut draft = tagged("A draft to send now", &[nw_key], "Draft now");
     draft.as_object_mut().unwrap().remove("scheduled_at");
@@ -1152,7 +1152,7 @@ async fn scenario() {
     t.k.decide_approval(&approver, "SocialPost", uid(&draft["id"]), true, None).await.unwrap();
     assert_eq!(t.get("SocialPost", uid(&draft["id"])).await["status"], "Sending", "approved after its time: at once");
     t.work().await;
-    ferrum_app_social::maintenance_at(&t.k, Utc::now()).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, Utc::now()).await.unwrap();
     assert_eq!(t.get("SocialPost", uid(&draft["id"])).await["status"], "Published");
     // Move keeps an approval; back to draft takes it off the calendar before it goes; nothing is sent.
     let moved = t.insert(&author, "SocialPost", tagged("To be moved", &[nw_key], "Moved")).await;
@@ -1215,12 +1215,12 @@ async fn scenario() {
     let weekly_id = uid(&weekly["id"]);
     go(weekly_id).await;
     let when_due = due + Duration::hours(16);
-    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, when_due), ferrum_app_social::maintenance_at(&t.k, when_due));
+    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, t.tenant, when_due), ferrum_app_social::maintenance_at(&t.k, t.tenant, when_due));
     x.unwrap();
     y.unwrap();
     assert_eq!(t.rows("SocialPublication", json!({"post": weekly_id.to_string()})).await.len(), 1, "started once");
     t.work().await;
-    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, when_due), ferrum_app_social::maintenance_at(&t.k, when_due));
+    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, t.tenant, when_due), ferrum_app_social::maintenance_at(&t.k, t.tenant, when_due));
     x.unwrap();
     y.unwrap();
     let next = t.rows("SocialPost", json!({"repeat_of": weekly_id.to_string()})).await;
@@ -1668,10 +1668,10 @@ async fn scenario() {
     let digest_at = due + Duration::hours(26);
     let weekday = digest_at.format("%A").to_string();
     set(json!({"digest_day": weekday, "digest_time": "00:00"})).await;
-    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, digest_at), ferrum_app_social::maintenance_at(&t.k, digest_at));
+    let (x, y) = tokio::join!(ferrum_app_social::maintenance_at(&t.k, t.tenant, digest_at), ferrum_app_social::maintenance_at(&t.k, t.tenant, digest_at));
     x.unwrap();
     y.unwrap();
-    ferrum_app_social::maintenance_at(&t.k, digest_at + Duration::hours(1)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, digest_at + Duration::hours(1)).await.unwrap();
     let week = format!("{}-W{:02}", chrono::Datelike::iso_week(&digest_at).year(), chrono::Datelike::iso_week(&digest_at).week());
     let runs = t.rows("SocialDigestRun", json!({"week": week})).await;
     assert_eq!(runs.len(), 1, "once a week, though two upkeeps ran at once");
@@ -1833,7 +1833,7 @@ async fn scenario() {
     let slow = t.insert(&author, "SocialPost", tagged("Slowly", &[nw_key], "Slow")).await;
     go(uid(&slow["id"])).await;
     t.net.lock().unwrap().posts_retry = 1;
-    ferrum_app_social::maintenance_at(&t.k, due + Duration::hours(30)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, due + Duration::hours(30)).await.unwrap();
     t.k.run_jobs_once(1).await.unwrap();
     let spub = t.rows("SocialPublication", json!({"post": uid(&slow["id"]).to_string()})).await.remove(0);
     assert!(spub["failure"].as_str().unwrap().starts_with("Waiting to try again") && spub["failed_at"].is_null(), "{spub:?}");
@@ -1849,9 +1849,9 @@ async fn scenario() {
     let reads = t.net.lock().unwrap().reads;
     t.net.lock().unwrap().stats_retry = Some(2);
     let later_day = due + Duration::days(9);
-    ferrum_app_social::maintenance_at(&t.k, later_day).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, later_day).await.unwrap();
     let asked = t.net.lock().unwrap().reads - reads;
-    ferrum_app_social::maintenance_at(&t.k, later_day).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, later_day).await.unwrap();
     assert_eq!(t.net.lock().unwrap().reads - reads, asked, "nothing asked again while the service said to wait");
     assert!(asked <= 8 && t.get("SocialAccount", nw_key).await["metrics_error"].is_null(), "once a connection, and no error on the account: {asked}");
     t.net.lock().unwrap().stats_retry = None;
@@ -2043,7 +2043,7 @@ async fn scenario() {
     // ───────────── numbers, by day, named by what they are ─────────────
     let reads = t.net.lock().unwrap().reads;
     let day = (due.date_naive() + Duration::days(10)).and_hms_opt(8, 0, 0).unwrap().and_utc();
-    ferrum_app_social::maintenance_at(&t.k, day).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, day).await.unwrap();
     let metric_rows = t.rows("SocialMetric", json!({"day": day.date_naive().to_string()})).await;
     let account_row = metric_rows.iter().find(|m| m["account"] == json!(nw_key.to_string()) && m["publication"].is_null()).expect("the account's own numbers");
     assert_eq!(
@@ -2065,18 +2065,18 @@ async fn scenario() {
     assert_eq!(t.get("SocialPublication", page_pub).await["impressions"], 500, "and onto the publication the insights read");
     let read_now = t.net.lock().unwrap().reads;
     assert!(read_now > reads);
-    ferrum_app_social::maintenance_at(&t.k, day + Duration::hours(1)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, day + Duration::hours(1)).await.unwrap();
     assert_eq!(t.net.lock().unwrap().reads, read_now, "not read again within the hours settings say");
-    ferrum_app_social::maintenance_at(&t.k, day + Duration::hours(7)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, day + Duration::hours(7)).await.unwrap();
     assert_eq!(t.rows("SocialMetric", json!({"day": day.date_naive().to_string()})).await.len(), metric_rows.len(), "still one row a day for each");
-    ferrum_app_social::maintenance_at(&t.k, day + Duration::days(1)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, day + Duration::days(1)).await.unwrap();
     assert!(!t.rows("SocialMetric", json!({"day": (day + Duration::days(1)).date_naive().to_string()})).await.is_empty(), "a new day is a new row");
     // A network that will not tell: said on the account, cleared when it does.
     t.net.lock().unwrap().stats_down = true;
-    ferrum_app_social::maintenance_at(&t.k, day + Duration::days(2)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, day + Duration::days(2)).await.unwrap();
     assert!(t.get("SocialAccount", nw_key).await["metrics_error"].as_str().unwrap().contains("Stats are down"));
     t.net.lock().unwrap().stats_down = false;
-    ferrum_app_social::maintenance_at(&t.k, day + Duration::days(3)).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, day + Duration::days(3)).await.unwrap();
     assert!(t.get("SocialAccount", nw_key).await["metrics_error"].is_null());
 
     // What the post's numbers did, day by day, as before: the publication's numbers kept for the day, and the reports of them.

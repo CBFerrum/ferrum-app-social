@@ -89,43 +89,26 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
     vec![Arc::new(insights::SocialReports), Arc::new(metrics::MetricReports)]
 }
 
-/// Upkeep: accounts' states, approved posts queued when their time comes, posts settled, and the numbers read.
-pub async fn maintenance(k: &Kernel) -> Result<()> {
-    maintenance_at(k, Utc::now()).await
+/// Upkeep, for one workspace: accounts' states, approved posts queued when their time comes, posts settled, and the numbers read.
+pub async fn maintenance(k: &Kernel, tenant: Uuid) -> Result<()> {
+    maintenance_at(k, tenant, Utc::now()).await
 }
 
 /// [`maintenance`] as of `now`.
-pub async fn maintenance_at(k: &Kernel, now: DateTime<Utc>) -> Result<()> {
-    let mut tx = k.db.system_tx().await?;
-    let tenants: Vec<Uuid> = sqlx::query_scalar("select id from tenant where status = 'active' order by id").fetch_all(&mut *tx).await?;
+pub async fn maintenance_at(k: &Kernel, tenant: Uuid, now: DateTime<Utc>) -> Result<()> {
+    let ctx = Ctx::system(tenant, k.registry.schema(tenant).await?);
+    let mut tx = k.db.tenant_tx(tenant).await?;
+    accounts::refresh_all(k, &ctx, &mut tx).await?;
+    review::settle(k, &ctx, &mut tx).await?;
+    posts::send_due(k, &ctx, &mut tx, now).await?;
+    posts::mark_sent(k, &ctx, &mut tx, now).await?;
+    notices::digest(k, &ctx, &mut tx, now).await?;
+    metrics::brand_numbers(k, &ctx, &mut tx, now.with_timezone(&when::zone(&ctx)).date_naive()).await?;
     tx.commit().await?;
-    let mut first_error: Option<Error> = None;
-    for tenant in tenants {
-        let run = async {
-            let schema = k.registry.schema(tenant).await?;
-            if !schema.packages.iter().any(|p| p == "social") {
-                return Ok(());
-            }
-            let ctx = Ctx::system(tenant, schema);
-            let mut tx = k.db.tenant_tx(tenant).await?;
-            accounts::refresh_all(k, &ctx, &mut tx).await?;
-            review::settle(k, &ctx, &mut tx).await?;
-            posts::send_due(k, &ctx, &mut tx, now).await?;
-            posts::mark_sent(k, &ctx, &mut tx, now).await?;
-            notices::digest(k, &ctx, &mut tx, now).await?;
-            metrics::brand_numbers(k, &ctx, &mut tx, now.with_timezone(&when::zone(&ctx)).date_naive()).await?;
-            tx.commit().await?;
-            metrics::pull(k, tenant, now).await?;
-            links::clicks(k, tenant, now).await?;
-            plugs::run(k, tenant, now).await?;
-            feeds::read(k, tenant, now).await?;
-            Ok::<(), Error>(())
-        };
-        if let Err(e) = run.await {
-            first_error.get_or_insert(e);
-        }
-    }
-    first_error.map_or(Ok(()), Err)
+    metrics::pull(k, tenant, now).await?;
+    links::clicks(k, tenant, now).await?;
+    plugs::run(k, tenant, now).await?;
+    feeds::read(k, tenant, now).await
 }
 
 /// The brand's actions: its media library's ways in, and writing help from a blank start.
