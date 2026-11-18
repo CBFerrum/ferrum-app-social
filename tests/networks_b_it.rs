@@ -324,7 +324,7 @@ impl T {
     /// The upkeep seven hours on: what reads numbers has come due.
     async fn later_upkeep(&self) {
         self.upkeep().await;
-        ferrum_app_social::maintenance_at(&self.k, Utc::now() + Duration::hours(12)).await.expect("upkeep");
+        ferrum_app_social::maintenance_at(&self.k, self.tenant, Utc::now() + Duration::hours(12)).await.expect("upkeep");
         self.work().await;
     }
     async fn work(&self) {
@@ -339,9 +339,9 @@ impl T {
     }
     async fn upkeep(&self) {
         let now = Utc::now() + Duration::hours(3);
-        ferrum_app_social::maintenance_at(&self.k, now).await.expect("upkeep");
+        ferrum_app_social::maintenance_at(&self.k, self.tenant, now).await.expect("upkeep");
         self.work().await;
-        ferrum_app_social::maintenance_at(&self.k, now).await.expect("upkeep settles");
+        ferrum_app_social::maintenance_at(&self.k, self.tenant, now).await.expect("upkeep settles");
     }
     async fn act(&self, who: &Ctx, entity: &str, id: Uuid, action: &str, params: Value) -> ferrum_kernel::Result<Value> {
         self.k.run_action(who, entity, id, action, params).await

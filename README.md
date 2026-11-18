@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.9.3-db2777?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.10.0-db2777?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -42,10 +42,10 @@ CRM, helpdesk and documents. Networks are descriptions, not code, so a new one n
 
 | | |
 |---|---|
-| **Version** | 0.9.3 (package `social` 0.1.0) |
+| **Version** | 0.10.0 (package `social` 0.1.0) |
 | **Kind** | Its own interface at `/social/` (compose, calendar, posting times, accounts, media, inbox, numbers, library, automation, notices) plus Ferrum's standard lists and forms |
 | **What it adds** | 30 entities (27 records and 3 line tables), 4 roles, 10 reports, 1 weekly report document and automation, 8 message templates, 33 network descriptions, 10 left-menu pages, 1 create shortcut |
-| **Depends on** | Ferrum platform `>=0.3.8, <0.4`; the platform's connections |
+| **Depends on** | Ferrum platform `>=0.4.0, <0.5`; the platform's connections |
 | **Works with** | Platform connections and approvals, CRM (inbox sender matching), any app that holds handles |
 | **Languages** | English, Arabic, Hindi |
 | **Tests** | 26 Rust tests against a real PostgreSQL and fakes of each network, 106 interface tests |
@@ -344,6 +344,7 @@ Notes. 🟡 for a leader means a higher plan, a paid edition, or partial or unco
 
 ### ✅ Recently shipped
 
+- [x] **0.10.0** Upkeep is one workspace's: needs Ferrum 0.4.0.
 - [x] **0.9.3** — An outside reviewer's verdict comes only by their review link: a member cannot record one in their name.
 - [x] **0.9.2** — An author who also approves cannot approve her own post: the review is asked only in its author's name.
 - [x] **0.9.1** — The queue's places start from the workspace's today; "Open the settings" opens Social Settings.
@@ -386,7 +387,7 @@ Notes. 🟡 for a leader means a higher plan, a paid edition, or partial or unco
 
 ## 🚀 Install
 
-Social is compiled into the Ferrum server image and installed from **Apps** (`/store/`) by a workspace administrator. Self-hosters who build their own image enable the `social` feature of the server. It needs Ferrum `>=0.3.8, <0.4`. Set the server's `PUBLIC_URL`: networks that pull media by address (Instagram, Threads, Pinterest, Google Business, TikTok) need it, and without it such a post says so before it leaves Draft.
+Social is compiled into the Ferrum server image and installed from **Apps** (`/store/`) by a workspace administrator. Self-hosters who build their own image enable the `social` feature of the server. It needs Ferrum `>=0.4.0, <0.5`. Set the server's `PUBLIC_URL`: networks that pull media by address (Instagram, Threads, Pinterest, Google Business, TikTok) need it, and without it such a post says so before it leaves Draft.
 
 After installing:
 

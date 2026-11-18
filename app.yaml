@@ -1,6 +1,6 @@
 id: social
 name: Social
-version: 0.9.3
+version: 0.10.0
 publisher: cbferrum
 summary: "Brands' social accounts: posts approved by someone else and sent at their time within each network's limits, the inbox answered, and what each post did"
 description: README.md
@@ -9,7 +9,7 @@ license: AGPL-3.0-only
 homepage: https://github.com/CBFerrum/ferrum-app-social
 support: https://github.com/CBFerrum/ferrum-app-social/issues
 runtime: native
-platform: ">=0.3.8, <0.4"
+platform: ">=0.4.0, <0.5"
 packages: [social]
 uninstall: ask
 # Its own interface at /social/: the calendar of posts, what waits for approval, the inbox, and what
