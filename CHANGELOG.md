@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0
+
+Needs the same platform as 0.10.0. Package `social` 0.1.1: new fields on an inbox message and the status Snoozed; no other database change, no new interface route. A connection already taken keeps the description it took: an administrator takes the offered description again to get the new reading, numbers and acts.
+
+- **Four more networks read into the inbox, by description only.** WordPress (approved comments by others; the answer is a comment under that comment), Lemmy (replies, mentions and private messages; answers go back as a comment under the comment or a private message), Tumblr (replies to the primary blog; no answer is possible) and Farcaster (replies and mentions; the answer is a cast under it). WordPress and Farcaster hold a placeholder for the account's user id or fid, which a pull cannot learn for itself. Tumblr's sign-in now reads the blog's name once the code is exchanged. Thirteen of 33 networks read.
+- **Per-post numbers for WordPress (comments, from the response header) and DEV (reactions).** Hashnode and Slack are left out until their answers can be confirmed.
+- **Like, hide or delete a comment from the inbox,** each offered only where the account's connection describes how (like: X, Mastodon, Bluesky, Reddit; hide: Instagram, YouTube, X; delete: Instagram). One queued job under the key `inbox:<message>:<act>`, so the network is asked once; the message shows when it was done or what the network said. Deleting is for a Social Approver or Social Manager and closes the message. X now asks for the scope that hides replies: connect an existing X account again to use it.
+- **Snooze.** A message can be put aside until a time, comes back to the status it had, and is woken by the upkeep; answering it wakes it too.
+- **Every visible action has a contract.**
+
 ## 0.10.0
 
 No database or interface change. Needs Ferrum 0.4.0 (apps' upkeep runs one workspace at a time, on whichever replica is free).

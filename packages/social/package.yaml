@@ -1,5 +1,5 @@
 package: social
-version: 0.1.0
+version: 0.1.1
 label: Social
 description: "Brands' social accounts through the platform's connections: posts approved by someone other than their author and sent at their time to each account, within what each network takes; the inbox answered; and what each post did"
 depends: [core]
