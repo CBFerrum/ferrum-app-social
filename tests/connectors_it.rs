@@ -108,7 +108,11 @@ fn comments_are_liked_hidden_and_deleted_as_the_networks_document() {
     let youtube = read("youtube");
     let hide = &youtube["operations"]["hide_comment"];
     assert_eq!((hide["method"].as_str(), hide["path"].as_str()), (Some("POST"), Some("/youtube/v3/comments/setModerationStatus")));
-    assert_eq!((hide["query"]["id"].as_str(), hide["query"]["moderationStatus"].as_str()), (Some("{{ inputs.id }}"), Some("heldForReview")), "held for review hides it and can be undone; rejected cannot");
+    assert_eq!(
+        (hide["query"]["id"].as_str(), hide["query"]["moderationStatus"].as_str()),
+        (Some("{{ inputs.id }}"), Some("heldForReview")),
+        "held for review hides it and can be undone; rejected cannot"
+    );
     let x = read("x");
     let hide = &x["operations"]["hide_comment"];
     assert_eq!((hide["method"].as_str(), hide["path"].as_str()), (Some("PUT"), Some("/2/tweets/{{ inputs.id }}/hidden")));
