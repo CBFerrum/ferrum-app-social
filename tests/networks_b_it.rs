@@ -2269,9 +2269,9 @@ async fn inbox_acts(t: &T) {
             ("POST", "/api/v3/user/login") => ok(json!({"jwt": "JWT-1"})),
             _ if r.header("authorization") != "Bearer JWT-1" => status(400, json!({"error": "not_logged_in"})),
             ("GET", "/api/v3/site") => ok(json!({"my_user": {"local_user_view": {"person": {"id": 5, "name": "northwind", "display_name": "Northwind"}}}})),
-            ("GET", "/api/v3/user/replies") => ok(json!({"replies": [{"comment_reply": {"id": 9}, "comment": {"id": 300, "content": "Love it"}, "creator": {"id": 21, "name": "ivy"}, "post": {"id": 70}}]})),
-            ("GET", "/api/v3/user/mention") => ok(json!({"mentions": [{"person_mention": {"id": 4}, "comment": {"id": 300, "content": "@northwind see this"}, "creator": {"id": 22, "name": "bo"}, "post": {"id": 71}}]})),
-            ("GET", "/api/v3/private_message/list") => ok(json!({"private_messages": [{"private_message": {"id": 300, "content": "hello there"}, "creator": {"id": 23, "name": "cy"}, "recipient": me}]})),
+            ("GET", "/api/v3/user/replies") => ok(json!({"replies": [{"comment_reply": {"id": 9}, "comment": {"id": 400, "content": "Love it"}, "creator": {"id": 21, "name": "ivy"}, "post": {"id": 70}}]})),
+            ("GET", "/api/v3/user/mention") => ok(json!({"mentions": [{"person_mention": {"id": 4}, "comment": {"id": 400, "content": "@northwind see this"}, "creator": {"id": 22, "name": "bo"}, "post": {"id": 71}}]})),
+            ("GET", "/api/v3/private_message/list") => ok(json!({"private_messages": [{"private_message": {"id": 400, "content": "hello there"}, "creator": {"id": 23, "name": "cy"}, "recipient": me}]})),
             ("POST", "/api/v3/comment") => ok(json!({"comment_view": {"comment": {"id": 901}}})),
             ("POST", p) if p.starts_with("/api/v3/act/") => {
                 c2.lock().unwrap().push((p.to_string(), r.header("idempotency-key").to_string()));
@@ -2299,7 +2299,7 @@ async fn inbox_acts(t: &T) {
     }
     let got: Vec<Doc> = t.rows("SocialMessage", json!({})).await.into_iter().filter(|m| m["via_connection"] == conn.to_string()).collect();
     let by = |id: &str| uid(&got.iter().find(|m| m["external_id"] == id).unwrap()["id"]);
-    let (comment, mention, dm) = (by("300"), by("mention:300"), by("pm:300"));
+    let (comment, mention, dm) = (by("400"), by("mention:400"), by("pm:400"));
     let reached = |what: &str| calls.lock().unwrap().iter().filter(|(p, _)| p.contains(what)).count();
     let state = |m: Uuid| t.get("SocialMessage", m);
 
@@ -2314,7 +2314,7 @@ async fn inbox_acts(t: &T) {
     t.work().await;
     let m = state(comment).await;
     assert!(m["liked_at"].is_string() && m["act_pending"].is_null() && m["act_failure"].is_null(), "{m:?}");
-    assert_eq!(reached("/like/300"), 1, "{:?}", calls.lock().unwrap());
+    assert_eq!(reached("/like/400"), 1, "{:?}", calls.lock().unwrap());
     assert!(!calls.lock().unwrap()[0].1.is_empty(), "under the call's key");
     assert!(t.act(&t.author, "SocialMessage", comment, "like", json!({})).await.is_err(), "liked already");
 
@@ -2327,7 +2327,7 @@ async fn inbox_acts(t: &T) {
     a.unwrap();
     b.unwrap();
     t.work().await;
-    assert_eq!(reached("/like/mention:300"), 1, "the mention's like went out once under two workers: {:?}", calls.lock().unwrap());
+    assert_eq!(reached("/like/mention:400"), 1, "the mention's like went out once under two workers: {:?}", calls.lock().unwrap());
     assert!(state(mention).await["liked_at"].is_string());
 
     // A refusal is shown in the network's words and cleared by a later success.
