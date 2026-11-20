@@ -145,7 +145,7 @@ describe("acting on the network and snoozing", () => {
       ["GET", "/api/v1/SocialBrand", { rows: [] }],
       ["GET", "/api/v1/SocialAccount", { rows: [{ id: "a1", account_name: "North Social", brand: "b1", state: "Connected", active: true }] }],
     ]);
-    const host = await draw(<InboxRoute />, "/inbox?status=Snoozed", "/inbox?status=Snoozed");
+    const host = await draw(<InboxRoute />, "/inbox", "/inbox?status=Snoozed");
     await until(() => host.textContent!.includes("Snoozed until"));
     await press(byText(host, "button", "Wake now"));
     expect(fake.seen.find((s) => s.line === "PATCH /api/v1/SocialMessage/m1")?.body).toEqual({ status: "New" });
