@@ -1903,12 +1903,19 @@ async fn scenario() {
     // (round three) Sent as a mention: it answers one of the brand's posts, so it is a comment.
     let one = json!({"id": "delivery-1", "items": [item("c-1", "mention", "ivy@chirp.test", None, Some(&spring_external), "t-1", "Love the colours!"),
                                                    item("m-1", "mention", "bo", Some("northwind_words"), None, "t-2", "@northwind_words see this")]});
-    t.k.connection_inbound(on_key, &hook_headers(&[]), one.to_string().as_bytes()).await.unwrap();
+    t.k.connection_inbound(on_key, &hook_headers(&[]), &BTreeMap::new(), one.to_string().as_bytes()).await.unwrap();
     // Not accepted: unsigned, wrong token, a replay.
     let alike = Error::Unauthorized("this call was not accepted".into()).to_string();
-    assert_eq!(t.k.connection_inbound(on_key, &BTreeMap::new(), one.to_string().as_bytes()).await.unwrap_err().to_string(), alike);
-    assert_eq!(t.k.connection_inbound(on_key, &hook_headers(&[("X-Token", "wrong")]), one.to_string().as_bytes()).await.unwrap_err().to_string(), alike);
-    assert_eq!(t.k.connection_inbound(on_key, &hook_headers(&[]), one.to_string().as_bytes()).await.unwrap_err().to_string(), alike, "a replay");
+    assert_eq!(t.k.connection_inbound(on_key, &BTreeMap::new(), &BTreeMap::new(), one.to_string().as_bytes()).await.unwrap_err().to_string(), alike);
+    assert_eq!(
+        t.k.connection_inbound(on_key, &hook_headers(&[("X-Token", "wrong")]), &BTreeMap::new(), one.to_string().as_bytes()).await.unwrap_err().to_string(),
+        alike
+    );
+    assert_eq!(
+        t.k.connection_inbound(on_key, &hook_headers(&[]), &BTreeMap::new(), one.to_string().as_bytes()).await.unwrap_err().to_string(),
+        alike,
+        "a replay"
+    );
     t.work().await;
     let messages = t.rows("SocialMessage", json!({})).await;
     assert_eq!(messages.len(), 2, "{messages:?} {:?}", t.k.connection_inbound_log(&t.admin, on_key, 10).await.unwrap());
@@ -1920,7 +1927,7 @@ async fn scenario() {
     // The same item in another delivery: not a second message.
     let again =
         json!({"id": "delivery-2", "items": [item("c-1", "comment", "ivy@chirp.test", None, Some(&spring_external), "t-1", "Love the colours! (edited)")]});
-    t.k.connection_inbound(on_key, &hook_headers(&[]), again.to_string().as_bytes()).await.unwrap();
+    t.k.connection_inbound(on_key, &hook_headers(&[]), &BTreeMap::new(), again.to_string().as_bytes()).await.unwrap();
     t.work().await;
     assert_eq!(t.rows("SocialMessage", json!({})).await.len(), 2, "once each");
     // A pull with a cursor: new items once, the cursor kept, nothing read twice.
@@ -2000,7 +2007,7 @@ async fn scenario() {
         let id = id.to_string();
         async move {
             let b = json!({"id": id, "items": [body]});
-            t.k.connection_inbound(on_key, &hook_headers(&[]), b.to_string().as_bytes()).await.unwrap();
+            t.k.connection_inbound(on_key, &hook_headers(&[]), &BTreeMap::new(), b.to_string().as_bytes()).await.unwrap();
             t.work().await;
         }
     };
