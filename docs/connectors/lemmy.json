@@ -267,7 +267,7 @@
     "create_comment": {
       "method": "POST",
       "path": "/comment",
-      "body": "{\"content\": {{ inputs.content | json }}, \"post_id\": {{ inputs.post | int | json }}}",
+      "body": "{\"content\": {{ inputs.content | json }}, \"post_id\": {{ inputs.post | int | json }}{% if inputs.parent %}, \"parent_id\": {{ inputs.parent | int | json }}{% endif %}}",
       "result": {
         "id": {
           "expr": "string(answer.comment_view.comment.id)",
@@ -284,7 +284,8 @@
       ],
       "inputs": [
         "content",
-        "post"
+        "post",
+        "parent"
       ]
     },
     "recent_comments": {
@@ -441,6 +442,7 @@
       "inputs": [
         "text",
         "in_reply_to",
+        "thread",
         "created_at"
       ],
       "steps": [
@@ -449,7 +451,8 @@
           "operation": "create_comment",
           "inputs": {
             "content": "inputs.text",
-            "post": "inputs.in_reply_to"
+            "post": "inputs.thread or inputs.in_reply_to",
+            "parent": "inputs.in_reply_to if inputs.thread else none"
           },
           "confirm": {
             "operation": "recent_comments",
@@ -465,6 +468,146 @@
       "result": {
         "id": "/comment/id"
       }
+    },
+    "replies": {
+      "path": "/user/replies",
+      "query": {
+        "sort": "New",
+        "limit": "50"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "mentions": {
+      "path": "/user/mention",
+      "query": {
+        "sort": "New",
+        "limit": "50"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "private_messages": {
+      "path": "/private_message/list",
+      "query": {
+        "unread_only": "true",
+        "limit": "50"
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "send_message": {
+      "method": "POST",
+      "path": "/private_message",
+      "body": "{\"content\": {{ inputs.text | json }}, \"recipient_id\": {{ inputs.to | int | json }}}",
+      "result": {
+        "id": {
+          "expr": "string(answer.private_message_view.private_message.id)",
+          "required": true
+        }
+      },
+      "error_at": "/error",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "text",
+        "to"
+      ]
     }
-  }
+  },
+  "pulls": [
+    {
+      "name": "replies",
+      "operation": "replies",
+      "every_minutes": 15,
+      "items_at": "/replies",
+      "cursor": "time",
+      "map": {
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "string(item.comment.id)"
+        },
+        "set": {
+          "kind": "'Comment'",
+          "author": "item.creator.name",
+          "author_id": "string(item.creator.id)",
+          "text": "item.comment.content",
+          "post_external_id": "string(item.post.id)",
+          "thread": "string(item.post.id)",
+          "via_connection": "connection.id"
+        },
+        "as": "system"
+      }
+    },
+    {
+      "name": "mentions",
+      "operation": "mentions",
+      "every_minutes": 15,
+      "items_at": "/mentions",
+      "cursor": "time",
+      "map": {
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "'mention:' + string(item.comment.id)"
+        },
+        "set": {
+          "kind": "'Mention'",
+          "author": "item.creator.name",
+          "author_id": "string(item.creator.id)",
+          "text": "item.comment.content",
+          "post_external_id": "string(item.post.id)",
+          "thread": "string(item.post.id)",
+          "via_connection": "connection.id"
+        },
+        "as": "system"
+      }
+    },
+    {
+      "name": "private_messages",
+      "operation": "private_messages",
+      "every_minutes": 15,
+      "items_at": "/private_messages",
+      "cursor": "time",
+      "map": {
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "'pm:' + string(item.private_message.id)"
+        },
+        "set": {
+          "kind": "'Direct'",
+          "author": "item.creator.name",
+          "author_id": "string(item.creator.id)",
+          "text": "item.private_message.content",
+          "via_connection": "connection.id"
+        },
+        "as": "system"
+      }
+    }
+  ]
 }

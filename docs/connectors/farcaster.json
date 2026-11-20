@@ -283,6 +283,68 @@
       "result": {
         "id": "/cast/hash"
       }
+    },
+    "notifications": {
+      "path": "/notifications",
+      "query": {
+        "fid": "REPLACE-WITH-THE-FID",
+        "type": "replies,mentions",
+        "limit": "25"
+      },
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "reply": {
+      "inputs": [
+        "text",
+        "in_reply_to"
+      ],
+      "steps": [
+        {
+          "name": "cast",
+          "operation": "cast",
+          "inputs": {
+            "text": "inputs.text",
+            "embeds": "[]",
+            "parent": "inputs.in_reply_to",
+            "channel": "none"
+          }
+        }
+      ],
+      "result": {
+        "id": "/cast/hash"
+      }
     }
-  }
+  },
+  "pulls": [
+    {
+      "name": "notifications",
+      "operation": "notifications",
+      "every_minutes": 15,
+      "items_at": "/notifications",
+      "cursor": "time",
+      "map": {
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "item.cast.hash"
+        },
+        "set": {
+          "kind": "item.type == 'reply' ? 'Comment' : 'Mention'",
+          "author": "item.cast.author.username",
+          "author_id": "string(item.cast.author.fid)",
+          "text": "item.cast.text",
+          "post_external_id": "item.cast.parent_hash",
+          "thread": "item.cast.hash",
+          "via_connection": "connection.id"
+        },
+        "as": "system"
+      }
+    }
+  ]
 }

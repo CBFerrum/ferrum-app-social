@@ -14,7 +14,10 @@
       "client_id": "REPLACE-WITH-THE-APPS-CLIENT-ID",
       "client_secret": "client_secret",
       "client_auth": "body",
-      "account_at": "/response/user/name"
+      "account_at": "/username",
+      "after": [
+        "me"
+      ]
     }
   },
   "apps": [
@@ -349,6 +352,62 @@
       "result": {
         "engagements": "/post/engagements"
       }
+    },
+    "notifications": {
+      "url": "https://api.tumblr.com/v2/blog/{{ inputs.blog }}/notifications?types[]=reply&rollups=false",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "blog",
+        "cursor"
+      ]
+    },
+    "me": {
+      "path": "/user/info",
+      "credentials": false,
+      "headers": {
+        "authorization": "Bearer {{ inputs.access_token }}"
+      },
+      "inputs": [
+        "access_token",
+        "refresh_token",
+        "client_id"
+      ],
+      "result": {
+        "username": "/response/user/name"
+      },
+      "error_at": "/errors/0/detail"
     }
-  }
+  },
+  "pulls": [
+    {
+      "name": "notifications",
+      "operation": "notifications",
+      "every_minutes": 30,
+      "items_at": "/response/notifications",
+      "cursor": "time",
+      "inputs": {
+        "blog": "account"
+      },
+      "map": {
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "string(item.id)"
+        },
+        "set": {
+          "kind": "'Comment'",
+          "author": "item.from_tumblelog_name",
+          "text": "item.reply_text",
+          "via_connection": "connection.id"
+        },
+        "as": "system"
+      }
+    }
+  ]
 }
