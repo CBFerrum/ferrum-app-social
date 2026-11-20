@@ -1,6 +1,6 @@
 // The inbox (/inbox) as a desk: conversations on the left (filters: account, brand, kind, status, assigned to me), the thread in
 // the middle with the post it answers, a reply box with saved replies and mentions, assign and close, and the contact the sender
-// was matched to. Keys: j / k between conversations, r to reply, e to close. Calls: SocialMessage list/PATCH, action reply,
+// was matched to. Keys: j / k between conversations, r to reply, e to close, s to snooze. Calls: SocialMessage list/PATCH, actions reply, can, like, hide, remove,
 // SocialReply list, SocialPublication list (the post a comment answers), SocialSavedReply list, SocialAccount `mentions`.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,9 +13,9 @@ import { type Filter, change, record, type Row, rows, run, text } from "./data";
 import { mentionToken } from "./composer/Items";
 import { Await, brandName, Face, firstOf, nameOf, useAccounts, useAllowed, useBrands } from "./ui";
 
-const STATUSES = ["New", "Assigned", "Answered", "Closed"];
+const STATUSES = ["New", "Assigned", "Answered", "Snoozed", "Closed"];
 const KINDS = ["Comment", "Mention", "Direct"];
-const TONES: Record<string, Tone> = { New: "red", Assigned: "amber", Answered: "green", Closed: "neutral" };
+const TONES: Record<string, Tone> = { New: "red", Assigned: "amber", Answered: "green", Snoozed: "blue", Closed: "neutral" };
 
 export function statusWord(s: string): string {
   switch (s) {
@@ -25,6 +25,8 @@ export function statusWord(s: string): string {
       return t("Assigned");
     case "Answered":
       return t("Answered");
+    case "Snoozed":
+      return t("Snoozed");
     default:
       return t("Closed");
   }
@@ -102,10 +104,26 @@ function Thread({ message, onChanged }: { message: Row; onChanged: () => void })
   const [refused, setRefused] = useState("");
   const [assignee, setAssignee] = useState("");
   const area = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { setReply(""); setRefused(""); setAssignee(text(message.assigned_to)); }, [message.id]);
-  // Keys: r puts the cursor in the reply box.
+  const snoozer = useRef<HTMLSelectElement>(null);
+  const [until, setUntil] = useState("");
+  useEffect(() => { setReply(""); setRefused(""); setAssignee(text(message.assigned_to)); setUntil(""); }, [message.id]);
+  // What the account's connection offers for this message now (asked when it opens), and the message re-read while an act is going out.
+  const can = useQuery({ queryKey: ["social", "can", message.id], queryFn: () => run<{ like: boolean; hide: boolean; remove: boolean }>("SocialMessage", message.id, "can"), enabled: canWrite, retry: false });
+  const fresh = useQuery({
+    queryKey: ["social", "message", message.id],
+    queryFn: () => record("SocialMessage", message.id),
+    initialData: message,
+    refetchInterval: (q) => (text(q.state.data?.act_pending) && q.state.dataUpdateCount < 10 ? 3000 : false),
+  });
+  const live = fresh.data ?? message;
+  const going = text(live.act_pending);
+  // Keys: r puts the cursor in the reply box, s opens the snooze menu.
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
+      if (e.key === "s" && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement).tagName) && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        snoozer.current?.focus();
+      }
       if (e.key === "r" && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement).tagName) && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         area.current?.focus();
@@ -152,16 +170,53 @@ function Thread({ message, onChanged }: { message: Row; onChanged: () => void })
       setBusy(null);
     }
   };
+  const act = async (name: "like" | "hide" | "remove") => {
+    if (name === "hide" && !window.confirm(t("Hide this comment on the network?"))) return;
+    if (name === "remove" && !window.confirm(t("Delete this comment from the network? It cannot be put back from here."))) return;
+    setBusy(name);
+    setRefused("");
+    try {
+      await run("SocialMessage", message.id, name);
+      await fresh.refetch();
+      await can.refetch();
+    } catch (e) {
+      setRefused(refusal(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const later = (d: Date) => void patch("snooze", { status: "Snoozed", snoozed_until: d.toISOString() });
+  const at9 = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(9, 0, 0, 0); return d; };
   const all = same.data ?? [message];
   const ours = replies.data ?? [];
   const entries = [...all.map((m) => ({ at: text(m.created_at), who: text(m.author), words: text(m.text), ours: false, id: m.id, failure: "" })), ...ours.map((r) => ({ at: text(r.created_at), who: text(r.author) || t("You"), words: text(r.text), ours: true, id: r.id, failure: text(r.failure) }))].sort((a, b) => a.at.localeCompare(b.at));
   const closed = text(message.status) === "Closed";
+  const snoozed = text(message.status) === "Snoozed";
   return (
     <div className="stack">
       <div className="row">
         <h2 className="section-title spacer">{isolate(text(message.author))} · {kindWord(text(message.kind))}</h2>
         <StatusBadge value={text(message.status)} tones={TONES} label={statusWord(text(message.status))} />
       </div>
+      {snoozed && (
+        <p className="muted">
+          {t("Snoozed until {time}", { time: formatMoment(text(message.snoozed_until), { dateStyle: "medium", timeStyle: "short" }) })}{" "}
+          <Button size="sm" loading={busy === "wake"} onClick={() => void patch("wake", { status: text(message.assigned_to) ? "Assigned" : "New" })}>{t("Wake now")}</Button>
+        </p>
+      )}
+      {canWrite && can.isError && <p className="muted">{t("What can be done here could not be read.")} <Button size="sm" onClick={() => void can.refetch()}>{t("Try again")}</Button></p>}
+      {canWrite && can.data && (can.data.like || can.data.hide || can.data.remove || going || text(live.liked_at) || text(live.hidden_at) || text(live.removed_at)) && (
+        <div className="row" aria-label={t("On the network")}>
+          {can.data.like && <Button size="sm" loading={busy === "like"} disabled={!!going} onClick={() => void act("like")}>{t("Like")}</Button>}
+          {can.data.hide && <Button size="sm" loading={busy === "hide"} disabled={!!going} onClick={() => void act("hide")}>{t("Hide on the Network")}</Button>}
+          {can.data.remove && <Button size="sm" loading={busy === "remove"} disabled={!!going} onClick={() => void act("remove")}>{t("Delete on the Network")}</Button>}
+          {going && <span className="muted">{t("Sending…")}</span>}
+          {text(live.liked_at) && <span className="muted">{t("Liked")} · {formatMoment(text(live.liked_at), { dateStyle: "medium", timeStyle: "short" })}</span>}
+          {text(live.hidden_at) && <span className="muted">{t("Hidden on the network")} · {formatMoment(text(live.hidden_at), { dateStyle: "medium", timeStyle: "short" })}</span>}
+          {text(live.removed_at) && <span className="muted">{t("Deleted on the network")} · {formatMoment(text(live.removed_at), { dateStyle: "medium", timeStyle: "short" })}</span>}
+        </div>
+      )}
+      {text(live.act_failure) && <Alert tone="error">{isolate(text(live.act_failure))}</Alert>}
       {answered.data && (
         <p className="muted">{t("It answers")} <Link to={`/compose/${answered.data.id}`}>{isolate(text(answered.data.headline))}</Link></p>
       )}
@@ -204,6 +259,18 @@ function Thread({ message, onChanged }: { message: Row; onChanged: () => void })
           <Field label={t("Assign to")} htmlFor="inbox-assign"><input id="inbox-assign" className="input" type="email" value={assignee} onChange={(e) => setAssignee(e.target.value)} /></Field>
           <Button size="sm" loading={busy === "assign"} disabled={!assignee.trim()} onClick={() => void patch("assign", { assigned_to: assignee.trim(), status: "Assigned" })}>{t("Assign")}</Button>
           <span className="spacer" />
+          {!closed && !snoozed && (
+            <>
+              <select ref={snoozer} className="select" aria-label={t("Snooze")} value="" onChange={(e) => { const v = e.target.value; if (v === "3h") later(new Date(Date.now() + 3 * 3600_000)); else if (v === "tomorrow") later(at9(1)); else if (v === "week") later(at9(7)); }}>
+                <option value="">{t("Snooze…")}</option>
+                <option value="3h">{t("In 3 hours")}</option>
+                <option value="tomorrow">{t("Tomorrow morning")}</option>
+                <option value="week">{t("Next week")}</option>
+              </select>
+              <input className="input" type="datetime-local" aria-label={t("Snooze until")} value={until} onChange={(e) => setUntil(e.target.value)} />
+              <Button size="sm" disabled={!until} loading={busy === "snooze"} onClick={() => later(new Date(until))}>{t("Snooze")}</Button>
+            </>
+          )}
           {closed ? <Button size="sm" loading={busy === "open"} onClick={() => void patch("open", { status: "New" })}>{t("Reopen")}</Button> : <Button size="sm" loading={busy === "close"} onClick={() => void patch("close", { status: "Closed" })}>{t("Close (e)")}</Button>}
         </div>
       )}

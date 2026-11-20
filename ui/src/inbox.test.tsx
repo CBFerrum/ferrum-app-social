@@ -94,6 +94,64 @@ describe("the inbox", () => {
   });
 });
 
+describe("acting on the network and snoozing", () => {
+  it("draws only what can be done; Like posts the action once and shows Sending, then Liked after the re-read", async () => {
+    let pressed = false;
+    const fake = server([
+      ["POST", "/api/v1/SocialMessage/m1/actions/can", { reply: true, like: true, hide: false, remove: false }],
+      ["POST", "/api/v1/SocialMessage/m1/actions/like", () => { pressed = true; return { queued: true }; }],
+      ["GET", "/api/v1/SocialMessage/m1", () => ({ ...msgs.rows[0], ...(pressed ? { liked_at: "2030-06-01T12:00:00Z" } : {}) })],
+    ]);
+    const host = await draw(<InboxRoute />, "/inbox", "/inbox");
+    await until(() => !!byText(host, "button", "Like"));
+    expect(byText(host, "button", "Hide on the Network")).toBeFalsy();
+    expect(byText(host, "button", "Delete on the Network")).toBeFalsy();
+    await press(byText(host, "button", "Like"));
+    expect(fake.seen.filter((s) => s.line.endsWith("/m1/actions/like")).length).toBe(1);
+    await until(() => host.textContent!.includes("Liked"));
+  });
+
+  it("shows what the network said when it would not", async () => {
+    server([
+      ["POST", "/api/v1/SocialMessage/m1/actions/can", { reply: true, like: true, hide: false, remove: false }],
+      ["GET", "/api/v1/SocialMessage/m1", () => ({ ...msgs.rows[0], act_failure: "rate_limit_error" })],
+    ]);
+    const host = await draw(<InboxRoute />, "/inbox", "/inbox");
+    await until(() => host.textContent!.includes("rate_limit_error"));
+  });
+
+  it("the Snooze menu sets the status and the time; a snoozed conversation says until when and offers Wake now", async () => {
+    const fake = server([["PATCH", "/api/v1/SocialMessage/m1", { id: "m1" }]]);
+    const host = await draw(<InboxRoute />, "/inbox", "/inbox");
+    await until(() => !!host.querySelector('select[aria-label="Snooze"]'));
+    const sel = host.querySelector<HTMLSelectElement>('select[aria-label="Snooze"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(sel, "3h");
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+    const sent = fake.seen.find((s) => s.line === "PATCH /api/v1/SocialMessage/m1")?.body as { status: string; snoozed_until: string };
+    expect(sent.status).toBe("Snoozed");
+    expect(new Date(sent.snoozed_until).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("a snoozed conversation shows until when and Wake now reopens it", async () => {
+    const fake = fakeServer([
+      ["PATCH", "/api/v1/SocialMessage/m1", { id: "m1" }],
+      ["GET", "/api/auth/me", { tenant: "t", user: { id: "u", email: "me@example.org", full_name: "Me", is_admin: false, roles: [] }, packages: [] }],
+      ["GET", "/api/v1/SocialMessage", { rows: [{ ...msgs.rows[0], status: "Snoozed", snoozed_until: "2030-06-02T09:00:00Z" }] }],
+      ["GET", "/api/v1/SocialReply", { rows: [] }],
+      ["GET", "/api/v1/SocialSavedReply", { rows: [] }],
+      ["GET", "/api/v1/SocialBrand", { rows: [] }],
+      ["GET", "/api/v1/SocialAccount", { rows: [{ id: "a1", account_name: "North Social", brand: "b1", state: "Connected", active: true }] }],
+    ]);
+    const host = await draw(<InboxRoute />, "/inbox?status=Snoozed", "/inbox?status=Snoozed");
+    await until(() => host.textContent!.includes("Snoozed until"));
+    await press(byText(host, "button", "Wake now"));
+    expect(fake.seen.find((s) => s.line === "PATCH /api/v1/SocialMessage/m1")?.body).toEqual({ status: "New" });
+  });
+});
+
 describe("the filters", () => {
   it("open ones by default; account, brand through the account, kind, mine", () => {
     expect(filtersFor({ account: "", brand: "", kind: "", status: "", mine: false }, "me@x")).toEqual([["status", "in", ["New", "Assigned", "Answered"]]]);

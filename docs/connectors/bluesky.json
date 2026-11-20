@@ -94,7 +94,10 @@
         "format": "@{{ value }}"
       },
       "first_comment": true,
-      "link_preview": true
+      "link_preview": true,
+      "operations": {
+        "like_comment": "like"
+      }
     }
   },
   "operations": {

@@ -630,6 +630,26 @@
         "picture": "/profile_picture_url"
       },
       "error_at": "/error/message"
+    },
+    "hide_comment": {
+      "method": "POST",
+      "path": "/v25.0/{{ inputs.id }}",
+      "query": {
+        "hide": "true"
+      },
+      "body": "{}",
+      "error_at": "/error/message",
+      "inputs": [
+        "id"
+      ]
+    },
+    "delete_comment": {
+      "method": "DELETE",
+      "path": "/v25.0/{{ inputs.id }}",
+      "error_at": "/error/message",
+      "inputs": [
+        "id"
+      ]
     }
   }
 }

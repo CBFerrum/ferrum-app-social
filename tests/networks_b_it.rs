@@ -566,6 +566,7 @@ async fn scenario() {
     if wanted("lemmy") {
         lemmy(&t).await;
         lemmy_inbox(&t).await;
+        inbox_acts(&t).await;
     }
     if wanted("vk") {
         vk(&t).await;
@@ -2255,6 +2256,124 @@ async fn devto_numbers(t: &T) {
     assert!(got["impressions"].is_null(), "page views are not documented for the list, so none are read: {got}");
     let missing = numbers_call(t, conn, "555").await.unwrap();
     assert!(missing["engagements"].is_null() || missing["engagements"] == "", "an article not in the list leaves its numbers empty: {missing}");
+}
+
+/// social-3: like, hide and delete a comment on the network, and snoozing (Lemmy's description, given the three operations).
+async fn inbox_acts(t: &T) {
+    let calls: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let refuse: Arc<Mutex<bool>> = Arc::default();
+    let (c2, r2) = (calls.clone(), refuse.clone());
+    let net = fake(move |r| {
+        let me = json!({"id": 5, "name": "northwind"});
+        match (r.method.as_str(), r.path()) {
+            ("POST", "/api/v3/user/login") => ok(json!({"jwt": "JWT-1"})),
+            _ if r.header("authorization") != "Bearer JWT-1" => status(400, json!({"error": "not_logged_in"})),
+            ("GET", "/api/v3/site") => ok(json!({"my_user": {"local_user_view": {"person": {"id": 5, "name": "northwind", "display_name": "Northwind"}}}})),
+            ("GET", "/api/v3/user/replies") => ok(json!({"replies": [{"comment_reply": {"id": 9}, "comment": {"id": 300, "content": "Love it"}, "creator": {"id": 21, "name": "ivy"}, "post": {"id": 70}}]})),
+            ("GET", "/api/v3/user/mention") => ok(json!({"mentions": [{"person_mention": {"id": 4}, "comment": {"id": 300, "content": "@northwind see this"}, "creator": {"id": 22, "name": "bo"}, "post": {"id": 71}}]})),
+            ("GET", "/api/v3/private_message/list") => ok(json!({"private_messages": [{"private_message": {"id": 300, "content": "hello there"}, "creator": {"id": 23, "name": "cy"}, "recipient": me}]})),
+            ("POST", "/api/v3/comment") => ok(json!({"comment_view": {"comment": {"id": 901}}})),
+            ("POST", p) if p.starts_with("/api/v3/act/") => {
+                c2.lock().unwrap().push((p.to_string(), r.header("idempotency-key").to_string()));
+                if p.contains("/hide/") && *r2.lock().unwrap() {
+                    status(400, json!({"error": "not_allowed_here"}))
+                } else {
+                    ok(json!({}))
+                }
+            }
+            _ => status(404, json!({"error": "not_found"})),
+        }
+    })
+    .await;
+    let conn = t
+        .connect("lemmy_acts", "lemmy", &[("https://lemmy.example", &net.base)], json!({"username": "northwind", "password": "lemmy-pass"}), |d| {
+            for (name, path) in [("like_comment", "like"), ("hide_comment", "hide"), ("delete_comment", "remove")] {
+                d["operations"][name] = json!({"method": "POST", "path": format!("/act/{path}/{{{{ inputs.id }}}}"), "body": "{}", "error_at": "/error", "idempotency_header": "Idempotency-Key", "inputs": ["id"]});
+            }
+        })
+        .await;
+    let _acct = t.account("Lemmy acts", "northwind", conn, "5").await;
+    for pull in ["replies", "mentions", "private_messages"] {
+        t.k.pull_now(&t.admin, conn, pull).await.unwrap();
+        t.work().await;
+    }
+    let got: Vec<Doc> = t.rows("SocialMessage", json!({})).await.into_iter().filter(|m| m["via_connection"] == conn.to_string()).collect();
+    let by = |id: &str| uid(&got.iter().find(|m| m["external_id"] == id).unwrap()["id"]);
+    let (comment, mention, dm) = (by("300"), by("mention:300"), by("pm:300"));
+    let reached = |what: &str| calls.lock().unwrap().iter().filter(|(p, _)| p.contains(what)).count();
+    let state = |m: Uuid| t.get("SocialMessage", m);
+
+    // A like reaches the network once, however often it is asked: the gate repeats it, and while it is going out another is refused.
+    let like = |key: &'static str| {
+        t.k.invoke(&t.author, ferrum_kernel::capability::Invocation::new("social.social_message.like", json!({"id": comment.to_string()})).key(key))
+    };
+    let first = like("like-1").await.expect("the like is queued");
+    let again = like("like-1").await.expect("repeated under its key");
+    assert!(!first.repeated && again.repeated, "{first:?} {again:?}");
+    assert!(t.act(&t.author, "SocialMessage", comment, "like", json!({})).await.is_err(), "another action is refused while one is going out");
+    t.work().await;
+    let m = state(comment).await;
+    assert!(m["liked_at"].is_string() && m["act_pending"].is_null() && m["act_failure"].is_null(), "{m:?}");
+    assert_eq!(reached("/like/300"), 1, "{:?}", calls.lock().unwrap());
+    assert!(!calls.lock().unwrap()[0].1.is_empty(), "under the call's key");
+    assert!(t.act(&t.author, "SocialMessage", comment, "like", json!({})).await.is_err(), "liked already");
+
+    // Two workers, one like.
+    t.act(&t.author, "SocialMessage", mention, "like", json!({})).await.unwrap();
+    let mut tx = t.k.db.system_tx().await.unwrap();
+    sqlx::query("update job set run_at = now() where status = 'queued' and kind = 'social.inbox_act'").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let (a, b) = tokio::join!(t.k.run_jobs_once(4), t.k.run_jobs_once(4));
+    a.unwrap();
+    b.unwrap();
+    t.work().await;
+    assert_eq!(reached("/like/mention:300"), 1, "the mention's like went out once under two workers: {:?}", calls.lock().unwrap());
+    assert!(state(mention).await["liked_at"].is_string());
+
+    // A refusal is shown in the network's words and cleared by a later success.
+    *refuse.lock().unwrap() = true;
+    t.act(&t.author, "SocialMessage", comment, "hide", json!({})).await.unwrap();
+    t.work().await;
+    let m = state(comment).await;
+    assert!(m["act_failure"].as_str().is_some_and(|f| f.contains("not_allowed_here")) && m["act_pending"].is_null() && m["hidden_at"].is_null(), "{m:?}");
+    *refuse.lock().unwrap() = false;
+    t.act(&t.author, "SocialMessage", comment, "hide", json!({})).await.unwrap();
+    t.work().await;
+    let m = state(comment).await;
+    assert!(m["hidden_at"].is_string() && m["act_failure"].is_null(), "{m:?}");
+
+    // Only an approver or a manager deletes; the message is then closed.
+    assert!(t.act(&t.author, "SocialMessage", comment, "remove", json!({})).await.is_err(), "an author may not delete on the network");
+    t.act(&t.manager, "SocialMessage", comment, "remove", json!({})).await.unwrap();
+    t.work().await;
+    let m = state(comment).await;
+    assert!(m["removed_at"].is_string() && m["status"] == "Closed", "{m:?}");
+
+    // A direct message is not liked or hidden; `can` says what is offered.
+    assert!(t.act(&t.author, "SocialMessage", dm, "like", json!({})).await.is_err());
+    assert!(t.act(&t.author, "SocialMessage", dm, "hide", json!({})).await.is_err());
+    let can = t.act(&t.author, "SocialMessage", dm, "can", Value::Null).await.unwrap();
+    assert_eq!(can, json!({"reply": true, "like": false, "hide": false, "remove": false}));
+
+    // Snooze: it needs a time ahead; it comes back as it was; a person who reopened it is not overwritten; answering wakes it.
+    let later = |h: i64| (Utc::now() + Duration::hours(h)).to_rfc3339();
+    t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Assigned", "assigned_to": "author@brands.test"})), None).await.unwrap();
+    assert!(t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Snoozed"})), None).await.is_err(), "no time");
+    assert!(t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Snoozed", "snoozed_until": later(-1)})), None).await.is_err(), "a time past");
+    t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Snoozed", "snoozed_until": later(2)})), None).await.unwrap();
+    assert_eq!(state(dm).await["snoozed_from"], "Assigned");
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, Utc::now() + Duration::hours(3)).await.unwrap();
+    let m = state(dm).await;
+    assert!(m["status"] == "Assigned" && m["snoozed_until"].is_null() && m["snoozed_from"].is_null(), "{m:?}");
+    t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Snoozed", "snoozed_until": later(2)})), None).await.unwrap();
+    t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "New"})), None).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, Utc::now() + Duration::hours(3)).await.unwrap();
+    assert_eq!(state(dm).await["status"], "New", "a person who reopened it is not overwritten");
+    t.k.update(&t.author, "SocialMessage", mention, obj(json!({"status": "Snoozed", "snoozed_until": later(5)})), None).await.unwrap();
+    t.act(&t.author, "SocialMessage", mention, "reply", json!({"reply": "Thanks"})).await.unwrap();
+    t.work().await;
+    let m = state(mention).await;
+    assert!(m["status"] == "Answered" && m["snoozed_until"].is_null() && m["snoozed_from"].is_null(), "answering it wakes it: {m:?}");
 }
 
 // ───────────── VK ─────────────

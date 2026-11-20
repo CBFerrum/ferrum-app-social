@@ -303,10 +303,31 @@
     - {name: contact_id, type: data, read_only: true, no_copy: true, description: "The record of the person who wrote, when Social Settings match senders to one"}
     - {name: post_external_id, type: data, description: "The post it answers, when it is a comment"}
     - {name: via_connection, type: data, no_copy: true, hidden: true, description: "The connection it was read through: where neither the handle nor the post names an account, the one account that connection reaches (for a person's own, the one she connected)"}
-    - {name: status, type: select, options: [New, Assigned, Answered, Closed], default: New, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [New, Assigned, Answered, Snoozed, Closed], default: New, in_list: true, in_filter: true}
     - {name: assigned_to, type: email, in_list: true, in_filter: true}
+    - {name: snoozed_until, type: datetime, in_filter: true, description: "With status Snoozed: when it comes back to the open inbox"}
+    - {name: snoozed_from, type: data, read_only: true, hidden: true, no_copy: true, description: "The status it had before it was snoozed, which it returns to"}
+    - {name: liked_at, type: datetime, read_only: true, no_copy: true, description: "When the account liked it on the network"}
+    - {name: hidden_at, type: datetime, read_only: true, no_copy: true, description: "When it was hidden on the network"}
+    - {name: removed_at, type: datetime, read_only: true, no_copy: true, description: "When it was deleted on the network"}
+    - {name: act_pending, type: data, read_only: true, hidden: true, no_copy: true, description: "like, hide or remove: asked for and not yet taken by the network"}
+    - {name: act_failure, type: text, read_only: true, no_copy: true, description: "What the network said when it would not"}
   actions:
     - {name: reply, label: Reply, permission: write, condition: "doc.status != 'Closed'", params: [{name: reply, type: text, label: Your Reply}, {name: saved_reply, type: link, to: SocialSavedReply, label: Or a Saved Reply}]}
+    - {name: like, label: Like, permission: write, condition: "doc.kind != 'Direct' && isEmpty(doc.liked_at) && isEmpty(doc.removed_at)",
+       contract: {effect: external_effect, returns: {type: object, properties: {queued: {type: boolean}}},
+                  completion: "The like is queued for the network, once; the message shows when it was liked, or what the network said"}}
+    - {name: hide, label: Hide on the Network, permission: write, condition: "doc.kind == 'Comment' && isEmpty(doc.hidden_at) && isEmpty(doc.removed_at)",
+       confirm: "Hide this comment on the network?",
+       contract: {effect: external_effect, returns: {type: object, properties: {queued: {type: boolean}}},
+                  completion: "Hiding is queued for the network, once; the message shows when it was hidden, or what the network said"}}
+    - {name: remove, label: Delete on the Network, permission: write, condition: "doc.kind == 'Comment' && isEmpty(doc.removed_at)",
+       confirm: "Delete this comment from the network? It cannot be put back from here.",
+       contract: {effect: external_effect, returns: {type: object, properties: {queued: {type: boolean}}},
+                  completion: "Deleting is queued for the network, once; the message is closed when the network has deleted it, or says what the network said"}}
+    - {name: can, label: What Can Be Done, permission: read, read_only: true, hidden: true,
+       contract: {effect: query, returns: {type: object, properties: {reply: {type: boolean}, like: {type: boolean}, hide: {type: boolean}, remove: {type: boolean}}},
+                  completion: "What the account's connection offers for this message now; nothing is changed"}}
   list: {columns: [author, account, kind, status, assigned_to], sort: updated_at desc}
 
 - name: SocialReply

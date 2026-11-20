@@ -52,6 +52,35 @@ pub(crate) fn plain(html: &str) -> String {
 
 pub struct MessageHook;
 
+/// Snoozing: a message put aside remembers the status it had, comes back to it, and says until when. Becoming Snoozed
+/// needs a time ahead; leaving it, or a status other than Snoozed, holds no time.
+async fn snooze(hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+    let status = s(doc, "status").unwrap_or("New").to_string();
+    let stored = match id(doc, "id") {
+        Some(message) => hc.kernel.get_tx(&elevated(hc.ctx), hc.tx, "SocialMessage", message, false).await.ok(),
+        None => None,
+    };
+    let before = stored.as_ref().and_then(|m| s(m, "status")).map(str::to_string);
+    if status == "Snoozed" {
+        let until = crate::at(doc, "snoozed_until");
+        let changed = before.as_deref() != Some("Snoozed") || until != stored.as_ref().and_then(|m| crate::at(m, "snoozed_until"));
+        if changed && until.is_none_or(|u| u <= Utc::now()) {
+            return Err(Error::field("snoozed_until", "a message snoozed says when it comes back, and that is ahead"));
+        }
+        if before.as_deref() != Some("Snoozed") {
+            let from = before.filter(|b| matches!(b.as_str(), "New" | "Assigned" | "Answered")).unwrap_or_else(|| "New".into());
+            doc.insert("snoozed_from".into(), json!(from));
+        }
+    } else {
+        if s(doc, "snoozed_until").is_some() && before.as_deref() != Some("Snoozed") {
+            return Err(Error::field("snoozed_until", "only a snoozed message has a time to come back"));
+        }
+        doc.insert("snoozed_until".into(), Value::Null);
+        doc.insert("snoozed_from".into(), Value::Null);
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl DocHook for MessageHook {
     fn name(&self) -> &'static str {
@@ -63,6 +92,7 @@ impl DocHook for MessageHook {
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        snooze(hc, doc).await?;
         // Words a network sends as HTML are kept as the words they hold.
         if let Some(conn) = reach(hc.tx, hc.ctx.tenant, s(doc, "via_connection")).await?
             && conn.meta()["social"]["inbox_format"] == "html"
@@ -148,8 +178,11 @@ impl DocHook for MessageHook {
     /// `reply`: answered from the message itself, as a reply of the one answering, which goes out
     /// as any other does. Its words are given, or a saved reply's.
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
-        if name != "reply" {
-            return Ok(None);
+        match name {
+            "like" | "hide" | "remove" => return Ok(Some(crate::act::start(hc, name, doc).await?)),
+            "can" => return Ok(Some(crate::act::can(hc, doc).await?)),
+            "reply" => {}
+            _ => return Ok(None),
         }
         // Named apart from the message's own text, which would otherwise fill it in.
         let mut text = params.get("reply").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
@@ -306,7 +339,14 @@ async fn send(k: &Kernel, tenant: Uuid, reply: Uuid) -> Result<Value> {
     let external = text_of(&out["id"]).unwrap_or_else(|| "sent".into());
     k.set_values_tx(&ctx, &mut tx, "SocialReply", reply, obj(json!({"external_id": external, "failed_at": null, "failure": null}))).await?;
     if s(&m, "status") != Some("Closed") {
-        k.set_values_tx(&ctx, &mut tx, "SocialMessage", id(&m, "id").unwrap_or_default(), obj(json!({"status": "Answered"}))).await?;
+        k.set_values_tx(
+            &ctx,
+            &mut tx,
+            "SocialMessage",
+            id(&m, "id").unwrap_or_default(),
+            obj(json!({"status": "Answered", "snoozed_until": null, "snoozed_from": null})),
+        )
+        .await?;
     }
     tx.commit().await?;
     Ok(json!({"id": external}))

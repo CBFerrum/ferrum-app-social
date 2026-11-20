@@ -165,7 +165,10 @@
       },
       "first_comment": true,
       "link_preview": true,
-      "inbox_format": "html"
+      "inbox_format": "html",
+      "operations": {
+        "like_comment": "like"
+      }
     }
   },
   "operations": {

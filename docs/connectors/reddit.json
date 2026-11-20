@@ -146,6 +146,9 @@
       "title": {
         "required": true,
         "max": 300
+      },
+      "operations": {
+        "like_comment": "like"
       }
     }
   },
