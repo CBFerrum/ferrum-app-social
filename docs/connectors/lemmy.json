@@ -452,7 +452,7 @@
           "inputs": {
             "content": "inputs.text",
             "post": "inputs.thread or inputs.in_reply_to",
-            "parent": "inputs.in_reply_to if inputs.thread else none"
+            "parent": "(inputs.in_reply_to | replace('mention:', '')) if inputs.thread else none"
           },
           "confirm": {
             "operation": "recent_comments",
