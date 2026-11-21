@@ -23,6 +23,7 @@
 //! so a workspace without the `social` package never runs them.
 
 mod accounts;
+mod act;
 mod content;
 mod feeds;
 mod inbox;
@@ -80,7 +81,7 @@ pub fn register(hooks: &mut HookRegistry) {
     for library in ["SocialTemplate", "SocialSet", "SocialSignature", "SocialVariable", "SocialLinkTemplate"] {
         hooks.register(library, Arc::new(library::LibraryHook));
     }
-    hooks.add_job_handler(Arc::new(posts::PublishJob)).add_job_handler(Arc::new(inbox::ReplyJob));
+    hooks.add_job_handler(Arc::new(posts::PublishJob)).add_job_handler(Arc::new(inbox::ReplyJob)).add_job_handler(Arc::new(act::ActJob));
 }
 
 /// This app's reports: what each day added to the publications' numbers, when to post, and the numbers by
@@ -100,6 +101,7 @@ pub async fn maintenance_at(k: &Kernel, tenant: Uuid, now: DateTime<Utc>) -> Res
     let mut tx = k.db.tenant_tx(tenant).await?;
     accounts::refresh_all(k, &ctx, &mut tx).await?;
     review::settle(k, &ctx, &mut tx).await?;
+    act::wake(k, &ctx, &mut tx, now).await?;
     posts::send_due(k, &ctx, &mut tx, now).await?;
     posts::mark_sent(k, &ctx, &mut tx, now).await?;
     notices::digest(k, &ctx, &mut tx, now).await?;

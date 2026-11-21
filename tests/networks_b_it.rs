@@ -546,21 +546,27 @@ async fn scenario() {
     }
     if wanted("wordpress") {
         wordpress(&t).await;
+        wordpress_inbox(&t).await;
+        wordpress_numbers(&t).await;
     }
     if wanted("medium") {
         medium(&t).await;
     }
     if wanted("devto") {
         devto(&t).await;
+        devto_numbers(&t).await;
     }
     if wanted("hashnode") {
         hashnode(&t).await;
     }
     if wanted("tumblr") {
         tumblr(&t).await;
+        tumblr_inbox(&t).await;
     }
     if wanted("lemmy") {
         lemmy(&t).await;
+        lemmy_inbox(&t).await;
+        inbox_acts(&t).await;
     }
     if wanted("vk") {
         vk(&t).await;
@@ -591,6 +597,7 @@ async fn scenario() {
     }
     if wanted("farcaster") {
         farcaster(&t).await;
+        farcaster_inbox(&t).await;
     }
 }
 
@@ -1168,6 +1175,8 @@ async fn wordpress(t: &T) {
                 }
                 Resp::Answer(201, vec![], json!({"id": id, "link": format!("{site}/?p={id}")}).to_string())
             }
+            // (social-2) The upkeep asks for a post's numbers: the comments' total from the header.
+            ("GET", "/wp/v2/comments") => with_headers(200, &[("X-WP-Total", "3")], "[]"),
             ("GET", "/wp/v2/posts") => {
                 assert_eq!((q.get("status").map(String::as_str), q.get("context").map(String::as_str)), (Some("any"), Some("edit")));
                 assert!(q.contains_key("after"));
@@ -1218,7 +1227,7 @@ async fn wordpress(t: &T) {
     assert_eq!(out["permalink"], format!("{}/?p=100", net.base));
     assert_eq!(
         net.order().into_iter().filter(|o| o != "GET /wp-json/").collect::<Vec<_>>(),
-        ["POST /wp-json/wp/v2/media", "POST /wp-json/wp/v2/media/50", "POST /wp-json/wp/v2/posts"]
+        ["POST /wp-json/wp/v2/media", "POST /wp-json/wp/v2/media/50", "POST /wp-json/wp/v2/posts", "GET /wp-json/wp/v2/comments"]
     );
     {
         let m = media.lock().unwrap();
@@ -1877,6 +1886,494 @@ async fn lemmy(t: &T) {
     let checked = t.act(&t.manager, "SocialAccount", me, "check", Value::Null).await.unwrap();
     assert_eq!(checked["read"]["display_name"], "Northwind", "{checked}");
     assert_eq!(*logins.lock().unwrap(), 1, "still one session");
+}
+
+/// social-1: what Lemmy sends the account (`GET /user/replies`, `/user/mention`, `/private_message/list`; Lemmy 0.19's
+/// `crates/api_common` and `src/api_routes_http.rs`), and the answers (`POST /comment` with `parent_id`, `POST /private_message`).
+async fn lemmy_inbox(t: &T) {
+    let sent: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+    let s2 = sent.clone();
+    let net = fake(move |r| {
+        let me = json!({"id": 5, "name": "northwind"});
+        match (r.method.as_str(), r.path()) {
+            ("POST", "/api/v3/user/login") => ok(json!({"jwt": "JWT-1"})),
+            _ if r.header("authorization") != "Bearer JWT-1" => status(400, json!({"error": "not_logged_in"})),
+            ("GET", "/api/v3/site") => ok(json!({"my_user": {"local_user_view": {"person": {"id": 5, "name": "northwind", "display_name": "Northwind"}}}})),
+            ("GET", "/api/v3/user/replies") => ok(json!({"replies": [{"comment_reply": {"id": 9}, "comment": {"id": 300, "content": "Love it"}, "creator": {"id": 21, "name": "ivy"}, "post": {"id": 70}}]})),
+            // The same comment is a mention too: its number must not make one message of the two.
+            ("GET", "/api/v3/user/mention") => ok(json!({"mentions": [{"person_mention": {"id": 4}, "comment": {"id": 300, "content": "@northwind see this"}, "creator": {"id": 22, "name": "bo"}, "post": {"id": 71}}]})),
+            ("GET", "/api/v3/private_message/list") => {
+                // Lemmy lists sent and received messages together unless only the unread are asked for.
+                let mut all = vec![json!({"private_message": {"id": 300, "content": "hello there"}, "creator": {"id": 23, "name": "cy"}, "recipient": me})];
+                if r.query().get("unread_only").map(String::as_str) != Some("true") {
+                    all.push(json!({"private_message": {"id": 301, "content": "our own answer"}, "creator": me, "recipient": {"id": 23, "name": "cy"}}));
+                }
+                ok(json!({"private_messages": all}))
+            }
+            ("POST", "/api/v3/comment") => {
+                s2.lock().unwrap().push(("comment".into(), r.json()));
+                ok(json!({"comment_view": {"comment": {"id": 901}}}))
+            }
+            ("POST", "/api/v3/private_message") => {
+                s2.lock().unwrap().push(("private".into(), r.json()));
+                ok(json!({"private_message_view": {"private_message": {"id": 902}}}))
+            }
+            _ => status(404, json!({"error": "not_found"})),
+        }
+    })
+    .await;
+    let conn =
+        t.connect("lemmy_inbox", "lemmy", &[("https://lemmy.example", &net.base)], json!({"username": "northwind", "password": "lemmy-pass"}), |_| {}).await;
+    let me = t.account("Lemmy inbox", "northwind", conn, "5").await;
+    let mine = |rows: Vec<Doc>| rows.into_iter().filter(|m| m["via_connection"] == conn.to_string()).collect::<Vec<_>>();
+    for _ in 0..2 {
+        for pull in ["replies", "mentions", "private_messages"] {
+            t.k.pull_now(&t.admin, conn, pull).await.unwrap();
+            t.work().await;
+        }
+    }
+    let got = mine(t.rows("SocialMessage", json!({})).await);
+    let mut seen: Vec<(String, String, String)> =
+        got.iter().map(|m| (m["external_id"].as_str().unwrap().into(), m["kind"].as_str().unwrap().into(), m["author"].as_str().unwrap().into())).collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        [("300", "Comment", "ivy"), ("mention:300", "Mention", "bo"), ("pm:300", "Direct", "cy")].map(|(a, b, c)| (
+            a.to_string(),
+            b.to_string(),
+            c.to_string()
+        )),
+        "one of each kind, found again by their ids when pulled twice, the account's own message left out: {got:?}"
+    );
+    assert!(
+        net.to("GET", "/private_message/list").iter().all(|r| r.query().get("unread_only").map(String::as_str) == Some("true")),
+        "the request asked for received messages only"
+    );
+    let by = |id: &str| uid(&got.iter().find(|m| m["external_id"] == id).unwrap()["id"]);
+    // An answer to a comment is a comment under it; an answer to a private message is a private message.
+    t.act(&t.author, "SocialMessage", by("300"), "reply", json!({"reply": "Thank you!"})).await.unwrap();
+    t.act(&t.author, "SocialMessage", by("pm:300"), "reply", json!({"reply": "Hi cy"})).await.unwrap();
+    t.work().await;
+    let mut out = sent.lock().unwrap().clone();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(out.len(), 2, "{out:?}");
+    assert_eq!(out[0], ("comment".to_string(), json!({"content": "Thank you!", "post_id": 70, "parent_id": 300})), "under the comment, on its post");
+    assert_eq!(out[1], ("private".to_string(), json!({"content": "Hi cy", "recipient_id": 23})));
+    let _ = me;
+}
+
+/// social-1: WordPress comments (`GET /wp/v2/comments` with `author_exclude`, `status`, `type`, `orderby`, `per_page`; `POST /comments`
+/// with `post`, `parent`, `content`; developer.wordpress.org/rest-api, wordpress-develop's comments controller).
+async fn wordpress_inbox(t: &T) {
+    let sent: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let base: Arc<Mutex<String>> = Arc::default();
+    let (s2, b2) = (sent.clone(), base.clone());
+    let net = fake(move |r| {
+        let want = format!("Basic {}", b64(b"editor:abcd efgh ijkl mnop"));
+        if r.header("authorization") != want {
+            return status(401, json!({"code": "rest_not_logged_in", "message": "no"}));
+        }
+        let q = r.query();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/wp-json/") => ok(json!({"name": "Northwind Blog", "url": b2.lock().unwrap().clone(), "home": "https://blog.test"})),
+            ("GET", "/wp-json/wp/v2/comments") => {
+                // The site's own user (7) is left out only when the request says so; unapproved comments only when asked for.
+                let mut all = vec![
+                    json!({"id": 31, "post": 12, "author": 0, "author_name": "Ivy", "content": {"rendered": "<p>Love the <b>colours</b> &amp; the light</p>"}}),
+                    json!({"id": 32, "post": 14, "author": 9, "author_name": "Bo", "content": {"rendered": "<p>Second</p>"}}),
+                    json!({"id": 33, "post": 12, "author": 7, "author_name": "Editor", "content": {"rendered": "<p>Thanks, Ivy</p>"}}),
+                ];
+                if q.get("author_exclude").map(String::as_str) == Some("7") {
+                    all.retain(|c| c["author"] != 7);
+                }
+                if q.get("status").map(String::as_str) != Some("approve") {
+                    all.push(json!({"id": 34, "post": 12, "author": 0, "author_name": "Spam", "content": {"rendered": "<p>buy</p>"}}));
+                }
+                ok(json!(all))
+            }
+            ("POST", "/wp-json/wp/v2/comments") => {
+                s2.lock().unwrap().push(r.json());
+                ok(json!({"id": 77}))
+            }
+            _ => status(404, json!({"code": "rest_no_route", "message": "none"})),
+        }
+    })
+    .await;
+    *base.lock().unwrap() = net.base.clone();
+    let conn = t
+        .connect(
+            "wordpress_inbox",
+            "wordpress",
+            &[("https://wordpress.example", &net.base), ("REPLACE-WITH-THE-WORDPRESS-USER-ID", "7")],
+            json!({"application_password": "abcd efgh ijkl mnop"}),
+            |d| d["auth"]["username"] = json!("editor"),
+        )
+        .await;
+    let _blog = t.account("WordPress inbox", "blog", conn, &net.base).await;
+    for _ in 0..2 {
+        t.k.pull_now(&t.admin, conn, "comments").await.unwrap();
+        t.work().await;
+    }
+    let got: Vec<Doc> = t.rows("SocialMessage", json!({})).await.into_iter().filter(|m| m["via_connection"] == conn.to_string()).collect();
+    let mut seen: Vec<(String, String, String, String)> = got
+        .iter()
+        .map(|m| {
+            (
+                m["external_id"].as_str().unwrap().into(),
+                m["kind"].as_str().unwrap().into(),
+                m["text"].as_str().unwrap().into(),
+                m["post_external_id"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        [("31", "Comment", "Love the colours & the light", "posts:12"), ("32", "Comment", "Second", "posts:14")].map(|(a, b, c, d)| (
+            a.to_string(),
+            b.to_string(),
+            c.to_string(),
+            d.to_string()
+        )),
+        "two comments by others without their tags, the site's own and an unapproved one left out, pulled twice and still two: {got:?}"
+    );
+    let asked = net.to("GET", "/wp/v2/comments");
+    assert!(
+        asked.len() >= 2
+            && asked
+                .iter()
+                .all(|r| r.query().get("author_exclude").map(String::as_str) == Some("7") && r.query().get("status").map(String::as_str) == Some("approve"))
+    );
+    t.act(&t.author, "SocialMessage", uid(&got.iter().find(|m| m["external_id"] == "31").unwrap()["id"]), "reply", json!({"reply": "Thank you!"}))
+        .await
+        .unwrap();
+    t.work().await;
+    assert_eq!(*sent.lock().unwrap(), [json!({"post": 12, "parent": 31, "content": "Thank you!"})], "a comment on that post, under that comment");
+}
+
+/// social-1: Tumblr's notifications of a blog, narrowed to replies by `types[]` (tumblr.com/docs/en/api/v2), no answer to a note.
+async fn tumblr_inbox(t: &T) {
+    let net = fake(move |r| {
+        if r.path() == "/v2/oauth2/token" {
+            return ok(json!({"access_token": "tb-token", "token_type": "bearer", "expires_in": 2520, "refresh_token": "tb-refresh"}));
+        }
+        if r.header("authorization") != "Bearer tb-token" {
+            return status(401, json!({"meta": {"status": 401}}));
+        }
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/v2/user/info") => ok(json!({"meta": {"status": 200}, "response": {"user": {"name": "northwind", "blogs": [{"name": "northwind", "title": "Northwind Notes"}]}}})),
+            ("GET", "/v2/blog/northwind/notifications") => {
+                let mut all = vec![json!({"id": 5001, "type": "reply", "timestamp": 1790000000, "from_tumblelog_name": "ivy", "post_id": "88", "reply_text": "Love the colours!"})];
+                // Likes arrive only when the type filter is missing.
+                if !r.target.contains("types[]=reply") && !r.target.contains("types%5B%5D=reply") {
+                    all.push(json!({"id": 5002, "type": "like", "timestamp": 1790000001, "from_tumblelog_name": "bo", "post_id": "88"}));
+                }
+                ok(json!({"meta": {"status": 200}, "response": {"notifications": all}}))
+            }
+            _ => status(404, json!({"meta": {"status": 404}})),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "tumblr_inbox",
+            "tumblr",
+            &[("https://api.tumblr.com", &net.base), ("https://www.tumblr.com", &net.base)],
+            json!({"client_secret": "tumblr-secret"}),
+            |d| d["auth"]["provider"]["client_id"] = json!("tumblr-id"),
+        )
+        .await;
+    t.sign_in(conn, "CODE-north").await;
+    let _blog = t.account("Tumblr inbox", "northwind", conn, "northwind").await;
+    for _ in 0..2 {
+        t.k.pull_now(&t.admin, conn, "notifications").await.unwrap();
+        t.work().await;
+    }
+    let got: Vec<Doc> = t.rows("SocialMessage", json!({})).await.into_iter().filter(|m| m["via_connection"] == conn.to_string()).collect();
+    assert_eq!(got.len(), 1, "the reply once, the like not at all: {got:?} {:?} {:?}", t.k.connection_pulls(&t.admin, conn).await.unwrap(), net.order());
+    assert_eq!(
+        (got[0]["external_id"].as_str(), got[0]["kind"].as_str(), got[0]["author"].as_str(), got[0]["text"].as_str()),
+        (Some("5001"), Some("Comment"), Some("ivy"), Some("Love the colours!"))
+    );
+    // Tumblr's API offers no answer to a note: the inbox says so in its own words.
+    let refused = t.act(&t.author, "SocialMessage", uid(&got[0]["id"]), "reply", json!({"reply": "Thanks"})).await;
+    assert!(refused.is_err_and(|e| e.to_string().contains("cannot reply")));
+}
+
+/// social-1: Neynar's notifications (`GET /v2/farcaster/notifications?fid=&type=replies,mentions`; docs.neynar.com) and a cast under one.
+async fn farcaster_inbox(t: &T) {
+    let casts: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let c2 = casts.clone();
+    let net = fake(move |r| {
+        if r.header("x-api-key") != "neynar-key" {
+            return status(401, json!({"message": "Invalid API key"}));
+        }
+        let q = r.query();
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/v2/farcaster/signer") => ok(json!({"status": "approved", "fid": 3})),
+            ("GET", "/v2/farcaster/user/bulk") => ok(json!({"users": [{"fid": 3, "username": "northwind", "display_name": "Northwind", "pfp_url": "https://p.test/n.png", "follower_count": 9}]})),
+            ("GET", "/v2/farcaster/notifications") => {
+                if q.get("fid").map(String::as_str) != Some("3") {
+                    return status(400, json!({"message": "fid"}));
+                }
+                let cast = |h: &str, who: &str, fid: i64, text: &str, parent: Value| json!({"hash": h, "text": text, "author": {"fid": fid, "username": who}, "parent_hash": parent});
+                let mut all = vec![
+                    json!({"type": "reply", "cast": cast("0xr1", "ivy", 11, "Love it", json!("0xours"))}),
+                    json!({"type": "mention", "cast": cast("0xm1", "bo", 12, "@northwind look", Value::Null)}),
+                ];
+                if q.get("type").map(String::as_str) != Some("replies,mentions") {
+                    all.push(json!({"type": "likes", "cast": cast("0xl1", "cy", 13, "", json!("0xours"))}));
+                }
+                ok(json!({"notifications": all, "next": {"cursor": null}}))
+            }
+            ("POST", "/v2/farcaster/cast") => {
+                let b = r.json();
+                let mut casts = c2.lock().unwrap();
+                if !casts.iter().any(|c| c["idem"] == b["idem"]) {
+                    casts.push(b.clone());
+                }
+                ok(json!({"success": true, "cast": {"hash": format!("0xnew{}", casts.len())}}))
+            }
+            _ => status(404, json!({"message": "no such route"})),
+        }
+    })
+    .await;
+    let conn = t
+        .connect(
+            "farcaster_inbox",
+            "farcaster",
+            &[("https://api.neynar.com", &net.base), ("REPLACE-WITH-THE-FID", "3")],
+            json!({"api_key": "neynar-key", "signer_uuid": "signer-uuid-1"}),
+            |_| {},
+        )
+        .await;
+    let _me = t.account("Farcaster inbox", "northwind", conn, "3").await;
+    for _ in 0..2 {
+        t.k.pull_now(&t.admin, conn, "notifications").await.unwrap();
+        t.work().await;
+    }
+    let got: Vec<Doc> = t.rows("SocialMessage", json!({})).await.into_iter().filter(|m| m["via_connection"] == conn.to_string()).collect();
+    let mut seen: Vec<(String, String, String, Option<String>)> = got
+        .iter()
+        .map(|m| {
+            (
+                m["external_id"].as_str().unwrap().into(),
+                m["kind"].as_str().unwrap().into(),
+                m["author_id"].as_str().unwrap().into(),
+                m["post_external_id"].as_str().map(String::from),
+            )
+        })
+        .collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        [("0xm1", "Mention", "12", None), ("0xr1", "Comment", "11", Some("0xours"))].map(|(a, b, c, d)| (
+            a.to_string(),
+            b.to_string(),
+            c.to_string(),
+            d.map(String::from)
+        )),
+        "a reply and a mention, once each, the like left out because the request asked for replies and mentions: {got:?}"
+    );
+    let r1 = uid(&got.iter().find(|m| m["external_id"] == "0xr1").unwrap()["id"]);
+    t.act(&t.author, "SocialMessage", r1, "reply", json!({"reply": "Thank you!"})).await.unwrap();
+    t.work().await;
+    let casts = casts.lock().unwrap().clone();
+    assert_eq!(casts.len(), 1, "{casts:?}");
+    assert_eq!((casts[0]["parent"].as_str(), casts[0]["text"].as_str()), (Some("0xr1"), Some("Thank you!")));
+    assert!(casts[0]["idem"].as_str().is_some_and(|k| !k.is_empty()), "sent under the call's key: {:?}", casts[0]);
+}
+
+/// social-2: the numbers of a post, as the upkeep asks for them (the `metrics` operation, called as Social calls it).
+async fn numbers_call(t: &T, conn: Uuid, id: &str) -> ferrum_kernel::Result<Value> {
+    ferrum_kernel::connections::call(
+        &t.k,
+        &t.admin,
+        Some("social"),
+        &ferrum_kernel::connections::Call {
+            connection: conn.to_string(),
+            operation: "metrics".into(),
+            inputs: json!({"id": id}),
+            key: None,
+            entity: None,
+            record: None,
+        },
+    )
+    .await
+}
+
+/// WordPress reports the total of a collection in `X-WP-Total`; asked for one comment a page, so the answer stays small.
+async fn wordpress_numbers(t: &T) {
+    let net = fake(move |r| {
+        if r.header("authorization") != format!("Basic {}", b64(b"editor:abcd efgh ijkl mnop")) {
+            return status(401, json!({"code": "rest_not_logged_in", "message": "no"}));
+        }
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/wp-json/wp/v2/comments") => {
+                let q = r.query();
+                let total = if q.get("post").map(String::as_str) == Some("12") { "7" } else { "0" };
+                let items = if total == "7" { json!([{"id": 1, "post": 12}]) } else { json!([]) };
+                with_headers(200, &[("X-WP-Total", total), ("X-WP-TotalPages", total)], &items.to_string())
+            }
+            _ => status(404, json!({"code": "rest_no_route", "message": "none"})),
+        }
+    })
+    .await;
+    let conn = t
+        .connect("wordpress_numbers", "wordpress", &[("https://wordpress.example", &net.base)], json!({"application_password": "abcd efgh ijkl mnop"}), |d| {
+            d["auth"]["username"] = json!("editor")
+        })
+        .await;
+    let seven = numbers_call(t, conn, "posts:12").await.unwrap();
+    assert_eq!(
+        (seven["engagements"].as_str().or(seven["engagements"].as_i64().map(|_| "7")), seven["impressions"].is_null()),
+        (Some("7"), true),
+        "the comments of post 12 from the header; no views in WordPress core: {seven}"
+    );
+    let none = numbers_call(t, conn, "posts:99").await.unwrap();
+    assert_eq!(none["engagements"].to_string().trim_matches('"'), "0", "{none}");
+    let asked = net.to("GET", "/comments");
+    assert_eq!((asked[0].query().get("post").map(String::as_str), asked[0].query().get("per_page").map(String::as_str)), (Some("12"), Some("1")));
+}
+
+/// DEV's reactions of an article from the author's own list; an article missing from the list gives no numbers, not an error.
+async fn devto_numbers(t: &T) {
+    let net = fake(move |r| {
+        if r.header("api-key") != "devto-key" {
+            return status(401, json!({"error": "unauthorized"}));
+        }
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/api/articles/me/all") => {
+                ok(json!([{"id": 901, "positive_reactions_count": 14, "public_reactions_count": 14}, {"id": 902, "positive_reactions_count": 2}]))
+            }
+            _ => status(404, json!({"error": "not found"})),
+        }
+    })
+    .await;
+    let conn = t.connect("devto_numbers", "devto", &[("https://dev.to", &net.base)], json!({"api_key": "devto-key"}), |_| {}).await;
+    let got = numbers_call(t, conn, "901").await.unwrap();
+    assert_eq!(got["engagements"].to_string().trim_matches('"'), "14", "{got}");
+    assert!(got["impressions"].is_null(), "page views are not documented for the list, so none are read: {got}");
+    let missing = numbers_call(t, conn, "555").await.unwrap();
+    assert!(missing["engagements"].is_null() || missing["engagements"] == "", "an article not in the list leaves its numbers empty: {missing}");
+}
+
+/// social-3: like, hide and delete a comment on the network, and snoozing (Lemmy's description, given the three operations).
+async fn inbox_acts(t: &T) {
+    let calls: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let refuse: Arc<Mutex<bool>> = Arc::default();
+    let (c2, r2) = (calls.clone(), refuse.clone());
+    let net = fake(move |r| {
+        let me = json!({"id": 5, "name": "northwind"});
+        match (r.method.as_str(), r.path()) {
+            ("POST", "/api/v3/user/login") => ok(json!({"jwt": "JWT-1"})),
+            _ if r.header("authorization") != "Bearer JWT-1" => status(400, json!({"error": "not_logged_in"})),
+            ("GET", "/api/v3/site") => ok(json!({"my_user": {"local_user_view": {"person": {"id": 5, "name": "northwind", "display_name": "Northwind"}}}})),
+            ("GET", "/api/v3/user/replies") => ok(json!({"replies": [{"comment_reply": {"id": 9}, "comment": {"id": 400, "content": "Love it"}, "creator": {"id": 21, "name": "ivy"}, "post": {"id": 70}}]})),
+            ("GET", "/api/v3/user/mention") => ok(json!({"mentions": [{"person_mention": {"id": 4}, "comment": {"id": 400, "content": "@northwind see this"}, "creator": {"id": 22, "name": "bo"}, "post": {"id": 71}}]})),
+            ("GET", "/api/v3/private_message/list") => ok(json!({"private_messages": [{"private_message": {"id": 400, "content": "hello there"}, "creator": {"id": 23, "name": "cy"}, "recipient": me}]})),
+            ("POST", "/api/v3/comment") => ok(json!({"comment_view": {"comment": {"id": 901}}})),
+            ("POST", p) if p.starts_with("/api/v3/act/") => {
+                c2.lock().unwrap().push((p.to_string(), r.header("idempotency-key").to_string()));
+                if p.contains("/hide/") && *r2.lock().unwrap() {
+                    status(400, json!({"error": "not_allowed_here"}))
+                } else {
+                    ok(json!({}))
+                }
+            }
+            _ => status(404, json!({"error": "not_found"})),
+        }
+    })
+    .await;
+    let conn = t
+        .connect("lemmy_acts", "lemmy", &[("https://lemmy.example", &net.base)], json!({"username": "northwind", "password": "lemmy-pass"}), |d| {
+            for (name, path) in [("like_comment", "like"), ("hide_comment", "hide"), ("delete_comment", "remove")] {
+                d["operations"][name] = json!({"method": "POST", "path": format!("/act/{path}/{{{{ inputs.id }}}}"), "body": "{}", "error_at": "/error", "idempotency_header": "Idempotency-Key", "inputs": ["id"]});
+            }
+        })
+        .await;
+    let _acct = t.account("Lemmy acts", "northwind", conn, "5").await;
+    for pull in ["replies", "mentions", "private_messages"] {
+        t.k.pull_now(&t.admin, conn, pull).await.unwrap();
+        t.work().await;
+    }
+    let got: Vec<Doc> = t.rows("SocialMessage", json!({})).await.into_iter().filter(|m| m["via_connection"] == conn.to_string()).collect();
+    let by = |id: &str| uid(&got.iter().find(|m| m["external_id"] == id).unwrap()["id"]);
+    let (comment, mention, dm) = (by("400"), by("mention:400"), by("pm:400"));
+    let reached = |what: &str| calls.lock().unwrap().iter().filter(|(p, _)| p.contains(what)).count();
+    let state = |m: Uuid| t.get("SocialMessage", m);
+
+    // A like reaches the network once, however often it is asked: the gate repeats it, and while it is going out another is refused.
+    let like = |key: &'static str| {
+        t.k.invoke(&t.author, ferrum_kernel::capability::Invocation::new("social.social_message.like", json!({"id": comment.to_string()})).key(key))
+    };
+    let first = like("like-1").await.expect("the like is queued");
+    let again = like("like-1").await.expect("repeated under its key");
+    assert!(!first.repeated && again.repeated, "{first:?} {again:?}");
+    assert!(t.act(&t.author, "SocialMessage", comment, "like", json!({})).await.is_err(), "another action is refused while one is going out");
+    t.work().await;
+    let m = state(comment).await;
+    assert!(m["liked_at"].is_string() && m["act_pending"].is_null() && m["act_failure"].is_null(), "{m:?}");
+    assert_eq!(reached("/like/400"), 1, "{:?}", calls.lock().unwrap());
+    assert!(!calls.lock().unwrap()[0].1.is_empty(), "under the call's key");
+    assert!(t.act(&t.author, "SocialMessage", comment, "like", json!({})).await.is_err(), "liked already");
+
+    // Two workers, one like.
+    t.act(&t.author, "SocialMessage", mention, "like", json!({})).await.unwrap();
+    let mut tx = t.k.db.system_tx().await.unwrap();
+    sqlx::query("update job set run_at = now() where status = 'queued' and kind = 'social.inbox_act'").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let (a, b) = tokio::join!(t.k.run_jobs_once(4), t.k.run_jobs_once(4));
+    a.unwrap();
+    b.unwrap();
+    t.work().await;
+    assert_eq!(reached("/like/mention%3A400"), 1, "the mention's like went out once under two workers: {:?}", calls.lock().unwrap());
+    assert!(state(mention).await["liked_at"].is_string());
+
+    // A refusal is shown in the network's words and cleared by a later success.
+    *refuse.lock().unwrap() = true;
+    t.act(&t.author, "SocialMessage", comment, "hide", json!({})).await.unwrap();
+    t.work().await;
+    let m = state(comment).await;
+    assert!(m["act_failure"].as_str().is_some_and(|f| f.contains("not_allowed_here")) && m["act_pending"].is_null() && m["hidden_at"].is_null(), "{m:?}");
+    *refuse.lock().unwrap() = false;
+    t.act(&t.author, "SocialMessage", comment, "hide", json!({})).await.unwrap();
+    t.work().await;
+    let m = state(comment).await;
+    assert!(m["hidden_at"].is_string() && m["act_failure"].is_null(), "{m:?}");
+
+    // Only an approver or a manager deletes; the message is then closed.
+    assert!(t.act(&t.author, "SocialMessage", comment, "remove", json!({})).await.is_err(), "an author may not delete on the network");
+    t.act(&t.manager, "SocialMessage", comment, "remove", json!({})).await.unwrap();
+    t.work().await;
+    let m = state(comment).await;
+    assert!(m["removed_at"].is_string() && m["status"] == "Closed", "{m:?}");
+
+    // A direct message is not liked or hidden; `can` says what is offered.
+    assert!(t.act(&t.author, "SocialMessage", dm, "like", json!({})).await.is_err());
+    assert!(t.act(&t.author, "SocialMessage", dm, "hide", json!({})).await.is_err());
+    let can = t.act(&t.author, "SocialMessage", dm, "can", Value::Null).await.unwrap();
+    assert_eq!(can, json!({"reply": true, "like": false, "hide": false, "remove": false}));
+
+    // Snooze: it needs a time ahead; it comes back as it was; a person who reopened it is not overwritten; answering wakes it.
+    let later = |h: i64| (Utc::now() + Duration::hours(h)).to_rfc3339();
+    t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Assigned", "assigned_to": "author@brands.test"})), None).await.unwrap();
+    assert!(t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Snoozed"})), None).await.is_err(), "no time");
+    assert!(t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Snoozed", "snoozed_until": later(-1)})), None).await.is_err(), "a time past");
+    t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Snoozed", "snoozed_until": later(2)})), None).await.unwrap();
+    assert_eq!(state(dm).await["snoozed_from"], "Assigned");
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, Utc::now() + Duration::hours(3)).await.unwrap();
+    let m = state(dm).await;
+    assert!(m["status"] == "Assigned" && m["snoozed_until"].is_null() && m["snoozed_from"].is_null(), "{m:?}");
+    t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "Snoozed", "snoozed_until": later(2)})), None).await.unwrap();
+    t.k.update(&t.author, "SocialMessage", dm, obj(json!({"status": "New"})), None).await.unwrap();
+    ferrum_app_social::maintenance_at(&t.k, t.tenant, Utc::now() + Duration::hours(3)).await.unwrap();
+    assert_eq!(state(dm).await["status"], "New", "a person who reopened it is not overwritten");
+    t.k.update(&t.author, "SocialMessage", mention, obj(json!({"status": "Snoozed", "snoozed_until": later(5)})), None).await.unwrap();
+    t.act(&t.author, "SocialMessage", mention, "reply", json!({"reply": "Thanks"})).await.unwrap();
+    t.work().await;
+    let m = state(mention).await;
+    assert!(m["status"] == "Answered" && m["snoozed_until"].is_null() && m["snoozed_from"].is_null(), "answering it wakes it: {m:?}");
 }
 
 // ───────────── VK ─────────────

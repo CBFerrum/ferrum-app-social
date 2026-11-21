@@ -106,7 +106,8 @@
       "title": {
         "required": true,
         "max": 200
-      }
+      },
+      "inbox_format": "html"
     }
   },
   "operations": {
@@ -403,6 +404,99 @@
       "inputs": [
         "id"
       ]
+    },
+    "comments": {
+      "path": "/comments",
+      "query": {
+        "status": "approve",
+        "type": "comment",
+        "orderby": "date_gmt",
+        "order": "desc",
+        "per_page": "50",
+        "author_exclude": "REPLACE-WITH-THE-WORDPRESS-USER-ID"
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "reply": {
+      "method": "POST",
+      "path": "/comments",
+      "body": "{\"post\": {{ inputs.thread | int | json }}, \"parent\": {{ inputs.in_reply_to | int | json }}, \"content\": {{ inputs.text | json }}}",
+      "result": {
+        "id": {
+          "expr": "string(answer.id)",
+          "required": true
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "text",
+        "in_reply_to",
+        "thread"
+      ]
+    },
+    "metrics": {
+      "path": "/comments",
+      "query": {
+        "post": "{{ inputs.id | split(':') | last }}",
+        "per_page": "1",
+        "status": "approve"
+      },
+      "result": {
+        "engagements": {
+          "header": "x-wp-total"
+        }
+      },
+      "error_at": "/message",
+      "temporary": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "inputs": [
+        "id"
+      ]
     }
-  }
+  },
+  "pulls": [
+    {
+      "name": "comments",
+      "operation": "comments",
+      "every_minutes": 15,
+      "items_at": "",
+      "cursor": "time",
+      "map": {
+        "entity": "SocialMessage",
+        "outside": true,
+        "by": {
+          "external_id": "string(item.id)"
+        },
+        "set": {
+          "kind": "'Comment'",
+          "author": "item.author_name",
+          "author_id": "string(item.author)",
+          "text": "item.content.rendered",
+          "post_external_id": "'posts:' + string(item.post)",
+          "thread": "string(item.post)",
+          "via_connection": "connection.id"
+        },
+        "as": "system"
+      }
+    }
+  ]
 }

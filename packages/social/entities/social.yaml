@@ -12,10 +12,10 @@
     - {name: report_to, type: email, label: Weekly Report To, description: "(round two) Who gets the brand's numbers each Monday as a document; empty: nobody (the automation social_weekly_report sends it)"}
     - {name: numbers, type: json, read_only: true, no_copy: true, label: Last Seven Days, description: "(round two) Its posts' numbers over the last seven days against the seven before, and its top post: kept by the upkeep each day"}
   actions:
-    - {name: write_new, label: Write a Post, permission: read, params: [{name: prompt, type: text, label: What About, required: true}]}
-    - {name: media_search, label: Find Pictures, permission: read, read_only: true, params: [{name: query, type: data, label: Look For, required: true}, {name: source, type: data, label: Source}, {name: page, type: int, label: Page}]}
+    - {name: write_new, label: Write a Post, permission: read, params: [{name: prompt, type: text, label: What About, required: true}], contract: {effect: external_effect, returns: {type: object}, completion: "A draft post is written from the prompt by the workspace's writing service and saved; nothing is sent to a network"}}
+    - {name: media_search, label: Find Pictures, permission: read, read_only: true, params: [{name: query, type: data, label: Look For, required: true}, {name: source, type: data, label: Source}, {name: page, type: int, label: Page}], contract: {effect: query, returns: {type: object}, completion: "Pictures found at the picture sources for the words are listed; nothing is saved"}}
     - {name: media_take, label: Take a Picture, permission: read, hidden: true, params: [{name: source, type: data, label: Source}, {name: id, type: data, label: Its Id, required: true}, {name: url, type: data, label: Address}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}, {name: credit, type: data, label: Credit}, {name: credit_link, type: data, label: Credit Link}, {name: licence, type: text, label: Licence}, {name: width, type: int, label: Width}, {name: height, type: int, label: Height}]}
-    - {name: media_from_address, label: Add Media From an Address, permission: read, params: [{name: url, type: data, label: Address, required: true}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}]}
+    - {name: media_from_address, label: Add Media From an Address, permission: read, params: [{name: url, type: data, label: Address, required: true}, {name: name, type: data, label: Name}, {name: alt, type: data, label: Description}], contract: {effect: external_effect, returns: {type: object}, completion: "The picture or clip at the address is fetched, checked and kept in the media library; the address's host is asked once"}}
   list: {columns: [brand_name], sort: brand_name asc}
 
 - name: SocialSettings
@@ -77,14 +77,14 @@
     - {name: default_settings, type: json, label: Usual Answers, description: "Answers to what its network asks, used unless a post answers"}
     - {name: sort_order, type: int, default: 0, label: Order, description: "Where it comes in lists of accounts, lowest first"}
   actions:
-    - {name: check, label: Check the Connection, permission: write}
-    - {name: rules, label: What Its Network Takes, permission: read, read_only: true}
-    - {name: reachable, label: What the Sign-in Reaches, permission: read, read_only: true}
-    - {name: choose, label: Choose Accounts, permission: write, params: [{name: picked, type: text, label: Ids Picked, required: true}]}
+    - {name: check, label: Check the Connection, permission: write, contract: {effect: external_effect, returns: {type: object}, completion: "The connection is asked who it is signed in as, and the account's state, name and followers are updated from the answer"}}
+    - {name: rules, label: What Its Network Takes, permission: read, read_only: true, contract: {effect: query, returns: {type: object}, completion: "What the account's network takes and asks, as its connection's description says; nothing is changed"}}
+    - {name: reachable, label: What the Sign-in Reaches, permission: read, read_only: true, contract: {effect: query, returns: {type: object}, completion: "The accounts the connection's sign-in reaches on the network, not yet chosen; nothing is changed"}}
+    - {name: choose, label: Choose Accounts, permission: write, params: [{name: picked, type: text, label: Ids Picked, required: true}], contract: {effect: transactional_action, returns: {type: object}, completion: "An account exists for each id picked, committed with this receipt"}}
     - {name: mentions, label: Look Up Mentions, permission: read, read_only: true, hidden: true, params: [{name: query, type: data, label: Who}]}
     - {name: choices, label: Choices of a Setting, permission: read, read_only: true, hidden: true, params: [{name: setting, type: data, label: Setting, required: true}, {name: query, type: data, label: Search}]}
-    - {name: connect, label: Connect or Reconnect, permission: write, read_only: true}
-    - {name: disconnect, label: Disconnect, permission: write, confirm: "Sign this account out? The provider is told to revoke its access."}
+    - {name: connect, label: Connect or Reconnect, permission: write, read_only: true, contract: {effect: query, returns: {type: object}, completion: "The address where the person signs in at the network is given; the account is connected when the person comes back from the network"}}
+    - {name: disconnect, label: Disconnect, permission: write, confirm: "Sign this account out? The provider is told to revoke its access.", contract: {effect: external_effect, returns: {type: object}, completion: "The provider is told to revoke the account's access and the account is signed out"}}
   list: {columns: [account_name, brand, network, state, active], sort: account_name asc}
 
 - name: SocialTarget
@@ -169,27 +169,27 @@
     - {name: checks, type: json, read_only: true, no_copy: true, hidden: true, description: "(round two) Each account's copy, lengths and problems, as copies answers; filled only for a body that asks"}
     - {name: preview, type: text, read_only: true, no_copy: true, label: As It Goes Out, description: "What each account gets, as a review link shows it: made when a review link is given"}
   actions:
-    - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'"}
-    - {name: retry, label: Retry, permission: write, condition: "doc.status == 'Failed'", confirm: "Send it again to the accounts it did not reach?"}
-    - {name: publish_now, label: Publish Now, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'Approved'", confirm: "Send it now? A post not yet approved goes as soon as it is."}
-    - {name: add_to_queue, label: Add to Queue, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'In Review' || doc.status == 'Approved'"}
-    - {name: reschedule, label: Move, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'In Review' || doc.status == 'Approved'", params: [{name: at, type: datetime, label: Goes Out At, required: true}]}
-    - {name: unschedule, label: Back to Draft, permission: write, condition: "doc.status == 'In Review' || doc.status == 'Approved'", confirm: "Take it off the calendar and back to a draft? It needs approving again."}
-    - {name: duplicate, label: Duplicate, permission: write}
-    - {name: stop_repeat, label: Stop Repeating, permission: write, condition: "!isEmpty(doc.repeat_every)"}
-    - {name: copies, label: As Each Account Gets It, permission: read, read_only: true}
-    - {name: write, label: Write It, permission: read, params: [{name: prompt, type: text, label: What About, required: true}]}
-    - {name: rewrite, label: Rewrite It, permission: read, params: [{name: instruction, type: text, label: How}, {name: preset, type: link, to: SocialWritingPreset, label: Or a Preset}]}
-    - {name: adapt, label: Adapt for Each Account, permission: read}
-    - {name: hashtags, label: Suggest Hashtags, permission: read, params: [{name: count, type: int, label: How Many}]}
-    - {name: describe, label: Describe the Picture, permission: read, params: [{name: medium, type: int, label: Which Medium (From 0)}]}
-    - {name: thread, label: Split Into a Thread, permission: read, params: [{name: parts, type: int, label: Parts}]}
-    - {name: picture, label: Make a Picture, permission: read, params: [{name: prompt, type: text, label: Of What, required: true}]}
-    - {name: save_as_template, label: Save as Template, permission: read, params: [{name: name, type: data, label: Template Name, required: true}]}
+    - {name: send_for_review, label: Send for Review, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected'", contract: {effect: transactional_action, returns: {type: object}, completion: "The post is In Review, or Approved when the policy needs no one else, committed with this receipt"}}
+    - {name: retry, label: Retry, permission: write, condition: "doc.status == 'Failed'", confirm: "Send it again to the accounts it did not reach?", contract: {effect: transactional_action, returns: {type: object}, completion: "The accounts the post did not reach are queued again, each as one job under its own key, committed with this receipt"}}
+    - {name: publish_now, label: Publish Now, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'Approved'", confirm: "Send it now? A post not yet approved goes as soon as it is.", contract: {effect: transactional_action, returns: {type: object}, completion: "The post is queued to go out now to each of its accounts, each as one job under its own key; the jobs call the networks"}}
+    - {name: add_to_queue, label: Add to Queue, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'In Review' || doc.status == 'Approved'", contract: {effect: transactional_action, returns: {type: object}, completion: "The post is given the next time of its account's queue, committed with this receipt"}}
+    - {name: reschedule, label: Move, permission: write, condition: "doc.status == 'Draft' || doc.status == 'Rejected' || doc.status == 'In Review' || doc.status == 'Approved'", params: [{name: at, type: datetime, label: Goes Out At, required: true}], contract: {effect: transactional_action, returns: {type: object}, completion: "The post goes out at the new time; a change of time keeps the approval"}}
+    - {name: unschedule, label: Back to Draft, permission: write, condition: "doc.status == 'In Review' || doc.status == 'Approved'", confirm: "Take it off the calendar and back to a draft? It needs approving again.", contract: {effect: transactional_action, returns: {type: object}, completion: "The post is a draft again and needs approving again, committed with this receipt"}}
+    - {name: duplicate, label: Duplicate, permission: write, contract: {effect: transactional_action, returns: {type: object}, completion: "A new draft copies this post, committed with this receipt"}}
+    - {name: stop_repeat, label: Stop Repeating, permission: write, condition: "!isEmpty(doc.repeat_every)", contract: {effect: transactional_action, returns: {type: object}, completion: "The post makes no more copies of itself, committed with this receipt"}}
+    - {name: copies, label: As Each Account Gets It, permission: read, read_only: true, contract: {effect: query, returns: {type: object}, completion: "The post as each of its accounts would get it; nothing is changed"}}
+    - {name: write, label: Write It, permission: read, params: [{name: prompt, type: text, label: What About, required: true}], contract: {effect: external_effect, returns: {type: object}, completion: "The post's words are written from the prompt by the workspace's writing service and given back"}}
+    - {name: rewrite, label: Rewrite It, permission: read, params: [{name: instruction, type: text, label: How}, {name: preset, type: link, to: SocialWritingPreset, label: Or a Preset}], contract: {effect: external_effect, returns: {type: object}, completion: "The post's words are rewritten as asked by the workspace's writing service and given back"}}
+    - {name: adapt, label: Adapt for Each Account, permission: read, contract: {effect: external_effect, returns: {type: object}, completion: "The post's words are adapted for each of its accounts by the workspace's writing service and given back"}}
+    - {name: hashtags, label: Suggest Hashtags, permission: read, params: [{name: count, type: int, label: How Many}], contract: {effect: external_effect, returns: {type: object}, completion: "Hashtags for the post are suggested by the workspace's writing service and given back"}}
+    - {name: describe, label: Describe the Picture, permission: read, params: [{name: medium, type: int, label: Which Medium (From 0)}], contract: {effect: external_effect, returns: {type: object}, completion: "A description of the picture is written by the workspace's writing service and given back"}}
+    - {name: thread, label: Split Into a Thread, permission: read, params: [{name: parts, type: int, label: Parts}], contract: {effect: external_effect, returns: {type: object}, completion: "The post's words are split into a thread by the workspace's writing service and given back"}}
+    - {name: picture, label: Make a Picture, permission: read, params: [{name: prompt, type: text, label: Of What, required: true}], contract: {effect: external_effect, returns: {type: object}, completion: "A picture is made from the prompt by the workspace's picture service and kept in the media library"}}
+    - {name: save_as_template, label: Save as Template, permission: read, params: [{name: name, type: data, label: Template Name, required: true}], contract: {effect: transactional_action, returns: {type: object}, completion: "A template is made from the post, committed with this receipt"}}
     - {name: review, label: Approve Under the Policy, permission: write, hidden: true,
        condition: "doc.status == 'In Review' && (doc.author == null || doc.author.lowerAscii() == user.email.lowerAscii())",
        condition_message: "Send for Review asks for it, in its author's name (a post whose author has left: duplicate it, then send the copy)"}
-    - {name: review_link, label: Review Link, permission: write, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", params: [{name: email, type: data, label: Send It To}, {name: name, type: data, label: Their Name}, {name: decide, type: check, label: They May Approve or Ask for Changes}, {name: days, type: int, label: Works For (Days)}, {name: uses, type: int, label: Uses}]}
+    - {name: review_link, label: Review Link, permission: write, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", params: [{name: email, type: data, label: Send It To}, {name: name, type: data, label: Their Name}, {name: decide, type: check, label: They May Approve or Ask for Changes}, {name: days, type: int, label: Works For (Days)}, {name: uses, type: int, label: Uses}], contract: {effect: transactional_action, returns: {type: object}, completion: "A signed link is made for the person named; whoever holds it may comment on the post (and decide, if allowed) until it ends"}}
     - {name: review_comment, label: Comment, permission: write, hidden: true, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", condition_message: "{{ doc.headline }} has gone out already", params: [{name: comment, type: text, label: Your Comment, required: true}, {name: reviewer, type: data, label: Reviewer}, {name: reviewer_name, type: data, label: Reviewer's Name}]}
     - {name: review_approve, label: Approve, permission: write, hidden: true, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", condition_message: "{{ doc.headline }} has gone out already", params: [{name: comment, type: text, label: Anything to Add}, {name: reviewer, type: data, label: Reviewer}, {name: reviewer_name, type: data, label: Reviewer's Name}]}
     - {name: review_changes, label: Ask for Changes, permission: write, hidden: true, condition: "doc.status == 'Draft' || doc.status == 'In Review' || doc.status == 'Approved' || doc.status == 'Rejected'", condition_message: "{{ doc.headline }} has gone out already", params: [{name: comment, type: text, label: What to Change, required: true}, {name: reviewer, type: data, label: Reviewer}, {name: reviewer_name, type: data, label: Reviewer's Name}]}
@@ -242,7 +242,7 @@
     - {name: short_links, type: json, read_only: true, no_copy: true, label: Short Links, description: "(round two) Each address it carried and its short link: made once, used again on a retry"}
     - {name: clicks_read_at, type: datetime, read_only: true, no_copy: true, hidden: true}
   actions:
-    - {name: delete_remote, label: Delete on the Network, permission: write, condition: "!isEmpty(doc.external_id) && isEmpty(doc.deleted_at)", confirm: "Delete this post from the network? It cannot be put back from here."}
+    - {name: delete_remote, label: Delete on the Network, permission: write, condition: "!isEmpty(doc.external_id) && isEmpty(doc.deleted_at)", confirm: "Delete this post from the network? It cannot be put back from here.", contract: {effect: external_effect, returns: {type: object}, completion: "The post is deleted on the network, once, and the publication is marked deleted; or the network's words are shown"}}
   list: {columns: [post, account, external_id, impressions, engagements], sort: sent_at desc}
 
 - name: SocialInsight
@@ -303,10 +303,31 @@
     - {name: contact_id, type: data, read_only: true, no_copy: true, description: "The record of the person who wrote, when Social Settings match senders to one"}
     - {name: post_external_id, type: data, description: "The post it answers, when it is a comment"}
     - {name: via_connection, type: data, no_copy: true, hidden: true, description: "The connection it was read through: where neither the handle nor the post names an account, the one account that connection reaches (for a person's own, the one she connected)"}
-    - {name: status, type: select, options: [New, Assigned, Answered, Closed], default: New, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [New, Assigned, Answered, Snoozed, Closed], default: New, in_list: true, in_filter: true}
     - {name: assigned_to, type: email, in_list: true, in_filter: true}
+    - {name: snoozed_until, type: datetime, in_filter: true, description: "With status Snoozed: when it comes back to the open inbox"}
+    - {name: snoozed_from, type: data, read_only: true, hidden: true, no_copy: true, description: "The status it had before it was snoozed, which it returns to"}
+    - {name: liked_at, type: datetime, read_only: true, no_copy: true, description: "When the account liked it on the network"}
+    - {name: hidden_at, type: datetime, read_only: true, no_copy: true, description: "When it was hidden on the network"}
+    - {name: removed_at, type: datetime, read_only: true, no_copy: true, description: "When it was deleted on the network"}
+    - {name: act_pending, type: data, read_only: true, hidden: true, no_copy: true, description: "like, hide or remove: asked for and not yet taken by the network"}
+    - {name: act_failure, type: text, read_only: true, no_copy: true, description: "What the network said when it would not"}
   actions:
-    - {name: reply, label: Reply, permission: write, condition: "doc.status != 'Closed'", params: [{name: reply, type: text, label: Your Reply}, {name: saved_reply, type: link, to: SocialSavedReply, label: Or a Saved Reply}]}
+    - {name: reply, label: Reply, permission: write, condition: "doc.status != 'Closed'", params: [{name: reply, type: text, label: Your Reply}, {name: saved_reply, type: link, to: SocialSavedReply, label: Or a Saved Reply}], contract: {effect: transactional_action, returns: {type: object}, completion: "A reply is saved and queued to the network, once under the reply's own key"}}
+    - {name: like, label: Like, permission: write, condition: "doc.kind != 'Direct' && isEmpty(doc.liked_at) && isEmpty(doc.removed_at)",
+       contract: {effect: external_effect, returns: {type: object, properties: {queued: {type: boolean}}},
+                  completion: "The like is queued for the network, once; the message shows when it was liked, or what the network said"}}
+    - {name: hide, label: Hide on the Network, permission: write, condition: "doc.kind == 'Comment' && isEmpty(doc.hidden_at) && isEmpty(doc.removed_at)",
+       confirm: "Hide this comment on the network?",
+       contract: {effect: external_effect, returns: {type: object, properties: {queued: {type: boolean}}},
+                  completion: "Hiding is queued for the network, once; the message shows when it was hidden, or what the network said"}}
+    - {name: remove, label: Delete on the Network, permission: write, condition: "doc.kind == 'Comment' && isEmpty(doc.removed_at)",
+       confirm: "Delete this comment from the network? It cannot be put back from here.",
+       contract: {effect: external_effect, returns: {type: object, properties: {queued: {type: boolean}}},
+                  completion: "Deleting is queued for the network, once; the message is closed when the network has deleted it, or says what the network said"}}
+    - {name: can, label: What Can Be Done, permission: read, read_only: true, hidden: true,
+       contract: {effect: query, returns: {type: object, properties: {reply: {type: boolean}, like: {type: boolean}, hide: {type: boolean}, remove: {type: boolean}}},
+                  completion: "What the account's connection offers for this message now; nothing is changed"}}
   list: {columns: [author, account, kind, status, assigned_to], sort: updated_at desc}
 
 - name: SocialReply
@@ -347,7 +368,7 @@
     - {name: add_signature, type: check, default: false, label: Add the Signature}
     - {name: signature, type: link, to: SocialSignature}
   actions:
-    - {name: use_template, label: Use Template, permission: read, params: [{name: brand, type: link, to: SocialBrand, label: Brand}, {name: set, type: link, to: SocialSet, label: Accounts of a Set}, {name: accounts, type: text, label: Or These Accounts}, {name: headline, type: data, label: Headline}]}
+    - {name: use_template, label: Use Template, permission: read, params: [{name: brand, type: link, to: SocialBrand, label: Brand}, {name: set, type: link, to: SocialSet, label: Accounts of a Set}, {name: accounts, type: text, label: Or These Accounts}, {name: headline, type: data, label: Headline}], contract: {effect: transactional_action, returns: {type: object}, completion: "A draft post is made from the template for each account named, committed with this receipt"}}
   list: {columns: [template_name, brand], sort: template_name asc}
 
 - name: SocialSet
@@ -367,7 +388,7 @@
     - {name: items, type: table, of: SocialItem, label: Follow-ups}
     - {name: media, type: table, of: SocialMedia}
   actions:
-    - {name: use_set, label: Use Set, permission: read, params: [{name: headline, type: data, label: Headline}]}
+    - {name: use_set, label: Use Set, permission: read, params: [{name: headline, type: data, label: Headline}], contract: {effect: transactional_action, returns: {type: object}, completion: "A draft post is made for each account of the set, committed with this receipt"}}
   list: {columns: [set_name, brand], sort: set_name asc}
 
 - name: SocialSnippet

@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.10.0-db2777?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.0-db2777?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -42,7 +42,7 @@ CRM, helpdesk and documents. Networks are descriptions, not code, so a new one n
 
 | | |
 |---|---|
-| **Version** | 0.10.0 (package `social` 0.1.0) |
+| **Version** | 0.11.0 (package `social` 0.1.1) |
 | **Kind** | Its own interface at `/social/` (compose, calendar, posting times, accounts, media, inbox, numbers, library, automation, notices) plus Ferrum's standard lists and forms |
 | **What it adds** | 30 entities (27 records and 3 line tables), 4 roles, 10 reports, 1 weekly report document and automation, 8 message templates, 33 network descriptions, 10 left-menu pages, 1 create shortcut |
 | **Depends on** | Ferrum platform `>=0.4.0, <0.5`; the platform's connections |
@@ -318,7 +318,7 @@ Notes. 🟡 for a leader means a higher plan, a paid edition, or partial or unco
 
 1. 33 networks are described and tested against fakes; none has run against a real network yet, so the first connection to each is the first live test. Until then this row stays below the leaders.
 2. Month, week, day and an agenda on a phone; moving a post with **Move to** is tested, dragging on the calendar has not been tried in a browser.
-3. Inbox and numbers work through each network's described operations; which exist differs by network (for example X does not read direct messages, and LinkedIn member numbers need partner access).
+3. Inbox and numbers work through each network's described operations; which exist differs by network (for example X does not read direct messages, and LinkedIn member numbers need partner access). Thirteen of the 33 read into the inbox; Hashnode and Slack have no per-post numbers because their answers could not be confirmed against the networks' pages; liking, hiding and deleting a comment is offered only where the description says how.
 4. Through a connection to a model you configure; no model ships with the app.
 5. Mixpost Lite is MIT; the paid editions are not open source.
 
@@ -344,6 +344,7 @@ Notes. 🟡 for a leader means a higher plan, a paid edition, or partial or unco
 
 ### ✅ Recently shipped
 
+- [x] **0.11.0** Four more networks read into the inbox (WordPress, Lemmy, Tumblr replies, Farcaster), WordPress and DEV give per-post numbers, a comment can be liked, hidden or deleted on the network from the inbox where the network offers it, a message can be snoozed, every action has a contract.
 - [x] **0.10.0** Upkeep is one workspace's: needs Ferrum 0.4.0.
 - [x] **0.9.3** — An outside reviewer's verdict comes only by their review link: a member cannot record one in their name.
 - [x] **0.9.2** — An author who also approves cannot approve her own post: the review is asked only in its author's name.

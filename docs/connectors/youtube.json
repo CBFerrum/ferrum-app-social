@@ -513,6 +513,19 @@
         "cursor"
       ],
       "error_at": "/error/message"
+    },
+    "hide_comment": {
+      "method": "POST",
+      "path": "/youtube/v3/comments/setModerationStatus",
+      "query": {
+        "id": "{{ inputs.id }}",
+        "moderationStatus": "heldForReview"
+      },
+      "body": "{}",
+      "error_at": "/error/message",
+      "inputs": [
+        "id"
+      ]
     }
   },
   "pulls": [

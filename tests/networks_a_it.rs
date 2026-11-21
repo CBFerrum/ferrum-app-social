@@ -1508,9 +1508,9 @@ async fn meta_delivery(t: &T, conn: Uuid, token: &str, app_secret: &str, body: V
     assert!(t.k.connection_handshake(conn, &q("wrong")).await.is_err(), "a wrong token gets no challenge");
     let raw = body.to_string().into_bytes();
     let unsigned = BTreeMap::from([("x-hub-signature-256".to_string(), "sha256=00".to_string())]);
-    assert!(t.k.connection_inbound(conn, &unsigned, &raw).await.is_err(), "an unsigned delivery is refused");
+    assert!(t.k.connection_inbound(conn, &unsigned, &BTreeMap::new(), &raw).await.is_err(), "an unsigned delivery is refused");
     let signed = BTreeMap::from([("x-hub-signature-256".to_string(), format!("sha256={}", hmac_hex(app_secret.as_bytes(), &raw)))]);
-    t.k.connection_inbound(conn, &signed, &raw).await.unwrap();
+    t.k.connection_inbound(conn, &signed, &BTreeMap::new(), &raw).await.unwrap();
     while t.k.run_jobs_once(4).await.unwrap() > 0 {}
     let id = body["entry"][0]["messaging"][0]["message"]["mid"].as_str().or(body["entry"][0]["changes"][0]["value"]["id"].as_str()).unwrap().to_string();
     t.messages(json!({"external_id": id})).await.into_iter().next().expect("the message the delivery made")

@@ -13,6 +13,7 @@
         "users.read",
         "media.write",
         "like.write",
+        "tweet.moderate.write",
         "dm.read",
         "dm.write",
         "offline.access"
@@ -104,7 +105,10 @@
         "format": "@{{ value }}"
       },
       "first_comment": true,
-      "link_preview": true
+      "link_preview": true,
+      "operations": {
+        "like_comment": "like"
+      }
     }
   },
   "operations": {
@@ -446,6 +450,15 @@
         "tweet.fields": "author_id,conversation_id,referenced_tweets"
       },
       "error_at": "/detail"
+    },
+    "hide_comment": {
+      "method": "PUT",
+      "path": "/2/tweets/{{ inputs.id }}/hidden",
+      "body": "{\"hidden\": true}",
+      "error_at": "/detail",
+      "inputs": [
+        "id"
+      ]
     }
   },
   "pulls": [

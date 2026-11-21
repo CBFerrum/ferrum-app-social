@@ -83,3 +83,39 @@ fn the_package_ships_every_description_as_the_file_is() {
         }
     });
 }
+
+/// social-3: what each network's description does to a comment from the inbox, as the network's own pages say (read on
+/// 20 November 2026): Instagram's Graph API (`POST /{comment}?hide=true`, `DELETE /{comment}`), YouTube's
+/// `comments.setModerationStatus`, X's `PUT /2/tweets/{id}/hidden`; and a like for X, Mastodon, Bluesky and Reddit is the
+/// description's `like`, which takes any post's id.
+#[test]
+fn comments_are_liked_hidden_and_deleted_as_the_networks_document() {
+    let read = |name: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(dir().join(format!("{name}.json"))).unwrap()).unwrap() };
+    for name in ["x", "mastodon", "bluesky", "reddit"] {
+        let d = read(name);
+        assert_eq!(d["meta"]["social"]["operations"]["like_comment"], "like", "{name}");
+        assert!(d["operations"]["like"].is_object(), "{name} has the `like` it names");
+    }
+    for name in ["instagram", "instagram_standalone"] {
+        let d = read(name);
+        let (hide, delete) = (&d["operations"]["hide_comment"], &d["operations"]["delete_comment"]);
+        assert_eq!((hide["method"].as_str(), hide["query"]["hide"].as_str()), (Some("POST"), Some("true")), "{name}");
+        assert_eq!(delete["method"], "DELETE", "{name}");
+        for op in [hide, delete] {
+            assert!(op["path"].as_str().is_some_and(|p| p.ends_with("/{{ inputs.id }}")) && op["inputs"] == serde_json::json!(["id"]), "{name}: {op}");
+        }
+    }
+    let youtube = read("youtube");
+    let hide = &youtube["operations"]["hide_comment"];
+    assert_eq!((hide["method"].as_str(), hide["path"].as_str()), (Some("POST"), Some("/youtube/v3/comments/setModerationStatus")));
+    assert_eq!(
+        (hide["query"]["id"].as_str(), hide["query"]["moderationStatus"].as_str()),
+        (Some("{{ inputs.id }}"), Some("heldForReview")),
+        "held for review hides it and can be undone; rejected cannot"
+    );
+    let x = read("x");
+    let hide = &x["operations"]["hide_comment"];
+    assert_eq!((hide["method"].as_str(), hide["path"].as_str()), (Some("PUT"), Some("/2/tweets/{{ inputs.id }}/hidden")));
+    assert_eq!(hide["body"], "{\"hidden\": true}");
+    assert!(x["auth"]["provider"]["scopes"].as_array().unwrap().iter().any(|s| s == "tweet.moderate.write"), "X asks for the scope that hides replies");
+}
