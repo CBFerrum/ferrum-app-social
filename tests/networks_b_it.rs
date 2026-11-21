@@ -2327,7 +2327,7 @@ async fn inbox_acts(t: &T) {
     a.unwrap();
     b.unwrap();
     t.work().await;
-    assert_eq!(reached("/like/mention:400"), 1, "the mention's like went out once under two workers: {:?}", calls.lock().unwrap());
+    assert_eq!(reached("/like/mention%3A400"), 1, "the mention's like went out once under two workers: {:?}", calls.lock().unwrap());
     assert!(state(mention).await["liked_at"].is_string());
 
     // A refusal is shown in the network's words and cleared by a later success.
