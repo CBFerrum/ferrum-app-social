@@ -83,7 +83,7 @@
     - {name: choose, label: Choose Accounts, permission: write, params: [{name: picked, type: text, label: Ids Picked, required: true}], contract: {effect: transactional_action, returns: {type: object}, completion: "An account exists for each id picked, committed with this receipt"}}
     - {name: mentions, label: Look Up Mentions, permission: read, read_only: true, hidden: true, params: [{name: query, type: data, label: Who}]}
     - {name: choices, label: Choices of a Setting, permission: read, read_only: true, hidden: true, params: [{name: setting, type: data, label: Setting, required: true}, {name: query, type: data, label: Search}]}
-    - {name: connect, label: Connect or Reconnect, permission: write, read_only: true, contract: {effect: transactional_action, returns: {type: object}, completion: "A sign-in is started and its address given; the account is connected when the person comes back from the network"}}
+    - {name: connect, label: Connect or Reconnect, permission: write, read_only: true, contract: {effect: query, returns: {type: object}, completion: "The address where the person signs in at the network is given; the account is connected when the person comes back from the network"}}
     - {name: disconnect, label: Disconnect, permission: write, confirm: "Sign this account out? The provider is told to revoke its access.", contract: {effect: external_effect, returns: {type: object}, completion: "The provider is told to revoke the account's access and the account is signed out"}}
   list: {columns: [account_name, brand, network, state, active], sort: account_name asc}
 
